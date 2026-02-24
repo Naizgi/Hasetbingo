@@ -71,13 +71,13 @@ CURRENCY_SYMBOL = "birr"
 # Web server configuration
 # ========================
 WEBSERVER_HOST = "0.0.0.0"        # Listen on all interfaces in Docker/VPS
-WEBSERVER_PORT = int(os.getenv("WEBSERVER_PORT", 80))
+WEBSERVER_PORT = int(os.getenv("WEBSERVER_PORT", 8001))
 WEBSOCKET_PORT = int(os.getenv("WEBSOCKET_PORT", 8765))
 
 # ========================
 # Web App (Mini App) configuration
 # ========================
-WEB_APP_TITLE = "Habesha Bingo"
+WEB_APP_TITLE = "Haset Bingo"
 WEB_APP_DESCRIPTION = "Real-time Bingo Game"
 
 
@@ -85,13 +85,13 @@ WEB_APP_DESCRIPTION = "Real-time Bingo Game"
 # Use your **public VPS URL** (replace with your domain or VPS IP + HTTPS)
 WEB_APP_URL = os.getenv(
     "WEB_APP_URL",
-    "https://habeshabingoclean-production.up.railway.app"
+    "https://hasetbingo-production.up.railway.app"
 )
 
 # Admin panel URL
 WEB_APP_ADMIN_URL = os.getenv(
     "WEB_APP_ADMIN_URL",
-    "https://habeshabingoclean-production.up.railway.app/admin.html"
+    "https://hasetbingo-production.up.railway.app/admin.html"
 )
 
 # Remove NGROK_HTTPS_URL if it exists, or set it to None
