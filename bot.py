@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Habesha Bingo Bot - Round-Based Game Only
+Haset Bingo Bot - Round-Based Game Only
 Enhanced with Telebirr/CBE verification, fraud prevention, and Amharic support
 """
 
@@ -91,9 +91,9 @@ enhanced_payment_validator = None
 
 # ==================== PAYMENT CONFIGURATION ====================
 MINIMUM_WITHDRAWAL_AMOUNT = 100.00
-PAYMENT_PHONE_NUMBER = "+251999836926"
-PAYMENT_RECEIVER_NAME = "Endawoke Atinafe Dagine"
-SUPPORT_TELEGRAM_USER = "@Habeshabingoo"
+PAYMENT_PHONE_NUMBER = "+251989929742"
+PAYMENT_RECEIVER_NAME = "Nebiyu Asefa"
+SUPPORT_TELEGRAM_USER = "@Hasetbingosupport"
 
 # API URLs and keys (will be loaded from config)
 TELEBIRR_VERIFICATION_API_URL = "http://verify.mellainnovation.com/verify-telebirr"
@@ -996,7 +996,7 @@ async def notify_deposit_approved(user_id: int, amount: float, payment_id: int):
         f"*🏦 አዲስ ቀሪ ሒሳብ:* {new_balance:.2f} {currency}\n\n"
         "🎉 እንኳን ደስ አሎት! የገንዘብ ክፍያዎ ተሰርቶ በቀሪ ሒሳብዎ ላይ ታክሏል።\n"
         "🎮 አሁን /balance ብለው አዲሱን ቀሪ ሒሳብዎ ለመመልከት እና መጫወት መጀመር ይችላሉ!\n\n"
-        "Habesha Bingo ስለመረጡዎ እናመሰግናለን! 🎯"
+        "Haset Bingo ስለመረጡዎ እናመሰግናለን! 🎯"
     )
     return await send_notification_to_user(user_id, message)
 
@@ -1390,7 +1390,7 @@ async def main():
         signal.signal(signal.SIGTERM, handle_signal)
     signal.signal(signal.SIGINT, handle_signal)
     
-    logger.info("Starting Habesha Bingo Bot - Enhanced with Fraud Prevention...")
+    logger.info("Starting Haset Bingo Bot - Enhanced with Fraud Prevention...")
     
     try:
         from config import BOT_TOKEN, GAME_CONFIG, WEBSERVER_HOST, WEBSERVER_PORT, WEB_APP_URL, ADMIN_IDS
@@ -1422,7 +1422,7 @@ async def main():
     
     banner = """
 ╔══════════════════════════════════════════════════════════════╗
-║                    HABESHA BINGO BOT                         ║
+║                    HASET BINGO BOT                         ║
 ║                     ROUND-BASED GAME                         ║
 ║                   FRAUD PREVENTION SYSTEM                    ║
 ║           WITH TELEBIRR & CBE BIRR API INTEGRATION           ║
@@ -1431,7 +1431,7 @@ async def main():
     print(banner)
     
     print("\n" + "="*60)
-    print("🎯 HABESHA BINGO - ENHANCED EDITION 🎯")
+    print("🎯 HASET BINGO - ENHANCED EDITION 🎯")
     print("="*60)
     print(f"💰 Currency: {currency.upper()}")
     print(f"🎟️  Card Price: {card_price:.2f} {currency}")
@@ -1518,7 +1518,7 @@ async def main():
             welcome_message = f"""
 ✨✨ *እንኳን ደህና መጡ {first_name}!* ✨✨
 
-🎉 *ወደ Habesha Bingo በደህና መጡ!* 🎉
+🎉 *ወደ Haset Bingo በደህና መጡ!* 🎉
 
 ✅ *መዝግብዎ ተሳክቷል!* 
 💰 *የመጀመሪያ ስጦታዎ*: 10 {currency} ነፃ ቀሪ ሒሳብ ተሰጥቶዎታል!
@@ -1541,7 +1541,7 @@ async def main():
             welcome_message = f"""
 ✨✨ *እንኳን ተመለሱ {first_name}!* ✨✨
 
-🎮 *Habesha Bingo እንደገና አርበዎታል!* 🎮
+🎮 *Haset Bingo እንደገና አርበዎታል!* 🎮
 
 🚀 *ፈጣን ትእዛዞች*:
 • /play - አዲስ ጨዋታ ይጀምሩ
@@ -1635,8 +1635,8 @@ async def main():
             instructions += f"📋 የፒሜንት መታወቂያ: {payment_id}\n\n"
             instructions += f"1️⃣ ቴሌብር አፕዎን ይክፈቱ\n"
             instructions += f"2️⃣ የሚፈልጉትን መጠን ወደዚህ ይላኩ፡\n"
-            instructions += f"   📱 ስልክ:+251999836926\n"
-            instructions += f"   👤 ስም: {PAYMENT_RECEIVER_NAME}\n\n"
+            instructions += f"   📱 ስልክ:+251989929742\n"
+            instructions += f"   👤 ስም:Nebiyu \n\n"
             instructions += f"3️⃣ ከላኩ በኋላ፣ የማረጋገጫ መልእክት ይደርስዎታል\n"
             instructions += f"4️⃣ አጠቃላይ የግብይት መልእክቱን *COPY* ያድርጉ\n"
             instructions += f"5️⃣ እዚህ በቻት ውስጥ *PASTE* ያድርጉት\n\n"
@@ -2395,7 +2395,7 @@ async def main():
             with open(temp_path, 'rb') as f:
                 await message.reply_document(
                     document=f,
-                    caption=f"📊 Habesha Bingo Database Backup\n"
+                    caption=f"📊 Haset Bingo Database Backup\n"
                            f"🕐 {timestamp}\n"
                            f"📁 Size: {file_size_mb:.2f} MB\n"
                            f"📊 {record_counts}"

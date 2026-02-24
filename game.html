@@ -6,21 +6,32 @@
     <title>Habesha Bingo - Server-Coordinated Game</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-   <style>
+ <style>
     :root {
-        --primary: #8a2be2;
-        --primary-dark: #7a1bd2;
-        --secondary: #ffd700;
-        --accent: #ff6b6b;
+        --primary: #8B4513; /* Brown - for owned cards */
+        --primary-dark: #5D3A1A;
+        --primary-light: #A0522D;
+        
+        --secondary: #FF0000; /* Red - for stat numbers */
+        --secondary-dark: #CC0000;
+        --secondary-light: #FF3333;
+        
+        --accent: #800080; /* Purple - for called numbers board */
+        --accent-dark: #4B0082;
+        --accent-light: #9370DB;
+        
         --success: #00c853;
         --success-dark: #009624;
+        --warning: #ff9800;
+        --danger: #f44336;
+        
         --dark: #1a1a2e;
         --darker: #0f0f1a;
         --light: #f8f9fa;
-        --card-bg: #2d2d44;
-        --available: #4CAF50;
-        --sold: #f44336;
-        --owned: #9C27B0;
+        --card-bg: #FFD580; /* Light orange for card backgrounds */
+        --available: #808080; /* Gray for available cards */
+        --sold: #FFFF00; /* Yellow for sold cards */
+        --owned: #8B4513; /* Brown for owned cards */
         --panel-bg: rgba(255, 255, 255, 0.03);
         --border-color: rgba(255, 255, 255, 0.1);
         
@@ -104,15 +115,15 @@
     .stat-value {
         font-size: 14px;
         font-weight: 600;
-        color: var(--secondary);
+        color: var(--secondary) !important;
         transition: color 0.1s ease;
     }
     
     .countdown-timer {
         font-size: 18px;
         font-weight: 700;
-        color: var(--secondary);
-        text-shadow: 0 0 10px rgba(255, 215, 0, 0.5);
+        color: var(--secondary) !important;
+        text-shadow: 0 0 10px rgba(255, 0, 0, 0.5);
         animation: pulse 1s infinite;
     }
     
@@ -140,14 +151,14 @@
         transition: width 1s linear;
     }
     
-    /* Current Called Number Display */
+    /* Current Called Number Display - Purple Theme */
     .current-called-display {
-        background: linear-gradient(135deg, var(--accent) 0%, #7a1bd2 100%);
+        background: linear-gradient(135deg, var(--accent) 0%, var(--accent-dark) 100%);
         border-radius: 10px;
         padding: 10px;
         text-align: center;
         border: 2px solid var(--secondary);
-        box-shadow: 0 4px 12px rgba(255, 107, 107, 0.3);
+        box-shadow: 0 4px 12px rgba(128, 0, 128, 0.3);
         margin-bottom: 12px;
         position: relative;
     }
@@ -162,8 +173,8 @@
     
     .current-called-letter-number {
         font-weight: 700;
-        color: var(--secondary);
-        text-shadow: 0 0 10px rgba(255, 215, 0, 0.5);
+        color: white;
+        text-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
         animation: pulse 1.5s infinite;
         font-size: 42px;
         margin: 4px 0;
@@ -192,7 +203,7 @@
     }
     
     .audio-toggle:hover {
-        background: rgba(255, 215, 0, 0.2);
+        background: rgba(255, 0, 0, 0.2);
         transform: scale(1.05);
     }
     
@@ -234,7 +245,7 @@
     }
     
     .bingo-grid-container {
-        background: var(--card-bg);
+        background: var(--card-bg) !important; /* Light orange */
         border-radius: 12px;
         padding: 10px;
         border: 2px solid var(--primary);
@@ -318,23 +329,24 @@
         display: flex;
         align-items: center;
         justify-content: center;
-        background: rgba(255, 255, 255, 0.05);
+        background: rgba(0, 0, 0, 0.1);
         border-radius: 4px;
         font-weight: 600;
         font-size: 15px;
         min-height: 18px;
-        border: 1px solid rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(0, 0, 0, 0.2);
         transition: all 0.1s ease;
         padding: 2px;
+        color: #333;
         position: relative;
     }
     
     .bingo-number-cell.called {
         background: var(--accent);
         color: white;
-        border-color: var(--accent);
+        border-color: var(--accent-dark);
         transform: scale(1.02);
-        box-shadow: 0 0 5px rgba(255, 107, 107, 0.5);
+        box-shadow: 0 0 5px rgba(128, 0, 128, 0.5);
     }
     
     .player-card-and-button-container {
@@ -346,7 +358,7 @@
     }
     
     .player-card-container {
-        background: var(--card-bg);
+        background: var(--card-bg) !important; /* Light orange */
         border-radius: 12px;
         padding: 10px;
         border: 2px solid var(--primary);
@@ -423,7 +435,7 @@
     
     .player-card-cell {
         aspect-ratio: 1;
-        background: rgba(255, 255, 255, 0.05);
+        background: rgba(255, 255, 255, 0.2);
         border-radius: 4px;
         display: flex;
         align-items: center;
@@ -431,30 +443,31 @@
         font-weight: 600;
         cursor: pointer;
         transition: all 0.08s ease;
-        border: 1px solid rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(0, 0, 0, 0.2);
         font-size: 14px;
+        color: #333;
         position: relative;
         user-select: none;
     }
     
     .player-card-cell:hover {
-        background: rgba(255, 255, 255, 0.1);
+        background: rgba(255, 255, 255, 0.3);
         transform: scale(1.02);
     }
     
     .player-card-cell.marked {
         background: var(--accent) !important;
         color: white;
-        border-color: var(--accent) !important;
+        border-color: var(--accent-dark) !important;
         transform: scale(1.02);
-        box-shadow: 0 0 8px rgba(255, 107, 107, 0.5) !important;
+        box-shadow: 0 0 8px rgba(128, 0, 128, 0.5) !important;
     }
     
     .player-card-cell.free {
         background: var(--primary);
         color: white;
         cursor: default;
-        border-color: var(--primary);
+        border-color: var(--primary-dark);
         font-size: 10px;
     }
     
@@ -502,57 +515,66 @@
         cursor: not-allowed;
     }
     
+    /* Called Numbers Container - Purple Theme */
     .called-numbers-container {
-        background: var(--panel-bg);
+        background: var(--accent) !important;
         border-radius: 10px;
-        padding: 8px;
-        max-height: 70px;
-        border: 1px solid var(--border-color);
+        padding: 12px;
+        border: 2px solid rgba(255, 255, 255, 0.2);
         margin-bottom: 12px;
+        box-shadow: 0 4px 12px rgba(128, 0, 128, 0.3);
     }
     
     .called-title {
         display: flex;
         justify-content: space-between;
         align-items: center;
-        margin-bottom: 4px;
+        margin-bottom: 8px;
+        color: white;
+    }
+    
+    .called-title div {
+        color: white !important;
+        font-weight: 600;
     }
     
     .called-numbers-grid {
         display: flex;
         flex-wrap: wrap;
-        gap: 2px;
-        max-height: 40px;
+        gap: 4px;
+        max-height: 50px;
         overflow-y: auto;
-        padding: 4px;
-        background: rgba(0, 0, 0, 0.2);
-        border-radius: 6px;
-        border: 1px solid var(--border-color);
+        padding: 8px;
+        background: var(--accent-light);
+        border-radius: 8px;
+        border: 1px solid rgba(255, 255, 255, 0.2);
     }
     
     .called-number {
         display: flex;
         align-items: center;
         justify-content: center;
-        font-weight: 600;
-        background: linear-gradient(135deg, var(--accent) 0%, #e05555 100%);
+        font-weight: 700;
+        background: var(--accent-dark);
         color: white;
         border: 1px solid rgba(255, 255, 255, 0.2);
-        width: 24px;
-        height: 24px;
-        font-size: 12px;
-        border-radius: 5px;
+        width: 28px;
+        height: 28px;
+        font-size: 13px;
+        border-radius: 6px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
     }
     
     .called-number.recent {
         animation: pulse 1s infinite;
-        border: 1px solid var(--secondary);
-        transform: scale(1.02);
+        border: 2px solid white;
+        transform: scale(1.05);
+        background: var(--accent-light);
     }
     
     .called-stat {
         font-size: 16px;
-        color: var(--accent);
+        color: var(--secondary) !important;
         font-weight: 600;
     }
     
@@ -614,42 +636,46 @@
     }
     
     .card-item.available {
-        background: var(--available) !important;
+        background: var(--available) !important; /* Gray */
         cursor: pointer;
         transform: scale(1) !important;
+        color: white;
     }
     
     .card-item.available:hover {
         transform: scale(1.05);
-        box-shadow: 0 0 10px rgba(76, 175, 80, 0.5);
+        box-shadow: 0 0 10px rgba(128, 128, 128, 0.5);
     }
     
     .card-item.sold {
-        background: var(--sold) !important;
+        background: var(--sold) !important; /* Yellow */
+        color: #333 !important;
         cursor: not-allowed !important;
-        opacity: 0.8;
+        opacity: 0.9;
         transform: scale(1) !important;
         pointer-events: none;
+        border: 1px solid #666;
     }
     
     .card-item.owned {
-        background: var(--owned) !important;
+        background: var(--owned) !important; /* Brown */
         border-color: var(--secondary) !important;
-        box-shadow: 0 0 10px rgba(156, 39, 176, 0.5) !important;
+        box-shadow: 0 0 10px rgba(139, 69, 19, 0.5) !important;
         transform: scale(1) !important;
         animation: ownedPulse 2s infinite;
+        color: white;
     }
     
     @keyframes ownedPulse {
-        0% { transform: scale(1); box-shadow: 0 0 10px rgba(156, 39, 176, 0.5); }
-        50% { transform: scale(1.02); box-shadow: 0 0 15px rgba(156, 39, 176, 0.8); }
-        100% { transform: scale(1); box-shadow: 0 0 10px rgba(156, 39, 176, 0.5); }
+        0% { transform: scale(1); box-shadow: 0 0 10px rgba(139, 69, 19, 0.5); }
+        50% { transform: scale(1.02); box-shadow: 0 0 15px rgba(139, 69, 19, 0.8); }
+        100% { transform: scale(1); box-shadow: 0 0 10px rgba(139, 69, 19, 0.5); }
     }
     
     .card-item.selected {
-        background: var(--primary) !important;
+        background: var(--primary-light) !important;
         border-color: var(--secondary) !important;
-        box-shadow: 0 0 15px rgba(255, 215, 0, 0.7) !important;
+        box-shadow: 0 0 15px rgba(255, 0, 0, 0.7) !important;
         transform: scale(1.05) !important;
         z-index: 10;
     }
@@ -742,14 +768,15 @@
     
     .card-preview-cell {
         aspect-ratio: 1;
-        background: rgba(255, 255, 255, 0.05);
+        background: rgba(255, 255, 255, 0.2);
         border-radius: 4px;
         display: flex;
         align-items: center;
         justify-content: center;
         font-weight: 600;
         font-size: 11px;
-        border: 1px solid rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(0, 0, 0, 0.1);
+        color: #333;
         position: relative;
     }
     
@@ -809,7 +836,7 @@
         max-width: 350px;
         margin: auto;
         border: 3px solid var(--secondary);
-        box-shadow: 0 0 30px rgba(255, 215, 0, 0.3);
+        box-shadow: 0 0 30px rgba(255, 0, 0, 0.3);
         position: relative;
         overflow: hidden;
         max-height: 95vh;
@@ -825,7 +852,7 @@
         left: -50%;
         width: 200%;
         height: 200%;
-        background: radial-gradient(circle, rgba(255,215,0,0.1) 0%, transparent 70%);
+        background: radial-gradient(circle, rgba(255,0,0,0.1) 0%, transparent 70%);
         animation: rotate 20s linear infinite;
         z-index: 0;
     }
@@ -844,7 +871,7 @@
         font-size: 20px;
         color: var(--secondary);
         margin: 5px 0;
-        text-shadow: 0 0 15px rgba(255, 215, 0, 0.8);
+        text-shadow: 0 0 15px rgba(255, 0, 0, 0.8);
         font-weight: 700;
         letter-spacing: 1px;
     }
@@ -862,7 +889,7 @@
     }
     
     .multiple-winners-header {
-        background: rgba(255, 215, 0, 0.2);
+        background: rgba(255, 0, 0, 0.2);
         border-radius: 30px;
         padding: 8px 12px;
         margin: 5px 0 10px;
@@ -933,7 +960,7 @@
     }
     
     .winner-compact-prize {
-        background: rgba(255, 215, 0, 0.2);
+        background: rgba(255, 0, 0, 0.2);
         padding: 2px 8px;
         border-radius: 12px;
         font-size: 11px;
@@ -980,7 +1007,7 @@
     
     @keyframes winnerCellPulse {
         0% { box-shadow: 0 0 10px rgba(255, 51, 51, 0.8); }
-        50% { box-shadow: 0 0 20px rgba(255, 51, 51, 1), 0 0 30px rgba(255, 215, 0, 0.5); }
+        50% { box-shadow: 0 0 20px rgba(255, 51, 51, 1), 0 0 30px rgba(255, 0, 0, 0.5); }
         100% { box-shadow: 0 0 10px rgba(255, 51, 51, 0.8); }
     }
     
@@ -1178,8 +1205,8 @@
 
     .player-card-cell.empty {
         background: rgba(255, 255, 255, 0.05);
-        color: rgba(255, 255, 255, 0.3);
-        border: 1px dashed rgba(255, 255, 255, 0.2);
+        color: rgba(0, 0, 0, 0.5);
+        border: 1px dashed rgba(0, 0, 0, 0.2);
         cursor: default;
     }
 
