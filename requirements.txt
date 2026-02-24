@@ -1,0 +1,9 @@
+aiogram==2.25.1
+aiohttp==3.8.5
+python-dotenv==1.0.0
+python-dateutil==2.8.2
+beautifulsoup4==4.12.2
+requests==2.31.0
+SQLALchemy==2.0.20
+playwright==1.35.0
+certifi>=2023.11.17

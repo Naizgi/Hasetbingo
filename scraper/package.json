@@ -1,0 +1,18 @@
+{
+  "name": "telebirr-scraper",
+  "version": "1.0.0",
+  "description": "Ethio telecom Telebirr receipt scraper",
+  "main": "scraper.js",
+  "scripts": {
+    "scrape": "node scraper.js",
+    "test": "node scraper.js DB39FLHXI5 test_result.json"
+  },
+  "dependencies": {
+    "puppeteer": "^21.0.0"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "author": "Habesha Bingo",
+  "license": "MIT"
+}
