@@ -18,6 +18,9 @@ import unicodedata
 import aiohttp
 import uuid
 import gc
+import shutil
+import tempfile
+import subprocess
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
@@ -64,7 +67,7 @@ root_logger.handlers.clear()
 
 formatter = logging.Formatter(
     '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    datefmt='%Y-%m-d %H:%M:%S'
+    datefmt='%Y-%m-%d %H:%M:%S'
 )
 
 if sys.platform == "win32":
@@ -84,10 +87,13 @@ logger = logging.getLogger(__name__)
 # ==================== GLOBAL VARIABLES ====================
 runner = None
 shutting_down = False
+restart_flag = False
 aiohttp_session = None
 main_task = None
 game_manager = None
 enhanced_payment_validator = None
+bot = None
+dp = None
 
 # ==================== PAYMENT CONFIGURATION ====================
 MINIMUM_WITHDRAWAL_AMOUNT = 100.00
@@ -886,16 +892,19 @@ class EnhancedPaymentValidator:
             return False, None, [f"Verification error: {str(e)}"]
 
 # ==================== SHUTDOWN HANDLERS ====================
-async def enhanced_shutdown():
-    """Enhanced clean shutdown"""
-    global shutting_down, main_task, enhanced_payment_validator
+async def enhanced_shutdown(restart: bool = False):
+    """Enhanced clean shutdown with optional restart flag"""
+    global shutting_down, main_task, enhanced_payment_validator, restart_flag
     if shutting_down:
         return
+    
+    restart_flag = restart
     shutting_down = True
     
-    logger.info("Initiating enhanced shutdown...")
+    logger.info(f"Initiating enhanced shutdown... {'(RESTART MODE)' if restart else ''}")
     
     try:
+        # Cancel main task
         if main_task and not main_task.done():
             main_task.cancel()
             try:
@@ -903,6 +912,7 @@ async def enhanced_shutdown():
             except asyncio.CancelledError:
                 pass
         
+        # Close payment validator clients
         if enhanced_payment_validator:
             if hasattr(enhanced_payment_validator, 'telebirr_client'):
                 await enhanced_payment_validator.telebirr_client.close()
@@ -912,6 +922,7 @@ async def enhanced_shutdown():
                 await enhanced_payment_validator.cbebirr_client.close()
                 logger.info("✅ Closed CBE Birr API client")
         
+        # Stop bot polling
         try:
             from aiogram import Bot, Dispatcher
             global dp, bot
@@ -925,14 +936,15 @@ async def enhanced_shutdown():
         except:
             pass
         
+        # Close database connections
         try:
             from database.db import Database
-            if hasattr(Database, 'close'):
-                await Database.close()
-                logger.info("Closed database connections")
+            await Database.close_all_connections()
+            logger.info("Closed all database connections")
         except Exception as e:
             logger.warning(f"Could not close database connections: {e}")
         
+        # Cancel all other tasks
         tasks = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
         for task in tasks:
             task.cancel()
@@ -946,7 +958,11 @@ async def enhanced_shutdown():
         logger.error(f"Error during enhanced shutdown: {e}")
     finally:
         await asyncio.sleep(1)
-        os._exit(0)
+        if restart:
+            logger.info("🔄 Restarting bot...")
+            os.execv(sys.executable, ['python'] + sys.argv)
+        else:
+            os._exit(0)
 
 def handle_signal(signum, frame):
     """Handle system signals"""
@@ -1380,10 +1396,242 @@ async def process_withdrawal_request(withdrawal_id: int, admin_id: int, approve:
         traceback.print_exc()
         return False
 
+# ==================== DATABASE RESTORE FUNCTION (SAFE VERSION) ====================
+async def restore_database_from_file(file_path: str, admin_id: int) -> Tuple[bool, str]:
+    """
+    Safely restore database from a backup file with complete shutdown
+    
+    This function:
+    1. Validates the uploaded file
+    2. Stops ALL database operations
+    3. Creates a backup of current database
+    4. Safely replaces the database file
+    5. Restarts the bot to ensure clean state
+    
+    Args:
+        file_path: Path to the uploaded database file
+        admin_id: Admin ID performing the restore
+    
+    Returns:
+        Tuple of (success, message)
+    """
+    try:
+        from database.db import Database
+        import time
+        
+        logger.warning(f"⚠️ DATABASE RESTORE INITIATED by admin {admin_id}")
+        
+        # ========== STEP 1: VALIDATE FILE ==========
+        logger.info("Step 1: Validating uploaded database file...")
+        
+        # Validate file exists
+        if not os.path.exists(file_path):
+            return False, "❌ Database file not found"
+        
+        # Validate file size (prevent huge files)
+        file_size = os.path.getsize(file_path)
+        if file_size > 100 * 1024 * 1024:  # 100 MB limit
+            return False, "❌ File too large (max 100 MB)"
+        
+        # Validate it's a SQLite database by checking header
+        with open(file_path, 'rb') as f:
+            header = f.read(16)
+            if header[:16] != b'SQLite format 3\x00':
+                return False, "❌ Invalid database file format - not a SQLite database"
+        
+        # Try to open the database to ensure it's valid
+        import sqlite3
+        try:
+            test_conn = sqlite3.connect(file_path)
+            test_conn.execute("SELECT name FROM sqlite_master WHERE type='table' LIMIT 1")
+            test_conn.close()
+            logger.info("✅ Uploaded database file is valid")
+        except Exception as e:
+            return False, f"❌ Corrupted database file: {str(e)[:100]}"
+        
+        # Get current database path
+        current_db_path = getattr(Database, '_db_path', 'habesha_bingo.db')
+        logger.info(f"Current database path: {current_db_path}")
+        
+        # ========== STEP 2: CREATE BACKUP ==========
+        logger.info("Step 2: Creating backup of current database...")
+        
+        # Create backup with timestamp
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        backup_path = f"{current_db_path}.backup_{timestamp}"
+        
+        if os.path.exists(current_db_path):
+            # Use copy2 to preserve metadata
+            shutil.copy2(current_db_path, backup_path)
+            logger.info(f"✅ Backup created at: {backup_path}")
+            backup_size = os.path.getsize(backup_path)
+            logger.info(f"Backup size: {backup_size / (1024*1024):.2f} MB")
+        else:
+            logger.warning("⚠️ No existing database found to backup")
+            backup_path = None
+        
+        # ========== STEP 3: GRACEFUL SHUTDOWN ==========
+        logger.info("Step 3: Performing graceful shutdown of all bot components...")
+        
+        global shutting_down, dp, bot, main_task, enhanced_payment_validator
+        
+        # Set shutdown flag to prevent new operations
+        original_shutdown_state = shutting_down
+        shutting_down = True
+        logger.info("✅ Shutdown flag set")
+        
+        # Stop accepting new requests
+        logger.info("Stopping bot polling...")
+        if dp:
+            try:
+                await dp.stop_polling()
+                logger.info("✅ Bot polling stopped")
+            except Exception as e:
+                logger.warning(f"Error stopping polling: {e}")
+        
+        # Close bot session
+        if bot and hasattr(bot, 'session') and bot.session:
+            try:
+                await bot.session.close()
+                logger.info("✅ Bot session closed")
+            except Exception as e:
+                logger.warning(f"Error closing bot session: {e}")
+        
+        # Close payment validator clients
+        if enhanced_payment_validator:
+            try:
+                await enhanced_payment_validator.close()
+                logger.info("✅ Payment validator closed")
+            except Exception as e:
+                logger.warning(f"Error closing payment validator: {e}")
+        
+        # CRITICAL: Close ALL database connections
+        logger.info("Closing all database connections...")
+        try:
+            await Database.close_all_connections()
+            logger.info("✅ All database connections closed")
+        except Exception as e:
+            logger.warning(f"Error closing database connections: {e}")
+        
+        # Force garbage collection to ensure all connections are released
+        gc.collect()
+        logger.info("✅ Garbage collection completed")
+        
+        # Wait to ensure all operations complete
+        logger.info("Waiting 3 seconds for all operations to settle...")
+        await asyncio.sleep(3)
+        
+        # ========== STEP 4: SAFELY REPLACE DATABASE ==========
+        logger.info("Step 4: Safely replacing database file...")
+        
+        # Create a temporary file for the new database
+        temp_restore_path = f"{current_db_path}.restore_temp"
+        
+        # Copy uploaded file to temp location
+        shutil.copy2(file_path, temp_restore_path)
+        logger.info(f"✅ Copied uploaded file to temp location: {temp_restore_path}")
+        
+        # On Unix, rename is atomic; on Windows, we need to be careful
+        try:
+            # Remove old database if it exists
+            if os.path.exists(current_db_path):
+                os.remove(current_db_path)
+                logger.info("✅ Removed old database file")
+            
+            # Rename temp file to actual database file (atomic on Unix)
+            os.rename(temp_restore_path, current_db_path)
+            logger.info(f"✅ New database file placed at: {current_db_path}")
+            
+        except Exception as e:
+            logger.error(f"❌ Error replacing database: {e}")
+            
+            # If something went wrong, try to restore from backup
+            if backup_path and os.path.exists(backup_path):
+                logger.info("🔄 Attempting to restore from backup...")
+                if os.path.exists(current_db_path):
+                    os.remove(current_db_path)
+                shutil.copy2(backup_path, current_db_path)
+                logger.info("✅ Restored from backup")
+            
+            return False, f"❌ Failed to replace database: {str(e)[:100]}"
+        
+        # Verify new database is readable
+        try:
+            test_conn = sqlite3.connect(current_db_path)
+            test_conn.execute("SELECT name FROM sqlite_master WHERE type='table' LIMIT 1")
+            test_conn.close()
+            logger.info("✅ New database is readable and valid")
+        except Exception as e:
+            logger.error(f"❌ New database is corrupted: {e}")
+            
+            # Restore from backup
+            if backup_path and os.path.exists(backup_path):
+                logger.info("🔄 Restoring from backup...")
+                if os.path.exists(current_db_path):
+                    os.remove(current_db_path)
+                shutil.copy2(backup_path, current_db_path)
+                logger.info("✅ Restored from backup")
+            
+            return False, f"❌ Restored database is corrupted: {str(e)[:100]}"
+        
+        # ========== STEP 5: LOG THE RESTORE ACTION ==========
+        logger.info("Step 5: Logging restore action...")
+        
+        # Try to log to the new database (may fail if admin_actions table doesn't exist)
+        try:
+            with Database.get_cursor() as cursor:
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS admin_actions (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        admin_id INTEGER NOT NULL,
+                        action_type TEXT NOT NULL,
+                        details TEXT,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                cursor.execute("""
+                    INSERT INTO admin_actions (admin_id, action_type, details)
+                    VALUES (?, ?, ?)
+                """, (admin_id, 'database_restore', f'Database restored from backup. Backup saved as: {os.path.basename(backup_path) if backup_path else "None"}'))
+            logger.info("✅ Restore action logged")
+        except Exception as e:
+            logger.warning(f"Could not log restore action: {e}")
+        
+        # ========== STEP 6: RESTART BOT ==========
+        logger.info("Step 6: Restarting bot...")
+        
+        # Send success message (this won't be delivered until after restart)
+        success_msg = f"✅ *Database restore successful!*\n\n"
+        success_msg += f"📁 Backup saved as: `{os.path.basename(backup_path) if backup_path else 'None'}`\n"
+        success_msg += f"📊 File size: {file_size / (1024*1024):.2f} MB\n\n"
+        success_msg += f"🔄 *Bot is restarting now...*\n"
+        success_msg += f"⏱️ Please wait a few seconds and use /start again."
+        
+        # Try to send the message (may fail if bot session is closed)
+        try:
+            if bot:
+                await message.answer(success_msg, parse_mode=ParseMode.MARKDOWN)
+        except:
+            pass
+        
+        # Wait a moment for message to send
+        await asyncio.sleep(2)
+        
+        # Perform full restart
+        logger.info("🚀 Executing bot restart...")
+        await enhanced_shutdown(restart=True)
+        
+        # This line will never be reached
+        return True, "Database restored successfully. Bot restarting..."
+        
+    except Exception as e:
+        logger.error(f"Error in database restore: {e}", exc_info=True)
+        return False, f"❌ Error: {str(e)[:200]}"
+
 # ==================== MAIN FUNCTION ====================
 async def main():
     """Main application entry point"""
-    global runner, currency, enhanced_payment_validator, game_manager, main_task
+    global runner, currency, enhanced_payment_validator, game_manager, main_task, bot, dp
     
     import sys
     if sys.platform != "win32":
@@ -1426,6 +1674,7 @@ async def main():
 ║                     ROUND-BASED GAME                         ║
 ║                   FRAUD PREVENTION SYSTEM                    ║
 ║           WITH TELEBIRR & CBE BIRR API INTEGRATION           ║
+║                WITH SAFE DATABASE RESTORE                    ║
 ╚══════════════════════════════════════════════════════════════╝
     """
     print(banner)
@@ -1485,6 +1734,10 @@ async def main():
         waiting_for_payment_method = State()
         waiting_for_full_name = State()
         waiting_for_phone_number = State()
+
+    # New state for database restore
+    class DatabaseRestoreStates(StatesGroup):
+        waiting_for_file = State()
 
     seen_start_users = set()
 
@@ -1566,7 +1819,8 @@ async def main():
             welcome_message += "• /adminpanel - ድር ፓነል ይክፈቱ\n"
             welcome_message += "• /stats - ስታቲስቲክስ\n"
             welcome_message += "• /pendingdeposits - በመጠባበቅ ላይ ያሉ ክፍያዎች\n"
-            welcome_message += "• /getdb - የውሂብ ጎታ ያውርዱ (Download database)"
+            welcome_message += "• /getdb - የውሂብ ጎታ ያውርዱ (Download database)\n"
+            welcome_message += "• /restoredb - የውሂብ ጎታ ወደነበረበት ይመልሱ (SAFE - Restore & Restart)\n"
         
         welcome_message += f"\n💡 *ምክር*: 'Play Bingo' የሚለውን ሜኑ ቁልፍ ጫን ሁሉም የሚገኙ ትእዛዞችን ለማየት!"
         
@@ -2302,12 +2556,12 @@ async def main():
 • /stats - ዝርዝር ስታቲስቲክስ
 • /adminpanel - ድር ፓነል ይክፈቱ
 • /getdb - የውሂብ ጎታ ያውርዱ (Download database)
+• /restoredb - የውሂብ ጎታ ወደነበረበት ይመልሱ (SAFE - Restore & Restart)
     """
         
         await message.answer(admin_panel, parse_mode=ParseMode.MARKDOWN)
 
     # ==================== DATABASE BACKUP COMMAND ====================
-        # ==================== DATABASE BACKUP COMMAND ====================
     @dp.message_handler(Command("getdb"))
     async def cmd_get_database(message: types.Message):
         """Admin command to download database file"""
@@ -2411,6 +2665,135 @@ async def main():
         except Exception as e:
             await status_msg.edit_text(f"❌ Error: {str(e)[:200]}")
             logger.error(f"Error sending database: {e}", exc_info=True)
+
+    # ==================== DATABASE RESTORE COMMAND (SAFE VERSION) ====================
+    @dp.message_handler(Command("restoredb"))
+    async def cmd_restore_database(message: types.Message, state: FSMContext):
+        """Admin command to safely restore database from backup file with auto-restart"""
+        from config import ADMIN_IDS
+        
+        user_id = message.from_user.id
+        if user_id not in ADMIN_IDS:
+            await message.answer("⛔ This command is for admins only.")
+            return
+        
+        # Send warning message
+        warning_msg = (
+            "⚠️ *⚠️ DATABASE RESTORE WARNING ⚠️*\n\n"
+            "This will COMPLETELY REPLACE the current database with the uploaded file.\n\n"
+            "**SAFE RESTORE PROCESS:**\n"
+            "✅ Automatically creates backup of current database\n"
+            "✅ Gracefully shuts down all bot operations\n"
+            "✅ Closes all database connections\n"
+            "✅ Validates uploaded file for corruption\n"
+            "✅ Safely replaces the database file\n"
+            "✅ Automatically restarts the bot\n\n"
+            "**IMPORTANT:**\n"
+            "• All current data will be REPLACED\n"
+            "• Bot will RESTART automatically\n"
+            "• Users will be temporarily disconnected\n\n"
+            "Please upload the database file you want to restore.\n"
+            "(Supported format: SQLite .db files, max 100 MB)\n\n"
+            "❌ Type /cancel to abort."
+        )
+        
+        await message.answer(warning_msg, parse_mode=ParseMode.MARKDOWN)
+        
+        # Create keyboard with Cancel button
+        keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True, selective=True)
+        keyboard.add("Cancel")
+        
+        await message.answer(
+            "📤 Please upload the database file:",
+            reply_markup=keyboard
+        )
+        
+        await DatabaseRestoreStates.waiting_for_file.set()
+
+    @dp.message_handler(state=DatabaseRestoreStates.waiting_for_file, content_types=types.ContentTypes.DOCUMENT)
+    async def process_database_restore_file(message: types.Message, state: FSMContext):
+        """Process uploaded database file for safe restore"""
+        from config import ADMIN_IDS
+        
+        user_id = message.from_user.id
+        if user_id not in ADMIN_IDS:
+            await state.finish()
+            await message.answer("⛔ Unauthorized.", reply_markup=types.ReplyKeyboardRemove())
+            return
+        
+        document = message.document
+        
+        # Check if it's a database file
+        if not document.file_name.endswith('.db'):
+            await message.answer(
+                "❌ Invalid file type. Please upload a SQLite database file (.db)",
+                reply_markup=types.ReplyKeyboardRemove()
+            )
+            await state.finish()
+            return
+        
+        # Send processing message
+        processing_msg = await message.answer(
+            "⏳ **SAFE RESTORE PROCESS INITIATED**\n\n"
+            "Step 1/6: Downloading file...",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=types.ReplyKeyboardRemove()
+        )
+        
+        try:
+            # Create temp directory
+            temp_dir = tempfile.mkdtemp()
+            temp_file_path = os.path.join(temp_dir, document.file_name)
+            
+            # Download file
+            file = await bot.get_file(document.file_id)
+            await bot.download_file(file.file_path, temp_file_path)
+            
+            logger.info(f"Admin {user_id} uploaded database file for restore: {document.file_name} ({file.file_size} bytes)")
+            
+            await processing_msg.edit_text(
+                "⏳ Step 2/6: Validating file...\n"
+                f"📁 File: {document.file_name}\n"
+                f"📊 Size: {file.file_size / (1024*1024):.2f} MB"
+            )
+            
+            # Call the safe restore function
+            success, message_text = await restore_database_from_file(temp_file_path, user_id)
+            
+            # Clean up temp directory
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            
+            if success:
+                # This message may not be sent if bot restarts immediately
+                await message.answer(
+                    f"✅ {message_text}\n\n"
+                    f"🔄 Bot is restarting...",
+                    parse_mode=ParseMode.MARKDOWN
+                )
+            else:
+                await message.answer(f"❌ {message_text}")
+            
+        except Exception as e:
+            logger.error(f"Error in database restore: {e}", exc_info=True)
+            await message.answer(f"❌ Error: {str(e)[:200]}")
+        
+        await state.finish()
+
+    @dp.message_handler(state=DatabaseRestoreStates.waiting_for_file, content_types=types.ContentTypes.TEXT)
+    async def process_database_restore_cancel(message: types.Message, state: FSMContext):
+        """Handle cancel during file upload"""
+        if message.text and message.text.strip() == 'Cancel':
+            await state.finish()
+            await message.answer("❌ Database restore cancelled.", reply_markup=types.ReplyKeyboardRemove())
+        else:
+            # User sent text instead of file
+            keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True, selective=True)
+            keyboard.add("Cancel")
+            
+            await message.answer(
+                "❌ Please upload a database file (.db) or type Cancel to abort.",
+                reply_markup=keyboard
+            )
 
     @dp.message_handler(Command("pendingdeposits"))
     async def cmd_pendingdeposits_enhanced(message: types.Message):
@@ -2613,6 +2996,19 @@ async def main():
         await Database.init_db()
         logger.info("[OK] Database tables initialized!")
         
+        # Create admin_actions table if it doesn't exist
+        with Database.get_cursor() as cursor:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS admin_actions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    admin_id INTEGER NOT NULL,
+                    action_type TEXT NOT NULL,
+                    details TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+        logger.info("[OK] Admin actions table created/verified")
+        
         await Database.migrate_db()
         logger.info("[OK] Database migrations completed!")
         
@@ -2699,6 +3095,7 @@ async def main():
             BotCommand(command="viewuserfraud", description="View user fraud history"),
             BotCommand(command="restrictuser", description="Restrict user from deposits"),
             BotCommand(command="getdb", description="Download database backup"),
+            BotCommand(command="restoredb", description="SAFELY restore database from backup (auto-restart)"),
         ]
         
         await bot.set_my_commands(user_commands)
@@ -2765,10 +3162,9 @@ async def main():
     print(f"    /fraudstats      - Fraud detection statistics")
     print(f"    /viewuserfraud   - View user fraud history")
     print(f"    /restrictuser    - Restrict user from deposits")
-    print(f"    /getdb           - Download database backup (NEW)")
+    print(f"    /getdb           - Download database backup")
+    print(f"    /restoredb       - **SAFE DATABASE RESTORE** - Upload .db file, auto-restart")
     print("="*60 + "\n")
-    
-    
     
     
     # ==================== REGISTER BOT WITH WEB_SERVER ====================
@@ -2779,6 +3175,7 @@ async def main():
         
         # Also store bot in a global variable that's easily accessible
         import sys
+        sys.modules['bot'] = sys.modules[__name__]
         sys.modules['bot'].bot = bot
         logger.info("✅ Also registered bot in sys.modules")
     except Exception as e:
@@ -2789,8 +3186,6 @@ async def main():
         logger.info("Starting enhanced bot polling...")
         main_task = asyncio.current_task()
         await dp.start_polling()
-        
-        
         
     except Exception as e:
         logger.error(f"Error starting enhanced bot: {e}")
