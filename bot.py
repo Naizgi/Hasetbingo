@@ -1429,7 +1429,7 @@ async def restore_database_from_file(file_path: str, admin_id: int, original_mes
         # Update status
         try:
             await status_msg.edit_text(
-                "⏳ **SAFE RESTORE PROCESS**\n\n"
+                "⏳ SAFE RESTORE PROCESS\n\n"
                 "✅ Step 1/6: File downloaded\n"
                 "✅ Step 2/6: Basic validation passed\n"
                 "🔄 Step 3/6: Testing database integrity..."
@@ -1468,7 +1468,7 @@ async def restore_database_from_file(file_path: str, admin_id: int, original_mes
         # Update status
         try:
             await status_msg.edit_text(
-                "⏳ **SAFE RESTORE PROCESS**\n\n"
+                "⏳ SAFE RESTORE PROCESS\n\n"
                 "✅ Step 1/6: File downloaded\n"
                 "✅ Step 2/6: Basic validation passed\n"
                 "✅ Step 3/6: Database integrity verified\n"
@@ -1497,7 +1497,7 @@ async def restore_database_from_file(file_path: str, admin_id: int, original_mes
         # Update status
         try:
             await status_msg.edit_text(
-                "⏳ **SAFE RESTORE PROCESS**\n\n"
+                "⏳ SAFE RESTORE PROCESS\n\n"
                 "✅ Step 1/6: File downloaded\n"
                 "✅ Step 2/6: Basic validation passed\n"
                 "✅ Step 3/6: Database integrity verified\n"
@@ -1561,7 +1561,7 @@ async def restore_database_from_file(file_path: str, admin_id: int, original_mes
         # Update status
         try:
             await status_msg.edit_text(
-                "⏳ **SAFE RESTORE PROCESS**\n\n"
+                "⏳ SAFE RESTORE PROCESS\n\n"
                 "✅ Step 1/6: File downloaded\n"
                 "✅ Step 2/6: Basic validation passed\n"
                 "✅ Step 3/6: Database integrity verified\n"
@@ -1628,7 +1628,7 @@ async def restore_database_from_file(file_path: str, admin_id: int, original_mes
         # Update final status
         try:
             await status_msg.edit_text(
-                "✅ **SAFE RESTORE PROCESS COMPLETE**\n\n"
+                "✅ SAFE RESTORE PROCESS COMPLETE\n\n"
                 "✅ Step 1/6: File downloaded\n"
                 "✅ Step 2/6: Basic validation passed\n"
                 "✅ Step 3/6: Database integrity verified\n"
@@ -1637,7 +1637,7 @@ async def restore_database_from_file(file_path: str, admin_id: int, original_mes
                 "✅ Step 6/6: Database replaced successfully\n\n"
                 f"📁 Backup saved: {os.path.basename(backup_path) if backup_path else 'None'}\n"
                 f"📊 New database size: {file_size / (1024*1024):.2f} MB\n\n"
-                "🔄 **Bot is restarting now...**"
+                "🔄 Bot is restarting now..."
             )
         except:
             pass
@@ -2707,7 +2707,6 @@ async def main():
                            f"🕐 {timestamp}\n"
                            f"📁 Size: {file_size_mb:.2f} MB\n"
                            f"📊 {record_counts}"
-                    # Removed parse_mode=ParseMode.MARKDOWN
                 )
             
             # Clean up temp directory
@@ -2720,7 +2719,7 @@ async def main():
             await status_msg.edit_text(f"❌ Error: {str(e)[:200]}")
             logger.error(f"Error sending database: {e}", exc_info=True)
 
-    # ==================== DATABASE RESTORE COMMAND (SAFE VERSION) ====================
+    # ==================== DATABASE RESTORE COMMAND (SAFE VERSION WITH FIXED MARKDOWN) ====================
     @dp.message_handler(Command("restoredb"))
     async def cmd_restore_database(message: types.Message, state: FSMContext):
         """Admin command to safely restore database from backup file with auto-restart"""
@@ -2731,18 +2730,18 @@ async def main():
             await message.answer("⛔ This command is for admins only.")
             return
         
-        # Send warning message
+        # Send warning message with proper escaping
         warning_msg = (
-            "⚠️ *⚠️ DATABASE RESTORE WARNING ⚠️*\n\n"
+            "⚠️ ⚠️ DATABASE RESTORE WARNING ⚠️\n\n"
             "This will COMPLETELY REPLACE the current database with the uploaded file.\n\n"
-            "**SAFE RESTORE PROCESS:**\n"
+            "SAFE RESTORE PROCESS:\n"
             "✅ Automatically creates backup of current database\n"
             "✅ Gracefully shuts down all bot operations\n"
             "✅ Closes all database connections\n"
             "✅ Validates uploaded file for corruption\n"
             "✅ Safely replaces the database file\n"
             "✅ Automatically restarts the bot\n\n"
-            "**IMPORTANT:**\n"
+            "IMPORTANT:\n"
             "• All current data will be REPLACED\n"
             "• Bot will RESTART automatically\n"
             "• Users will be temporarily disconnected\n\n"
@@ -2751,7 +2750,7 @@ async def main():
             "❌ Type /cancel to abort."
         )
         
-        await message.answer(warning_msg, parse_mode=ParseMode.MARKDOWN)
+        await message.answer(warning_msg)
         
         # Create keyboard with Cancel button
         keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True, selective=True)
@@ -2786,11 +2785,10 @@ async def main():
             await state.finish()
             return
         
-        # Send initial processing message (this will be our status message)
+        # Send initial processing message (this will be our status message) - WITHOUT MARKDOWN
         status_msg = await message.answer(
-            "⏳ **SAFE RESTORE PROCESS INITIATED**\n\n"
+            "⏳ SAFE RESTORE PROCESS INITIATED\n\n"
             "⬇️ Step 1/6: Downloading file...",
-            parse_mode=ParseMode.MARKDOWN,
             reply_markup=types.ReplyKeyboardRemove()
         )
         
@@ -2805,10 +2803,10 @@ async def main():
             
             logger.info(f"Admin {user_id} uploaded database file for restore: {document.file_name} ({file.file_size} bytes)")
             
-            # Update status - Step 2
+            # Update status - Step 2 - WITHOUT MARKDOWN
             try:
                 await status_msg.edit_text(
-                    "⏳ **SAFE RESTORE PROCESS**\n\n"
+                    "⏳ SAFE RESTORE PROCESS\n\n"
                     "✅ Step 1/6: File downloaded\n"
                     "🔄 Step 2/6: Validating file...\n"
                     f"📁 File: {document.file_name}\n"
@@ -2818,12 +2816,11 @@ async def main():
                 # If edit fails, send new message
                 logger.warning(f"Could not edit message, sending new one: {e}")
                 status_msg = await message.answer(
-                    "⏳ **SAFE RESTORE PROCESS**\n\n"
+                    "⏳ SAFE RESTORE PROCESS\n\n"
                     "✅ Step 1/6: File downloaded\n"
                     "🔄 Step 2/6: Validating file...\n"
                     f"📁 File: {document.file_name}\n"
-                    f"📊 Size: {file.file_size / (1024*1024):.2f} MB",
-                    parse_mode=ParseMode.MARKDOWN
+                    f"📊 Size: {file.file_size / (1024*1024):.2f} MB"
                 )
             
             # Call the safe restore function
@@ -2837,8 +2834,7 @@ async def main():
                 try:
                     await message.answer(
                         f"✅ {message_text}\n\n"
-                        f"🔄 Bot is restarting...",
-                        parse_mode=ParseMode.MARKDOWN
+                        f"🔄 Bot is restarting..."
                     )
                 except:
                     pass
@@ -2848,7 +2844,7 @@ async def main():
         except Exception as e:
             logger.error(f"Error in database restore: {e}", exc_info=True)
             await message.answer(f"❌ Error: {str(e)[:200]}")
-        
+            
         await state.finish()
 
     @dp.message_handler(state=DatabaseRestoreStates.waiting_for_file, content_types=types.ContentTypes.TEXT)
