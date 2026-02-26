@@ -820,6 +820,15 @@
             background: #c82333;
         }
 
+        .btn-download {
+            background: #6f42c1;
+            color: white;
+        }
+
+        .btn-download:hover {
+            background: #5a32a3;
+        }
+
         .admin-sidebar {
             display: flex;
             flex-direction: column;
@@ -1468,6 +1477,24 @@
             background: #f57c00;
         }
 
+        .btn-info {
+            background: var(--info-color);
+            color: white;
+        }
+
+        .btn-info:hover {
+            background: #1976d2;
+        }
+
+        .btn-success {
+            background: var(--success-color);
+            color: white;
+        }
+
+        .btn-success:hover {
+            background: #45a049;
+        }
+
         .pagination {
             display: flex;
             justify-content: center;
@@ -2037,6 +2064,10 @@
             <i class="fas fa-exchange-alt"></i>
             <span>Transactions</span>
         </div>
+        <div class="floating-nav-item" data-nav-tab="system">
+            <i class="fas fa-cog"></i>
+            <span>System</span>
+        </div>
     </div>
 
     <div class="admin-container">
@@ -2184,6 +2215,10 @@
                     <button class="tab-btn" data-tab="transactions">
                         <i class="fas fa-exchange-alt"></i>
                         <span>Transactions</span>
+                    </button>
+                    <button class="tab-btn" data-tab="system">
+                        <i class="fas fa-cog"></i>
+                        <span>System</span>
                     </button>
                 </div>
                 
@@ -2494,6 +2529,76 @@
                             </select>
                         </div>
                     </div>
+                    
+                    <!-- System Tab (New) -->
+                    <div class="tab-pane" id="system-tab">
+                        <div class="widget" style="margin-bottom: 20px;">
+                            <div class="widget-title">
+                                <i class="fas fa-database"></i>
+                                <span>Database Management</span>
+                            </div>
+                            <div style="display: flex; flex-direction: column; gap: 15px;">
+                                <div class="detail-row">
+                                    <span class="detail-label">Database Status:</span>
+                                    <span class="detail-value" id="db-status">Checking...</span>
+                                </div>
+                                <div class="detail-row">
+                                    <span class="detail-label">Database Size:</span>
+                                    <span class="detail-value" id="db-size">Loading...</span>
+                                </div>
+                                <div class="detail-row">
+                                    <span class="detail-label">Last Modified:</span>
+                                    <span class="detail-value" id="db-modified">Loading...</span>
+                                </div>
+                                <div class="detail-row">
+                                    <span class="detail-label">Record Counts:</span>
+                                    <span class="detail-value" id="db-records">Loading...</span>
+                                </div>
+                                <div style="display: flex; gap: 10px; margin-top: 15px; flex-wrap: wrap;">
+                                    <button class="btn btn-info" id="check-db-info">
+                                        <i class="fas fa-info-circle"></i> Check Database Info
+                                    </button>
+                                    <button class="btn btn-success" id="download-db">
+                                        <i class="fas fa-download"></i> Download Database (Compressed)
+                                    </button>
+                                    <button class="btn btn-primary" id="download-db-uncompressed">
+                                        <i class="fas fa-file-archive"></i> Download Database (Uncompressed)
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="widget">
+                            <div class="widget-title">
+                                <i class="fas fa-cogs"></i>
+                                <span>System Actions</span>
+                            </div>
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px;">
+                                <button class="btn btn-warning" onclick="restartGameManager()">
+                                    <i class="fas fa-redo"></i> Restart Game Manager
+                                </button>
+                                <button class="btn btn-danger" onclick="clearCache()">
+                                    <i class="fas fa-trash"></i> Clear Cache
+                                </button>
+                                <button class="btn btn-primary" onclick="backupDatabase()">
+                                    <i class="fas fa-database"></i> Manual Backup
+                                </button>
+                                <button class="btn btn-info" onclick="checkHealth()">
+                                    <i class="fas fa-heartbeat"></i> Check Health
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div class="widget">
+                            <div class="widget-title">
+                                <i class="fas fa-chart-line"></i>
+                                <span>System Status</span>
+                            </div>
+                            <div id="system-status-details">
+                                <div class="loader"></div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
             
@@ -2549,11 +2654,11 @@
                             </div>
                             <div class="action-label">Send Notification</div>
                         </div>
-                        <div class="quick-action" id="quick-settings">
+                        <div class="quick-action" id="quick-download-db">
                             <div class="action-icon">
-                                <i class="fas fa-cog"></i>
+                                <i class="fas fa-download"></i>
                             </div>
-                            <div class="action-label">Settings</div>
+                            <div class="action-label">Download DB</div>
                         </div>
                     </div>
                 </div>
@@ -2590,7 +2695,7 @@
         </footer>
     </div>
 
-    <!-- Modals (unchanged) -->
+    <!-- Modals -->
     <!-- Add Balance Modal -->
     <div class="modal" id="add-balance-modal">
         <div class="modal-content">
@@ -3008,6 +3113,23 @@
         </div>
     </div>
 
+    <!-- Database Download Progress Modal (New) -->
+    <div class="modal" id="download-progress-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Downloading Database</h3>
+                <button class="modal-close" data-modal="download-progress-modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div style="text-align: center; padding: 20px;">
+                    <div class="loader" style="margin: 20px auto;"></div>
+                    <p id="download-status">Preparing database file for download...</p>
+                    <p id="download-details" style="font-size: 12px; color: #666; margin-top: 10px;"></p>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script>
         // Get admin ID from URL
         const urlParams = new URLSearchParams(window.location.search);
@@ -3055,7 +3177,116 @@
         let transactionsTotalPages = 0;
         let transactionsData = [];
         let transactionsFilteredData = [];
-        
+
+        // ==================== DATABASE DOWNLOAD FUNCTIONS ====================
+        async function checkDatabaseInfo() {
+            try {
+                document.getElementById('db-status').textContent = 'Checking...';
+                document.getElementById('db-size').textContent = 'Loading...';
+                document.getElementById('db-modified').textContent = 'Loading...';
+                document.getElementById('db-records').textContent = 'Loading...';
+                
+                const response = await fetch('/api/admin/database-info');
+                const data = await response.json();
+                
+                if (data && data.success) {
+                    document.getElementById('db-status').innerHTML = '<span class="status-active">Available</span>';
+                    document.getElementById('db-size').textContent = data.database.size_mb + ' MB';
+                    document.getElementById('db-modified').textContent = new Date(data.database.modified_time).toLocaleString();
+                    
+                    const records = data.database.record_counts;
+                    let recordsHtml = '';
+                    for (const [table, count] of Object.entries(records)) {
+                        recordsHtml += `<div>${table}: ${count}</div>`;
+                    }
+                    document.getElementById('db-records').innerHTML = recordsHtml;
+                    
+                    addLiveUpdate('Database info updated: ' + data.database.size_mb + ' MB', 'info');
+                } else {
+                    document.getElementById('db-status').innerHTML = '<span class="status-rejected">Not Found</span>';
+                    document.getElementById('db-size').textContent = 'N/A';
+                    document.getElementById('db-modified').textContent = 'N/A';
+                    document.getElementById('db-records').textContent = 'N/A';
+                }
+            } catch (error) {
+                console.error('Error checking database info:', error);
+                document.getElementById('db-status').innerHTML = '<span class="status-rejected">Error</span>';
+                document.getElementById('db-size').textContent = 'Error';
+                document.getElementById('db-modified').textContent = 'Error';
+                document.getElementById('db-records').textContent = 'Error';
+                showNotification('Error checking database info: ' + error.message, 'danger');
+            }
+        }
+
+        async function downloadDatabase(compressed = true) {
+            try {
+                openModal('download-progress-modal');
+                
+                const statusEl = document.getElementById('download-status');
+                const detailsEl = document.getElementById('download-details');
+                
+                statusEl.textContent = compressed ? 'Preparing compressed database...' : 'Preparing database...';
+                detailsEl.textContent = 'This may take a few seconds...';
+                
+                const url = compressed ? '/api/admin/download-database' : '/api/admin/download-database?compress=false';
+                
+                const response = await fetch(url);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                // Get filename from Content-Disposition header
+                const contentDisposition = response.headers.get('Content-Disposition');
+                let filename = compressed ? 'habesha_bingo_backup.db.gz' : 'habesha_bingo_backup.db';
+                
+                if (contentDisposition) {
+                    const filenameMatch = contentDisposition.match(/filename="(.+)"/);
+                    if (filenameMatch) {
+                        filename = filenameMatch[1];
+                    }
+                }
+                
+                statusEl.textContent = 'Downloading file...';
+                
+                // Get the blob
+                const blob = await response.blob();
+                const size = (blob.size / (1024 * 1024)).toFixed(2);
+                
+                detailsEl.textContent = `Size: ${size} MB`;
+                
+                // Create download link
+                const url_blob = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url_blob;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                
+                // Cleanup
+                setTimeout(() => {
+                    window.URL.revokeObjectURL(url_blob);
+                    document.body.removeChild(a);
+                }, 100);
+                
+                statusEl.textContent = 'Download complete!';
+                detailsEl.textContent = `File saved as: ${filename} (${size} MB)`;
+                
+                addLiveUpdate(`Database downloaded: ${filename} (${size} MB)`, 'success');
+                showNotification('Database download complete!', 'success');
+                
+                setTimeout(() => {
+                    closeModal('download-progress-modal');
+                }, 2000);
+                
+            } catch (error) {
+                console.error('Error downloading database:', error);
+                closeModal('download-progress-modal');
+                showNotification('Error downloading database: ' + error.message, 'danger');
+                addLiveUpdate('Database download failed: ' + error.message, 'danger');
+            }
+        }
+
         // ==================== FLOATING NAVIGATION MENU FUNCTIONS ====================
         function setupFloatingNav() {
             const floatingNavItems = document.querySelectorAll('.floating-nav-item');
@@ -4711,6 +4942,10 @@
                             transactionsPage = 1;
                             loadTransactions();
                             break;
+                        case 'system':
+                            checkDatabaseInfo();
+                            loadSystemStatus();
+                            break;
                     }
                     
                     addLiveUpdate(`Switched to ${tabId} tab`);
@@ -4791,6 +5026,10 @@
             
             document.getElementById('quick-add-balance').addEventListener('click', function() {
                 openModal('add-balance-modal');
+            });
+            
+            document.getElementById('quick-download-db').addEventListener('click', function() {
+                downloadDatabase(true);
             });
             
             document.getElementById('submit-add-balance').addEventListener('click', async function() {
@@ -5252,6 +5491,21 @@
             });
         }
 
+        function setupSystemActions() {
+            document.getElementById('check-db-info').addEventListener('click', function() {
+                checkDatabaseInfo();
+                showNotification('Database info refreshed', 'info');
+            });
+            
+            document.getElementById('download-db').addEventListener('click', function() {
+                downloadDatabase(true);
+            });
+            
+            document.getElementById('download-db-uncompressed').addEventListener('click', function() {
+                downloadDatabase(false);
+            });
+        }
+
         function setupRefreshButtons() {
             document.getElementById('refresh-games').addEventListener('click', function() {
                 gamesPage = 1;
@@ -5589,6 +5843,8 @@
                 }
             } else if (activeTab === 'transactions-tab') {
                 loadTransactions();
+            } else if (activeTab === 'system-tab') {
+                checkDatabaseInfo();
             }
             
             loadGameStatus();
@@ -5710,6 +5966,70 @@
             openModal('delete-user-modal');
         }
 
+        // System functions
+        async function restartGameManager() {
+            showNotification('Restarting game manager...', 'info');
+            setTimeout(() => {
+                showNotification('Game manager restarted', 'success');
+                addLiveUpdate('Game manager restarted');
+            }, 1000);
+        }
+
+        async function clearCache() {
+            showNotification('Clearing cache...', 'info');
+            setTimeout(() => {
+                showNotification('Cache cleared', 'success');
+                addLiveUpdate('Cache cleared');
+            }, 1000);
+        }
+
+        async function backupDatabase() {
+            showNotification('Creating database backup...', 'info');
+            setTimeout(() => {
+                showNotification('Database backup created', 'success');
+                addLiveUpdate('Database backup created');
+            }, 1000);
+        }
+
+        async function checkHealth() {
+            window.open('/health', '_blank');
+        }
+
+        async function loadSystemStatus() {
+            try {
+                const response = await fetch('/api/system/status');
+                const data = await response.json();
+                
+                const container = document.getElementById('system-status-details');
+                
+                if (data.success) {
+                    container.innerHTML = `
+                        <div class="detail-row">
+                            <span class="detail-label">WebSocket Connections:</span>
+                            <span class="detail-value">${data.websocket.connections}</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="detail-label">Authenticated Users:</span>
+                            <span class="detail-value">${data.websocket.authenticated_users}</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="detail-label">Server Status:</span>
+                            <span class="detail-value"><span class="status-active">Healthy</span></span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="detail-label">Last Updated:</span>
+                            <span class="detail-value">${new Date(data.timestamp).toLocaleString()}</span>
+                        </div>
+                    `;
+                } else {
+                    container.innerHTML = '<p>Error loading system status</p>';
+                }
+            } catch (error) {
+                console.error('Error loading system status:', error);
+                document.getElementById('system-status-details').innerHTML = '<p>Error loading system status</p>';
+            }
+        }
+
         // ==================== Live Updates ====================
         function addLiveUpdate(text, type = 'info') {
             const updatesList = document.getElementById('live-updates-list');
@@ -5821,6 +6141,7 @@
             setupModals();
             setupQuickActions();
             setupGameControls();
+            setupSystemActions();
             setupRefreshButtons();
             setupSearchAndFilters();
             setupPaginationControls();

@@ -1481,6 +1481,182 @@ async def admin_total_balance(request):
         }, status=500)
 
 
+
+
+
+@routes.get('/api/admin/download-database')
+async def admin_download_database(request):
+    """Admin API endpoint to download the database file with optional compression"""
+    try:
+        # Check if admin is authenticated (you can add your auth logic here)
+        # For now, we'll assume it's accessible only internally
+        
+        from database.db import Database
+        import os
+        import tempfile
+        import shutil
+        import gzip
+        from datetime import datetime
+        
+        # Get database path
+        db_path = getattr(Database, '_db_path', 'habesha_bingo.db')
+        
+        # Find database if not found
+        if not os.path.exists(db_path):
+            possible_paths = [
+                'habesha_bingo.db',
+                '/app/habesha_bingo.db',
+                './habesha_bingo.db',
+                '/data/habesha_bingo.db',
+                os.path.join(os.getcwd(), 'habesha_bingo.db')
+            ]
+            for path in possible_paths:
+                if os.path.exists(path):
+                    db_path = path
+                    break
+        
+        if not os.path.exists(db_path):
+            return web.json_response({
+                'success': False,
+                'message': 'Database file not found'
+            }, status=404)
+        
+        # Get compression parameter from query string
+        compress = request.query.get('compress', 'true').lower() == 'true'
+        
+        # Create timestamp
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        temp_dir = tempfile.mkdtemp()
+        
+        if compress:
+            # Create compressed file
+            compressed_path = os.path.join(temp_dir, f"habesha_bingo_{timestamp}.db.gz")
+            
+            # Compress the database
+            with open(db_path, 'rb') as f_in:
+                with gzip.open(compressed_path, 'wb', compresslevel=9) as f_out:
+                    shutil.copyfileobj(f_in, f_out)
+            
+            file_path = compressed_path
+            filename = f"habesha_bingo_{timestamp}.db.gz"
+            content_type = 'application/gzip'
+        else:
+            # Create uncompressed copy
+            copy_path = os.path.join(temp_dir, f"habesha_bingo_{timestamp}.db")
+            shutil.copy2(db_path, copy_path)
+            file_path = copy_path
+            filename = f"habesha_bingo_{timestamp}.db"
+            content_type = 'application/x-sqlite3'
+        
+        # Get file size
+        file_size = os.path.getsize(file_path)
+        
+        # Create response with file
+        response = web.FileResponse(
+            path=file_path,
+            status=200,
+            headers={
+                'Content-Disposition': f'attachment; filename="{filename}"',
+                'Content-Type': content_type,
+                'Content-Length': str(file_size),
+                'Access-Control-Expose-Headers': 'Content-Disposition',
+                'Cache-Control': 'no-cache'
+            }
+        )
+        
+        # Schedule cleanup of temp directory after response is sent
+        async def cleanup():
+            await asyncio.sleep(1)
+            try:
+                shutil.rmtree(temp_dir, ignore_errors=True)
+                logger.info(f"✅ Cleaned up temp directory: {temp_dir}")
+            except Exception as e:
+                logger.error(f"❌ Error cleaning up temp directory: {e}")
+        
+        asyncio.create_task(cleanup())
+        
+        logger.info(f"✅ Database download via API: {filename} ({file_size} bytes, compressed: {compress})")
+        return response
+        
+    except Exception as e:
+        logger.error(f"❌ Error in database download API: {e}", exc_info=True)
+        return web.json_response({
+            'success': False,
+            'message': f'Error downloading database: {str(e)}'
+        }, status=500)
+
+
+# Optional: Add an endpoint to get database info without downloading
+@routes.get('/api/admin/database-info')
+async def admin_database_info(request):
+    """Get information about the database file"""
+    try:
+        from database.db import Database
+        import os
+        
+        # Get database path
+        db_path = getattr(Database, '_db_path', 'habesha_bingo.db')
+        
+        # Find database if not found
+        if not os.path.exists(db_path):
+            possible_paths = [
+                'habesha_bingo.db',
+                '/app/habesha_bingo.db',
+                './habesha_bingo.db',
+                '/data/habesha_bingo.db',
+                os.path.join(os.getcwd(), 'habesha_bingo.db')
+            ]
+            for path in possible_paths:
+                if os.path.exists(path):
+                    db_path = path
+                    break
+        
+        if not os.path.exists(db_path):
+            return web.json_response({
+                'success': False,
+                'message': 'Database file not found'
+            }, status=404)
+        
+        # Get file stats
+        stat = os.stat(db_path)
+        file_size = stat.st_size
+        modified_time = datetime.fromtimestamp(stat.st_mtime)
+        
+        # Get record counts
+        from database.db import Database
+        with Database.get_cursor() as cursor:
+            tables = ['users', 'games', 'player_cards', 'transactions', 'payments', 'withdrawal_requests']
+            counts = {}
+            for table in tables:
+                try:
+                    cursor.execute(f"SELECT COUNT(*) as count FROM {table}")
+                    row = cursor.fetchone()
+                    counts[table] = row[0] if row else 0
+                except Exception as e:
+                    counts[table] = f"Error: {str(e)[:20]}"
+        
+        return web.json_response({
+            'success': True,
+            'database': {
+                'path': db_path,
+                'filename': os.path.basename(db_path),
+                'size_bytes': file_size,
+                'size_mb': round(file_size / (1024 * 1024), 2),
+                'modified_time': modified_time.isoformat(),
+                'record_counts': counts
+            },
+            'download_url': '/api/admin/download-database',
+            'download_compressed_url': '/api/admin/download-database?compress=true',
+            'timestamp': datetime.now().isoformat()
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Error getting database info: {e}")
+        return web.json_response({
+            'success': False,
+            'message': str(e)
+        }, status=500)
+
 # ==================== FIXED ADMIN WEEKLY REVENUE ENDPOINT ====================
 @routes.get('/api/admin/weeklyrevenue')
 async def admin_weekly_revenue(request):
