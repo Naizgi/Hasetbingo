@@ -1397,7 +1397,7 @@ async def process_withdrawal_request(withdrawal_id: int, admin_id: int, approve:
         return False
 
 # ==================== SAFE DATABASE RESTORE FUNCTION ====================
-async def restore_database_from_file(file_path: str, admin_id: int, original_message: types.Message, status_msg: types.Message) -> Tuple[bool, str]:
+async def restore_database_from_file(file_path: str, admin_id: int, original_message, status_msg) -> Tuple[bool, str]:
     """
     Safely restore database from a backup file with complete shutdown
     
