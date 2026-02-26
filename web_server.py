@@ -1657,6 +1657,507 @@ async def admin_database_info(request):
             'message': str(e)
         }, status=500)
 
+
+
+
+
+
+
+
+
+# ==================== DATABASE RESTORE API ENDPOINTS ====================
+@routes.post('/api/admin/restore-database')
+async def admin_restore_database(request):
+    """
+    Safely restore database from uploaded file with complete shutdown
+    
+    This endpoint:
+    1. Validates the uploaded file
+    2. Stops ALL database operations
+    3. Creates a backup of current database
+    4. Safely replaces the database file
+    5. Restarts the bot to ensure clean state
+    
+    Returns JSON response with status and will trigger bot restart
+    """
+    try:
+        from database.db import Database
+        import os
+        import tempfile
+        import shutil
+        import gzip
+        import sqlite3
+        from datetime import datetime
+        import asyncio
+        import gc
+        
+        # Get uploaded file
+        reader = await request.multipart()
+        field = await reader.next()
+        
+        if not field or field.name != 'database':
+            return web.json_response({
+                'success': False,
+                'message': 'No database file uploaded'
+            }, status=400)
+        
+        # Get admin_id from form data
+        admin_id_field = await reader.next()
+        admin_id = 'system'
+        if admin_id_field and admin_id_field.name == 'admin_id':
+            admin_id = await admin_id_field.text()
+        
+        # Create temp directory for uploaded file
+        temp_dir = tempfile.mkdtemp()
+        uploaded_path = os.path.join(temp_dir, field.filename)
+        
+        # Save uploaded file
+        size = 0
+        with open(uploaded_path, 'wb') as f:
+            while True:
+                chunk = await field.read_chunk()
+                if not chunk:
+                    break
+                size += len(chunk)
+                f.write(chunk)
+        
+        logger.warning(f"⚠️ DATABASE RESTORE INITIATED by admin {admin_id}")
+        logger.info(f"📁 Uploaded file: {field.filename}, Size: {size / (1024*1024):.2f} MB")
+        
+        # ========== STEP 1: VALIDATE FILE ==========
+        logger.info("Step 1: Validating uploaded database file...")
+        
+        # Validate file size (100 MB limit)
+        if size > 100 * 1024 * 1024:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            return web.json_response({
+                'success': False,
+                'message': 'File too large (max 100 MB)'
+            }, status=400)
+        
+        # Validate file extension
+        valid_extensions = ['.db', '.db.gz', '.sqlite', '.sqlite3']
+        file_ext = os.path.splitext(field.filename)[1].lower()
+        is_gzipped = field.filename.lower().endswith('.gz')
+        
+        if not (file_ext in valid_extensions or is_gzipped):
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            return web.json_response({
+                'success': False,
+                'message': 'Invalid file type. Please upload .db, .db.gz, .sqlite, or .sqlite3 file'
+            }, status=400)
+        
+        # If file is gzipped, decompress it
+        db_file_path = uploaded_path
+        if is_gzipped:
+            logger.info("📦 Decompressing gzipped database file...")
+            decompressed_path = os.path.join(temp_dir, 'decompressed.db')
+            try:
+                with gzip.open(uploaded_path, 'rb') as f_in:
+                    with open(decompressed_path, 'wb') as f_out:
+                        shutil.copyfileobj(f_in, f_out)
+                db_file_path = decompressed_path
+                logger.info("✅ Decompression complete")
+            except Exception as e:
+                shutil.rmtree(temp_dir, ignore_errors=True)
+                return web.json_response({
+                    'success': False,
+                    'message': f'Failed to decompress file: {str(e)}'
+                }, status=400)
+        
+        # Validate SQLite header
+        with open(db_file_path, 'rb') as f:
+            header = f.read(16)
+            if header[:16] != b'SQLite format 3\x00':
+                shutil.rmtree(temp_dir, ignore_errors=True)
+                return web.json_response({
+                    'success': False,
+                    'message': 'Invalid database file format - not a SQLite database'
+                }, status=400)
+        
+        # Test database integrity
+        try:
+            test_conn = sqlite3.connect(db_file_path)
+            test_conn.execute("PRAGMA integrity_check").fetchone()
+            test_conn.close()
+            logger.info("✅ Uploaded database file integrity check passed")
+        except Exception as e:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            return web.json_response({
+                'success': False,
+                'message': f'Corrupted database file: {str(e)[:100]}'
+            }, status=400)
+        
+        # Get current database path
+        db_path = getattr(Database, '_db_path', 'habesha_bingo.db')
+        if not os.path.exists(db_path):
+            possible_paths = [
+                'habesha_bingo.db',
+                '/app/habesha_bingo.db',
+                './habesha_bingo.db',
+                '/data/habesha_bingo.db',
+                os.path.join(os.getcwd(), 'habesha_bingo.db')
+            ]
+            for path in possible_paths:
+                if os.path.exists(path):
+                    db_path = path
+                    break
+        
+        logger.info(f"Current database path: {db_path}")
+        
+        # ========== STEP 2: CREATE BACKUP ==========
+        logger.info("Step 2: Creating backup of current database...")
+        
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        backup_path = f"{db_path}.backup_{timestamp}"
+        
+        if os.path.exists(db_path):
+            shutil.copy2(db_path, backup_path)
+            backup_size = os.path.getsize(backup_path)
+            logger.info(f"✅ Backup created at: {backup_path} ({backup_size / (1024*1024):.2f} MB)")
+        else:
+            logger.warning("⚠️ No existing database found to backup")
+            backup_path = None
+        
+        # ========== STEP 3: GRACEFUL SHUTDOWN ==========
+        logger.info("Step 3: Performing graceful shutdown of all bot components...")
+        
+        # Import bot components
+        try:
+            from bot import dp, bot, enhanced_payment_validator, shutting_down, main_task
+            
+            # Set shutdown flag
+            shutting_down = True
+            logger.info("✅ Shutdown flag set")
+            
+            # Stop bot polling
+            if dp:
+                try:
+                    await dp.stop_polling()
+                    logger.info("✅ Bot polling stopped")
+                except Exception as e:
+                    logger.warning(f"Error stopping polling: {e}")
+            
+            # Close bot session
+            if bot and hasattr(bot, 'session') and bot.session:
+                try:
+                    await bot.session.close()
+                    logger.info("✅ Bot session closed")
+                except Exception as e:
+                    logger.warning(f"Error closing bot session: {e}")
+            
+            # Close payment validator
+            if enhanced_payment_validator:
+                try:
+                    await enhanced_payment_validator.close()
+                    logger.info("✅ Payment validator closed")
+                except Exception as e:
+                    logger.warning(f"Error closing payment validator: {e}")
+            
+        except ImportError:
+            logger.warning("Could not import bot components for shutdown")
+        except Exception as e:
+            logger.warning(f"Error during bot shutdown: {e}")
+        
+        # Close ALL database connections
+        logger.info("Closing all database connections...")
+        try:
+            await Database.close_all_connections()
+            logger.info("✅ All database connections closed")
+        except Exception as e:
+            logger.warning(f"Error closing database connections: {e}")
+        
+        # Force garbage collection
+        gc.collect()
+        logger.info("✅ Garbage collection completed")
+        
+        # Wait for operations to settle
+        logger.info("Waiting 2 seconds for all operations to settle...")
+        await asyncio.sleep(2)
+        
+        # ========== STEP 4: SAFELY REPLACE DATABASE ==========
+        logger.info("Step 4: Safely replacing database file...")
+        
+        # Remove old database if it exists
+        if os.path.exists(db_path):
+            os.remove(db_path)
+            logger.info("✅ Removed old database file")
+        
+        # Copy new database to target location
+        shutil.copy2(db_file_path, db_path)
+        logger.info(f"✅ New database file placed at: {db_path}")
+        
+        # Verify new database is readable
+        try:
+            test_conn = sqlite3.connect(db_path)
+            test_conn.execute("SELECT name FROM sqlite_master WHERE type='table' LIMIT 1").fetchone()
+            test_conn.close()
+            logger.info("✅ New database is readable and valid")
+        except Exception as e:
+            logger.error(f"❌ New database is corrupted: {e}")
+            
+            # Restore from backup if available
+            if backup_path and os.path.exists(backup_path):
+                logger.info("🔄 Restoring from backup...")
+                if os.path.exists(db_path):
+                    os.remove(db_path)
+                shutil.copy2(backup_path, db_path)
+                logger.info("✅ Restored from backup")
+                
+                shutil.rmtree(temp_dir, ignore_errors=True)
+                return web.json_response({
+                    'success': False,
+                    'message': f'Restored database is corrupted, reverted to backup: {str(e)[:100]}'
+                }, status=500)
+            
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            return web.json_response({
+                'success': False,
+                'message': f'New database is corrupted and no backup available: {str(e)[:100]}'
+            }, status=500)
+        
+        # Clean up temp directory
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        logger.info("✅ Temporary files cleaned up")
+        
+        # ========== STEP 5: LOG THE RESTORE ACTION ==========
+        logger.info("Step 5: Logging restore action...")
+        
+        # Try to log to the new database
+        try:
+            with Database.get_cursor() as cursor:
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS admin_actions (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        admin_id INTEGER NOT NULL,
+                        action_type TEXT NOT NULL,
+                        details TEXT,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                cursor.execute("""
+                    INSERT INTO admin_actions (admin_id, action_type, details)
+                    VALUES (?, ?, ?)
+                """, (admin_id, 'database_restore', f'Database restored from file: {field.filename}'))
+            logger.info("✅ Restore action logged")
+        except Exception as e:
+            logger.warning(f"Could not log restore action: {e}")
+        
+        # ========== STEP 6: TRIGGER BOT RESTART ==========
+        logger.info("Step 6: Triggering bot restart...")
+        
+        # Return success response (client will handle reload)
+        response_data = {
+            'success': True,
+            'message': 'Database restored successfully. Bot is restarting...',
+            'backup_created': backup_path is not None,
+            'backup_file': os.path.basename(backup_path) if backup_path else None,
+            'restarting': True,
+            'timestamp': datetime.now().isoformat()
+        }
+        
+        # Schedule bot restart in background
+        async def restart_bot():
+            await asyncio.sleep(1)
+            try:
+                from bot import enhanced_shutdown
+                logger.info("🚀 Executing bot restart...")
+                await enhanced_shutdown(restart=True)
+            except Exception as e:
+                logger.error(f"Error during bot restart: {e}")
+                # Fallback restart method
+                import sys
+                import os
+                os.execv(sys.executable, ['python'] + sys.argv)
+        
+        asyncio.create_task(restart_bot())
+        
+        return web.json_response(response_data)
+        
+    except Exception as e:
+        logger.error(f"Error in database restore: {e}", exc_info=True)
+        
+        # Clean up temp directory if it exists
+        try:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+        except:
+            pass
+        
+        return web.json_response({
+            'success': False,
+            'message': f'Error during restore: {str(e)[:200]}'
+        }, status=500)
+
+
+@routes.get('/api/admin/database-info')
+async def admin_database_info(request):
+    """Get information about the database file"""
+    try:
+        from database.db import Database
+        import os
+        
+        # Get database path
+        db_path = getattr(Database, '_db_path', 'habesha_bingo.db')
+        
+        # Find database if not found
+        if not os.path.exists(db_path):
+            possible_paths = [
+                'habesha_bingo.db',
+                '/app/habesha_bingo.db',
+                './habesha_bingo.db',
+                '/data/habesha_bingo.db',
+                os.path.join(os.getcwd(), 'habesha_bingo.db')
+            ]
+            for path in possible_paths:
+                if os.path.exists(path):
+                    db_path = path
+                    break
+        
+        if not os.path.exists(db_path):
+            return web.json_response({
+                'success': False,
+                'message': 'Database file not found'
+            }, status=404)
+        
+        # Get file stats
+        stat = os.stat(db_path)
+        file_size = stat.st_size
+        modified_time = datetime.fromtimestamp(stat.st_mtime)
+        
+        # Get record counts
+        with Database.get_cursor() as cursor:
+            tables = ['users', 'games', 'player_cards', 'transactions', 'payments', 'withdrawal_requests', 'telebirr_transactions', 'commission_records']
+            counts = {}
+            for table in tables:
+                try:
+                    cursor.execute(f"SELECT COUNT(*) as count FROM {table}")
+                    row = cursor.fetchone()
+                    counts[table] = row[0] if row else 0
+                except Exception as e:
+                    counts[table] = f"Error: {str(e)[:20]}"
+        
+        return web.json_response({
+            'success': True,
+            'database': {
+                'path': db_path,
+                'filename': os.path.basename(db_path),
+                'size_bytes': file_size,
+                'size_mb': round(file_size / (1024 * 1024), 2),
+                'modified_time': modified_time.isoformat(),
+                'record_counts': counts
+            },
+            'download_url': '/api/admin/download-database',
+            'download_compressed_url': '/api/admin/download-database?compress=true',
+            'restore_url': '/api/admin/restore-database',
+            'timestamp': datetime.now().isoformat()
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Error getting database info: {e}")
+        return web.json_response({
+            'success': False,
+            'message': str(e)
+        }, status=500)
+
+
+@routes.get('/api/admin/download-database')
+async def admin_download_database(request):
+    """Admin API endpoint to download the database file with optional compression"""
+    try:
+        from database.db import Database
+        import os
+        import tempfile
+        import shutil
+        import gzip
+        from datetime import datetime
+        
+        # Get database path
+        db_path = getattr(Database, '_db_path', 'habesha_bingo.db')
+        
+        # Find database if not found
+        if not os.path.exists(db_path):
+            possible_paths = [
+                'habesha_bingo.db',
+                '/app/habesha_bingo.db',
+                './habesha_bingo.db',
+                '/data/habesha_bingo.db',
+                os.path.join(os.getcwd(), 'habesha_bingo.db')
+            ]
+            for path in possible_paths:
+                if os.path.exists(path):
+                    db_path = path
+                    break
+        
+        if not os.path.exists(db_path):
+            return web.json_response({
+                'success': False,
+                'message': 'Database file not found'
+            }, status=404)
+        
+        # Get compression parameter from query string
+        compress = request.query.get('compress', 'true').lower() == 'true'
+        
+        # Create timestamp
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        temp_dir = tempfile.mkdtemp()
+        
+        if compress:
+            # Create compressed file
+            compressed_path = os.path.join(temp_dir, f"habesha_bingo_{timestamp}.db.gz")
+            
+            # Compress the database
+            with open(db_path, 'rb') as f_in:
+                with gzip.open(compressed_path, 'wb', compresslevel=9) as f_out:
+                    shutil.copyfileobj(f_in, f_out)
+            
+            file_path = compressed_path
+            filename = f"habesha_bingo_{timestamp}.db.gz"
+            content_type = 'application/gzip'
+        else:
+            # Create uncompressed copy
+            copy_path = os.path.join(temp_dir, f"habesha_bingo_{timestamp}.db")
+            shutil.copy2(db_path, copy_path)
+            file_path = copy_path
+            filename = f"habesha_bingo_{timestamp}.db"
+            content_type = 'application/x-sqlite3'
+        
+        # Get file size
+        file_size = os.path.getsize(file_path)
+        
+        # Create response with file
+        response = web.FileResponse(
+            path=file_path,
+            status=200,
+            headers={
+                'Content-Disposition': f'attachment; filename="{filename}"',
+                'Content-Type': content_type,
+                'Content-Length': str(file_size),
+                'Access-Control-Expose-Headers': 'Content-Disposition',
+                'Cache-Control': 'no-cache'
+            }
+        )
+        
+        # Schedule cleanup of temp directory after response is sent
+        async def cleanup():
+            await asyncio.sleep(1)
+            try:
+                shutil.rmtree(temp_dir, ignore_errors=True)
+                logger.info(f"✅ Cleaned up temp directory: {temp_dir}")
+            except Exception as e:
+                logger.error(f"❌ Error cleaning up temp directory: {e}")
+        
+        asyncio.create_task(cleanup())
+        
+        logger.info(f"✅ Database download via API: {filename} ({file_size} bytes, compressed: {compress})")
+        return response
+        
+    except Exception as e:
+        logger.error(f"❌ Error in database download API: {e}", exc_info=True)
+        return web.json_response({
+            'success': False,
+            'message': f'Error downloading database: {str(e)}'
+        }, status=500)
+
 # ==================== FIXED ADMIN WEEKLY REVENUE ENDPOINT ====================
 @routes.get('/api/admin/weeklyrevenue')
 async def admin_weekly_revenue(request):

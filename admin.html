@@ -829,6 +829,15 @@
             background: #5a32a3;
         }
 
+        .btn-restore {
+            background: #28a745;
+            color: white;
+        }
+
+        .btn-restore:hover {
+            background: #218838;
+        }
+
         .admin-sidebar {
             display: flex;
             flex-direction: column;
@@ -2224,7 +2233,7 @@
                 </div>
                 
                 <div class="tab-content">
-                    <!-- Games Tab with Pagination -->
+                    <!-- Games Tab -->
                     <div class="tab-pane active" id="games-tab">
                         <div class="search-filter">
                             <div class="search-box">
@@ -2287,7 +2296,7 @@
                         </div>
                     </div>
                     
-                    <!-- Users Tab with Pagination -->
+                    <!-- Users Tab -->
                     <div class="tab-pane" id="users-tab">
                         <div class="search-filter">
                             <div class="search-box">
@@ -2346,7 +2355,7 @@
                         </div>
                     </div>
                     
-                    <!-- Payments Tab with Pagination -->
+                    <!-- Payments Tab -->
                     <div class="tab-pane" id="payments-tab">
                         <!-- Payment Type Tabs -->
                         <div class="payment-tabs">
@@ -2480,7 +2489,7 @@
                         </div>
                     </div>
                     
-                    <!-- Transactions Tab with Pagination -->
+                    <!-- Transactions Tab -->
                     <div class="tab-pane" id="transactions-tab">
                         <div class="search-filter">
                             <div class="search-box">
@@ -2531,7 +2540,7 @@
                         </div>
                     </div>
                     
-                    <!-- System Tab -->
+                    <!-- System Tab with Download & Restore -->
                     <div class="tab-pane" id="system-tab">
                         <div class="widget">
                             <div class="widget-title">
@@ -2565,6 +2574,13 @@
                                     <button class="btn btn-primary" id="download-db-uncompressed">
                                         <i class="fas fa-file-archive"></i> Download (Uncompressed)
                                     </button>
+                                    <button class="btn btn-warning" id="restore-db-btn">
+                                        <i class="fas fa-undo-alt"></i> Restore Database
+                                    </button>
+                                </div>
+                                <div class="payment-message" style="background: #fff3cd; border-left-color: #856404;">
+                                    <p><strong>⚠️ Restore Warning:</strong> Restoring will replace the current database. 
+                                    The system will automatically backup the current database and restart after restore.</p>
                                 </div>
                             </div>
                         </div>
@@ -2582,7 +2598,7 @@
                                     <i class="fas fa-trash"></i> Clear Cache
                                 </button>
                                 <button class="btn btn-primary" onclick="backupDatabase()">
-                                    <i class="fas fa-database"></i> Backup
+                                    <i class="fas fa-database"></i> Manual Backup
                                 </button>
                                 <button class="btn btn-info" onclick="checkHealth()">
                                     <i class="fas fa-heartbeat"></i> Health Check
@@ -2686,8 +2702,9 @@
         </footer>
     </div>
 
-    <!-- Add Balance Modal -->
+    <!-- Modals (keeping all existing modals) -->
     <div class="modal" id="add-balance-modal">
+        <!-- Add balance modal content (same as before) -->
         <div class="modal-content">
             <div class="modal-header">
                 <h3>Add Balance to User</h3>
@@ -2756,9 +2773,7 @@
                 </div>
                 <div class="form-group">
                     <label>Quick Select</label>
-                    <div id="quick-numbers" style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px;">
-                        <!-- Quick number buttons will be added here -->
-                    </div>
+                    <div id="quick-numbers" style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px;"></div>
                 </div>
                 <div class="form-actions">
                     <button class="btn btn-secondary" data-modal="call-number-modal">Cancel</button>
@@ -2822,9 +2837,7 @@
                 <button class="modal-close" data-modal="game-details-modal">&times;</button>
             </div>
             <div class="modal-body">
-                <div class="payment-details" id="game-details-content">
-                    <!-- Game details will be loaded here -->
-                </div>
+                <div class="payment-details" id="game-details-content"></div>
                 <div class="form-actions">
                     <button class="btn btn-secondary" data-modal="game-details-modal">Close</button>
                 </div>
@@ -2840,9 +2853,7 @@
                 <button class="modal-close" data-modal="user-details-modal">&times;</button>
             </div>
             <div class="modal-body">
-                <div class="payment-details" id="user-details-content">
-                    <!-- User details will be loaded here -->
-                </div>
+                <div class="payment-details" id="user-details-content"></div>
                 <div class="form-actions">
                     <button class="btn btn-secondary" data-modal="user-details-modal">Close</button>
                 </div>
@@ -2858,12 +2869,8 @@
                 <button class="modal-close" data-modal="deposit-details-modal">&times;</button>
             </div>
             <div class="modal-body">
-                <div class="payment-details" id="deposit-details-content">
-                    <!-- Deposit details will be loaded here -->
-                </div>
-                <div id="deposit-action-section" style="margin-top: 15px; display: flex; gap: 10px;">
-                    <!-- Action buttons will be loaded here -->
-                </div>
+                <div class="payment-details" id="deposit-details-content"></div>
+                <div id="deposit-action-section" style="margin-top: 15px; display: flex; gap: 10px;"></div>
                 <div class="form-actions" style="margin-top: 15px;">
                     <button class="btn btn-secondary" data-modal="deposit-details-modal">Close</button>
                 </div>
@@ -2879,12 +2886,8 @@
                 <button class="modal-close" data-modal="withdrawal-details-modal">&times;</button>
             </div>
             <div class="modal-body">
-                <div class="payment-details" id="withdrawal-details-content">
-                    <!-- Withdrawal details will be loaded here -->
-                </div>
-                <div id="withdrawal-action-section" style="margin-top: 15px; display: flex; gap: 10px;">
-                    <!-- Action buttons will be loaded here -->
-                </div>
+                <div class="payment-details" id="withdrawal-details-content"></div>
+                <div id="withdrawal-action-section" style="margin-top: 15px; display: flex; gap: 10px;"></div>
                 <div class="form-actions" style="margin-top: 15px;">
                     <button class="btn btn-secondary" data-modal="withdrawal-details-modal">Close</button>
                 </div>
@@ -2900,9 +2903,7 @@
                 <button class="modal-close" data-modal="deposit-reject-modal">&times;</button>
             </div>
             <div class="modal-body">
-                <div class="payment-details" id="reject-deposit-details">
-                    <!-- Reject deposit details will be loaded here -->
-                </div>
+                <div class="payment-details" id="reject-deposit-details"></div>
                 <div class="form-group">
                     <label for="deposit-reject-reason">Reason for Rejection</label>
                     <textarea id="deposit-reject-reason" rows="4" placeholder="Enter reason for rejecting this deposit..." required></textarea>
@@ -2925,9 +2926,7 @@
                 <button class="modal-close" data-modal="withdrawal-reject-modal">&times;</button>
             </div>
             <div class="modal-body">
-                <div class="payment-details" id="reject-withdrawal-details">
-                    <!-- Reject withdrawal details will be loaded here -->
-                </div>
+                <div class="payment-details" id="reject-withdrawal-details"></div>
                 <div class="form-group">
                     <label for="withdrawal-reject-reason">Reason for Rejection</label>
                     <textarea id="withdrawal-reject-reason" rows="4" placeholder="Enter reason for rejecting this withdrawal..." required></textarea>
@@ -2950,9 +2949,7 @@
                 <button class="modal-close" data-modal="suspend-user-modal">&times;</button>
             </div>
             <div class="modal-body">
-                <div class="payment-details" id="suspend-user-details">
-                    <!-- Suspend user details will be loaded here -->
-                </div>
+                <div class="payment-details" id="suspend-user-details"></div>
                 <div class="form-group">
                     <label for="suspend-user-reason">Reason for Suspension</label>
                     <textarea id="suspend-user-reason" rows="4" placeholder="Enter reason for suspending this user..." required></textarea>
@@ -2985,9 +2982,7 @@
                 <button class="modal-close" data-modal="delete-user-modal">&times;</button>
             </div>
             <div class="modal-body">
-                <div class="payment-details" id="delete-user-details">
-                    <!-- Delete user details will be loaded here -->
-                </div>
+                <div class="payment-details" id="delete-user-details"></div>
                 <div class="form-group">
                     <label for="delete-user-reason">Reason for Deletion</label>
                     <textarea id="delete-user-reason" rows="4" placeholder="Enter reason for deleting this user..." required></textarea>
@@ -3042,9 +3037,7 @@
                                 </tr>
                             </thead>
                             <tbody id="commission-games-body">
-                                <tr>
-                                    <td colspan="7" class="loading">Loading commission data...</td>
-                                </tr>
+                                <tr><td colspan="7" class="loading">Loading commission data...</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -3064,9 +3057,7 @@
                                 </tr>
                             </thead>
                             <tbody id="commission-daily-body">
-                                <tr>
-                                    <td colspan="6" class="loading">Loading daily commission...</td>
-                                </tr>
+                                <tr><td colspan="6" class="loading">Loading daily commission...</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -3085,9 +3076,7 @@
                                 </tr>
                             </thead>
                             <tbody id="commission-monthly-body">
-                                <tr>
-                                    <td colspan="5" class="loading">Loading monthly commission...</td>
-                                </tr>
+                                <tr><td colspan="5" class="loading">Loading monthly commission...</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -3115,6 +3104,64 @@
                     <div class="loader" style="margin: 20px auto;"></div>
                     <p id="download-status">Preparing database file...</p>
                     <p id="download-details" style="font-size: 12px; color: #666; margin-top: 10px;"></p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Restore Progress Modal -->
+    <div class="modal" id="restore-progress-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Restoring Database</h3>
+                <button class="modal-close" data-modal="restore-progress-modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div style="text-align: center; padding: 20px;">
+                    <div class="loader" style="margin: 20px auto;"></div>
+                    <p id="restore-status">Preparing safe restore...</p>
+                    <p id="restore-details" style="font-size: 12px; color: #666; margin-top: 10px;"></p>
+                    <div id="restore-steps" style="text-align: left; margin-top: 20px; background: #f8f9fa; padding: 15px; border-radius: 5px;">
+                        <p>⏳ Step 1/6: Validating file...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Restore File Upload Modal -->
+    <div class="modal" id="restore-upload-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Upload Database File</h3>
+                <button class="modal-close" data-modal="restore-upload-modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="payment-message" style="background: #fff3cd; border-left-color: #856404; margin-bottom: 20px;">
+                    <p><strong>⚠️ IMPORTANT SAFETY PROTOCOL:</strong></p>
+                    <ul style="margin: 10px 0 10px 20px;">
+                        <li>✅ Automatic backup will be created</li>
+                        <li>✅ Database will be validated before restore</li>
+                        <li>✅ Bot will gracefully shutdown</li>
+                        <li>✅ Automatic rollback if corruption detected</li>
+                        <li>✅ Bot will restart automatically after restore</li>
+                    </ul>
+                </div>
+                
+                <div class="form-group">
+                    <label for="restore-file">Select Database File (.db or .db.gz)</label>
+                    <input type="file" id="restore-file" accept=".db,.db.gz,.sqlite,.sqlite3" style="padding: 10px; border: 1px solid #ddd; border-radius: 5px; width: 100%;">
+                </div>
+                
+                <div class="payment-message" style="background: #e9f7fe; border-left-color: var(--info-color); margin-top: 15px;">
+                    <p><strong>📋 Supported formats:</strong> .db, .db.gz, .sqlite, .sqlite3 (max 100MB)</p>
+                </div>
+                
+                <div class="form-actions">
+                    <button class="btn btn-secondary" data-modal="restore-upload-modal">Cancel</button>
+                    <button class="btn btn-danger" id="submit-restore">
+                        <i class="fas fa-undo-alt"></i> Start Safe Restore
+                    </button>
                 </div>
             </div>
         </div>
@@ -3321,6 +3368,138 @@
             }
         }
 
+        // ==================== DATABASE RESTORE FUNCTION ====================
+        async function restoreDatabase(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                
+                reader.onload = async function(e) {
+                    try {
+                        const arrayBuffer = e.target.result;
+                        const blob = new Blob([arrayBuffer], { type: file.type });
+                        
+                        const formData = new FormData();
+                        formData.append('database', blob, file.name);
+                        formData.append('admin_id', adminId);
+                        
+                        const response = await fetch('/api/admin/restore-database', {
+                            method: 'POST',
+                            body: formData
+                        });
+                        
+                        if (!response.ok) {
+                            throw new Error(`HTTP error! status: ${response.status}`);
+                        }
+                        
+                        const result = await response.json();
+                        resolve(result);
+                    } catch (error) {
+                        reject(error);
+                    }
+                };
+                
+                reader.onerror = function(error) {
+                    reject(error);
+                };
+                
+                reader.readAsArrayBuffer(file);
+            });
+        }
+
+        function updateRestoreStep(step, message) {
+            const stepsEl = document.getElementById('restore-steps');
+            if (!stepsEl) return;
+            
+            const steps = [
+                'Validating file...',
+                'Creating backup...',
+                'Shutting down bot...',
+                'Restoring database...',
+                'Verifying integrity...',
+                'Restarting system...'
+            ];
+            
+            let html = '';
+            for (let i = 0; i < steps.length; i++) {
+                const status = i < step ? '✅' : (i === step ? '⏳' : '⏳');
+                html += `<p>${status} ${steps[i]}</p>`;
+            }
+            stepsEl.innerHTML = html;
+        }
+
+        async function handleRestore() {
+            const fileInput = document.getElementById('restore-file');
+            if (!fileInput.files || fileInput.files.length === 0) {
+                showNotification('Please select a file to restore', 'warning');
+                return;
+            }
+            
+            const file = fileInput.files[0];
+            
+            // Validate file size (max 100MB)
+            if (file.size > 100 * 1024 * 1024) {
+                showNotification('File too large. Maximum size is 100MB', 'danger');
+                return;
+            }
+            
+            // Validate file extension
+            const validExtensions = ['.db', '.db.gz', '.sqlite', '.sqlite3'];
+            const fileExt = '.' + file.name.split('.').pop().toLowerCase();
+            const fileNameLower = file.name.toLowerCase();
+            
+            const isValid = validExtensions.some(ext => 
+                fileNameLower.endsWith(ext) || fileNameLower.endsWith(ext + '.gz')
+            );
+            
+            if (!isValid) {
+                showNotification('Invalid file type. Please upload a database file (.db, .db.gz, .sqlite)', 'danger');
+                return;
+            }
+            
+            // Confirm with admin
+            if (!confirm('⚠️ WARNING: This will replace the current database! The bot will restart automatically. Continue?')) {
+                return;
+            }
+            
+            try {
+                // Close upload modal and open progress modal
+                closeModal('restore-upload-modal');
+                openModal('restore-progress-modal');
+                
+                const statusEl = document.getElementById('restore-status');
+                const detailsEl = document.getElementById('restore-details');
+                
+                statusEl.textContent = 'Starting safe restore process...';
+                detailsEl.textContent = `File: ${file.name} (${(file.size / (1024 * 1024)).toFixed(2)} MB)`;
+                updateRestoreStep(0, 'Validating file...');
+                
+                // Perform restore
+                const result = await restoreDatabase(file);
+                
+                if (result.success) {
+                    statusEl.textContent = '✅ Restore successful!';
+                    detailsEl.textContent = result.message || 'Bot is restarting...';
+                    updateRestoreStep(6, 'Complete');
+                    
+                    addLiveUpdate('Database restored successfully. Bot restarting...', 'success');
+                    showNotification('Database restored! Bot restarting...', 'success');
+                    
+                    // Wait a moment then reload
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 5000);
+                } else {
+                    throw new Error(result.message || 'Restore failed');
+                }
+                
+            } catch (error) {
+                console.error('Restore error:', error);
+                closeModal('restore-progress-modal');
+                showNotification('Restore failed: ' + error.message, 'danger');
+                addLiveUpdate('Database restore failed: ' + error.message, 'danger');
+            }
+        }
+
         // ==================== LOAD FUNCTIONS ====================
         async function loadStats() {
             try {
@@ -3479,7 +3658,7 @@
             }
         }
 
-        // ==================== SIMPLIFIED SYSTEM FUNCTIONS ====================
+        // ==================== SYSTEM FUNCTIONS ====================
         function restartGameManager() { showNotification('Restarting game manager...', 'info'); }
         function clearCache() { showNotification('Clearing cache...', 'info'); }
         function backupDatabase() { showNotification('Creating database backup...', 'info'); }
@@ -3538,10 +3717,14 @@
                 document.getElementById('live-updates-list').innerHTML = '';
             });
             
-            // System buttons
+            // Database buttons
             document.getElementById('check-db-info')?.addEventListener('click', checkDatabaseInfo);
             document.getElementById('download-db')?.addEventListener('click', () => downloadDatabase(true));
             document.getElementById('download-db-uncompressed')?.addEventListener('click', () => downloadDatabase(false));
+            document.getElementById('restore-db-btn')?.addEventListener('click', () => openModal('restore-upload-modal'));
+            
+            // Restore submit
+            document.getElementById('submit-restore')?.addEventListener('click', handleRestore);
             
             // Modal close buttons
             document.querySelectorAll('.modal-close, .btn-secondary[data-modal]').forEach(btn => {
