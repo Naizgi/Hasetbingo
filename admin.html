@@ -3387,7 +3387,15 @@
                         });
                         
                         if (!response.ok) {
-                            throw new Error(`HTTP error! status: ${response.status}`);
+                            // Try to get error message from response
+                            const errorText = await response.text();
+                            try {
+                                const errorJson = JSON.parse(errorText);
+                                reject(new Error(errorJson.message || `HTTP error ${response.status}`));
+                            } catch {
+                                reject(new Error(`HTTP error ${response.status}: ${errorText}`));
+                            }
+                            return;
                         }
                         
                         const result = await response.json();
@@ -3398,7 +3406,7 @@
                 };
                 
                 reader.onerror = function(error) {
-                    reject(error);
+                    reject(new Error('File read error: ' + error));
                 };
                 
                 reader.readAsArrayBuffer(file);
@@ -3507,14 +3515,15 @@
                     document.getElementById('total-users').textContent = data.stats.total_users || 0;
                     document.getElementById('active-games').textContent = data.stats.active_games || 0;
                     
+                    // Get pending counts
                     try {
-                        const depositsRes = await fetch('/api/admin/payments?status=pending&page=1&limit=1');
+                        const depositsRes = await fetch('/api/admin/payments?status=pending&limit=1');
                         const depositsData = await depositsRes.json();
-                        const pendingDeposits = depositsData.total || 0;
+                        const pendingDeposits = depositsData.pagination?.total || 0;
                         
-                        const withdrawalsRes = await fetch('/api/admin/withdrawals?status=pending&page=1&limit=1');
+                        const withdrawalsRes = await fetch('/api/admin/withdrawals?status=pending&limit=1');
                         const withdrawalsData = await withdrawalsRes.json();
-                        const pendingWithdrawals = withdrawalsData.total || 0;
+                        const pendingWithdrawals = withdrawalsData.pagination?.total || 0;
                         
                         const totalPending = pendingDeposits + pendingWithdrawals;
                         document.getElementById('pending-payments').textContent = totalPending;
@@ -3523,6 +3532,7 @@
                         console.warn('Could not load pending counts:', e);
                     }
                     
+                    // Get total balance
                     try {
                         const balanceRes = await fetch('/api/admin/totalbalance');
                         const balanceData = await balanceRes.json();
@@ -3982,6 +3992,8 @@
                 if (data.success) {
                     showNotification('Deposit approved!', 'success');
                     loadDeposits();
+                } else {
+                    showNotification('Failed to approve deposit', 'danger');
                 }
             } catch (error) {
                 showNotification('Error approving deposit', 'danger');
@@ -4001,6 +4013,8 @@
                 if (data.success) {
                     showNotification('Deposit rejected!', 'success');
                     loadDeposits();
+                } else {
+                    showNotification('Failed to reject deposit', 'danger');
                 }
             } catch (error) {
                 showNotification('Error rejecting deposit', 'danger');
@@ -4019,6 +4033,8 @@
                 if (data.success) {
                     showNotification('Withdrawal approved!', 'success');
                     loadWithdrawals();
+                } else {
+                    showNotification('Failed to approve withdrawal', 'danger');
                 }
             } catch (error) {
                 showNotification('Error approving withdrawal', 'danger');
@@ -4038,6 +4054,8 @@
                 if (data.success) {
                     showNotification('Withdrawal rejected!', 'success');
                     loadWithdrawals();
+                } else {
+                    showNotification('Failed to reject withdrawal', 'danger');
                 }
             } catch (error) {
                 showNotification('Error rejecting withdrawal', 'danger');
@@ -4168,7 +4186,7 @@
             document.getElementById('refresh-transactions')?.addEventListener('click', loadTransactions);
             document.getElementById('refresh-weekly-commission')?.addEventListener('click', loadWeeklyCommission);
             document.getElementById('view-commission-details')?.addEventListener('click', () => {
-                showNotification('Commission details', 'info');
+                openModal('commission-details-modal');
             });
             
             // Game controls
@@ -4183,6 +4201,8 @@
                     if (data.success) {
                         showNotification('Game started!', 'success');
                         loadGameStatus();
+                    } else {
+                        showNotification('Failed to start game', 'danger');
                     }
                 } catch (error) {
                     showNotification('Error starting game', 'danger');
@@ -4201,6 +4221,8 @@
                     if (data.success) {
                         showNotification('Game stopped!', 'success');
                         loadGameStatus();
+                    } else {
+                        showNotification('Failed to stop game', 'danger');
                     }
                 } catch (error) {
                     showNotification('Error stopping game', 'danger');
@@ -4228,6 +4250,8 @@
                         showNotification(`Number ${number} called!`, 'success');
                         closeModal('call-number-modal');
                         loadGameStatus();
+                    } else {
+                        showNotification('Failed to call number', 'danger');
                     }
                 } catch (error) {
                     showNotification('Error calling number', 'danger');
