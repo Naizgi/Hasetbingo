@@ -838,6 +838,15 @@
             background: #218838;
         }
 
+        .btn-reset-game {
+            background: #ff6b6b;
+            color: white;
+        }
+
+        .btn-reset-game:hover {
+            background: #ff5252;
+        }
+
         .admin-sidebar {
             display: flex;
             flex-direction: column;
@@ -1002,6 +1011,15 @@
 
         .btn-call:hover {
             background: #f57c00;
+        }
+
+        .btn-reset {
+            background: #ff6b6b;
+            color: white;
+        }
+
+        .btn-reset:hover {
+            background: #ff5252;
         }
 
         .quick-actions {
@@ -2603,6 +2621,9 @@
                                 <button class="btn btn-info" onclick="checkHealth()">
                                     <i class="fas fa-heartbeat"></i> Health Check
                                 </button>
+                                <button class="btn btn-reset-game" onclick="forceResetGame()">
+                                    <i class="fas fa-sync-alt"></i> Force Reset Game
+                                </button>
                             </div>
                         </div>
                     </div>
@@ -2631,6 +2652,9 @@
                             </button>
                             <button class="btn-game-control btn-call" id="call-number-btn" disabled>
                                 <i class="fas fa-bullhorn"></i> Call Number
+                            </button>
+                            <button class="btn-game-control btn-reset" id="force-reset-game-btn" style="background: #ff6b6b;">
+                                <i class="fas fa-sync-alt"></i> Force Reset Game
                             </button>
                         </div>
                     </div>
@@ -2702,7 +2726,7 @@
         </footer>
     </div>
 
-    <!-- Modals -->
+    <!-- Add Balance Modal -->
     <div class="modal" id="add-balance-modal">
         <div class="modal-content">
             <div class="modal-header">
@@ -3166,6 +3190,32 @@
         </div>
     </div>
 
+    <!-- Force Reset Game Confirmation Modal -->
+    <div class="modal" id="reset-game-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>⚠️ Force Reset Game</h3>
+                <button class="modal-close" data-modal="reset-game-modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="payment-message" style="background: #f8d7da; border-left-color: #f5c6cb;">
+                    <p><strong>WARNING: This will forcefully reset the current game state!</strong></p>
+                    <ul style="margin: 10px 0 10px 20px;">
+                        <li>Any ongoing game will be terminated</li>
+                        <li>Players may lose their current cards</li>
+                        <li>Use only when game is stuck</li>
+                    </ul>
+                </div>
+                <div class="form-actions">
+                    <button class="btn btn-secondary" data-modal="reset-game-modal">Cancel</button>
+                    <button class="btn btn-danger" id="confirm-reset-game">
+                        <i class="fas fa-sync-alt"></i> Yes, Force Reset Game
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script>
         // ==================== GLOBAL VARIABLES ====================
         const urlParams = new URLSearchParams(window.location.search);
@@ -3176,6 +3226,7 @@
         let autoRefreshTime = 30000;
         let panelLoadedTime = new Date();
         let currentPaymentType = 'deposits';
+        let gameResetAttempts = 0;
         
         // Pagination state
         let gamesPage = 1, gamesPageSize = 20, gamesTotal = 0, gamesTotalPages = 0;
@@ -3285,7 +3336,7 @@
             }
         }
 
-        // ==================== DATABASE DOWNLOAD FUNCTIONS ====================
+        // ==================== DATABASE FUNCTIONS ====================
         async function checkDatabaseInfo() {
             try {
                 document.getElementById('db-status').innerHTML = '<span class="status-pending">Checking...</span>';
@@ -3367,7 +3418,6 @@
             }
         }
 
-        // ==================== DATABASE RESTORE FUNCTION ====================
         async function restoreDatabase(file) {
             return new Promise((resolve, reject) => {
                 const reader = new FileReader();
@@ -3387,7 +3437,6 @@
                         });
                         
                         if (!response.ok) {
-                            // Try to get error message from response
                             const errorText = await response.text();
                             try {
                                 const errorJson = JSON.parse(errorText);
@@ -3443,13 +3492,11 @@
             
             const file = fileInput.files[0];
             
-            // Validate file size (max 100MB)
             if (file.size > 100 * 1024 * 1024) {
                 showNotification('File too large. Maximum size is 100MB', 'danger');
                 return;
             }
             
-            // Validate file extension
             const validExtensions = ['.db', '.db.gz', '.sqlite', '.sqlite3'];
             const fileNameLower = file.name.toLowerCase();
             
@@ -3462,13 +3509,11 @@
                 return;
             }
             
-            // Confirm with admin
             if (!confirm('⚠️ WARNING: This will replace the current database! The bot will restart automatically. Continue?')) {
                 return;
             }
             
             try {
-                // Close upload modal and open progress modal
                 closeModal('restore-upload-modal');
                 openModal('restore-progress-modal');
                 
@@ -3479,7 +3524,6 @@
                 detailsEl.textContent = `File: ${file.name} (${(file.size / (1024 * 1024)).toFixed(2)} MB)`;
                 updateRestoreStep(0, 'Validating file...');
                 
-                // Perform restore
                 const result = await restoreDatabase(file);
                 
                 if (result.success) {
@@ -3490,7 +3534,6 @@
                     addLiveUpdate('Database restored successfully. Bot restarting...', 'success');
                     showNotification('Database restored! Bot restarting...', 'success');
                     
-                    // Wait a moment then reload
                     setTimeout(() => {
                         window.location.reload();
                     }, 5000);
@@ -3506,6 +3549,75 @@
             }
         }
 
+        // ==================== GAME CONTROL FUNCTIONS ====================
+        async function forceResetGame() {
+            if (!confirm('⚠️ Are you sure you want to force reset the game? This will terminate any ongoing game and clear the current state.')) {
+                return;
+            }
+            
+            showNotification('Attempting to force reset game...', 'info');
+            
+            try {
+                // First try to stop any active game
+                if (currentGame && currentGame.game_id) {
+                    const stopResponse = await fetch('/api/admin/stopgame', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ game_id: currentGame.game_id, admin_id: adminId })
+                    });
+                    
+                    const stopData = await stopResponse.json();
+                    if (stopData.success) {
+                        addLiveUpdate('Game stopped successfully', 'success');
+                    }
+                }
+                
+                // Wait a moment
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                
+                // Start a new game
+                const startResponse = await fetch('/api/admin/startgame', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ admin_id: adminId, force: true })
+                });
+                
+                const startData = await startResponse.json();
+                
+                if (startData.success) {
+                    showNotification('Game reset and started successfully!', 'success');
+                    addLiveUpdate('Game force reset and started new round', 'success');
+                    await loadGameStatus();
+                    await loadGames();
+                } else {
+                    // If start fails, try direct reset endpoint if available
+                    const resetResponse = await fetch('/api/admin/reset-game', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ admin_id: adminId })
+                    });
+                    
+                    const resetData = await resetResponse.json();
+                    
+                    if (resetData.success) {
+                        showNotification('Game reset successfully!', 'success');
+                        addLiveUpdate('Game reset successfully', 'success');
+                        await loadGameStatus();
+                        await loadGames();
+                    } else {
+                        throw new Error(resetData.message || 'Failed to reset game');
+                    }
+                }
+                
+            } catch (error) {
+                console.error('Error force resetting game:', error);
+                showNotification('Error resetting game: ' + error.message, 'danger');
+                addLiveUpdate('Game reset failed: ' + error.message, 'danger');
+            }
+            
+            closeModal('reset-game-modal');
+        }
+
         // ==================== LOAD FUNCTIONS ====================
         async function loadStats() {
             try {
@@ -3515,7 +3627,6 @@
                     document.getElementById('total-users').textContent = data.stats.total_users || 0;
                     document.getElementById('active-games').textContent = data.stats.active_games || 0;
                     
-                    // Get pending counts
                     try {
                         const depositsRes = await fetch('/api/admin/payments?status=pending&limit=1');
                         const depositsData = await depositsRes.json();
@@ -3532,7 +3643,6 @@
                         console.warn('Could not load pending counts:', e);
                     }
                     
-                    // Get total balance
                     try {
                         const balanceRes = await fetch('/api/admin/totalbalance');
                         const balanceData = await balanceRes.json();
@@ -3973,6 +4083,17 @@
                     document.getElementById('start-game-btn').disabled = !!data.game_id;
                     document.getElementById('stop-game-btn').disabled = !data.game_id || data.status === 'completed' || data.status === 'winner_display';
                     document.getElementById('call-number-btn').disabled = !data.game_id || data.status !== 'active';
+                    
+                    // If game is stuck in winner_display for too long, enable force reset
+                    if (data.game_id && data.status === 'winner_display') {
+                        const createdTime = data.created_at ? new Date(data.created_at) : new Date();
+                        const now = new Date();
+                        const minutesPassed = (now - createdTime) / (1000 * 60);
+                        
+                        if (minutesPassed > 10) { // If game has been in winner_display for more than 10 minutes
+                            showNotification('⚠️ Game appears to be stuck in winner_display. Use Force Reset if needed.', 'warning');
+                        }
+                    }
                 }
             } catch (error) {
                 console.error('Error loading game status:', error);
@@ -4164,6 +4285,10 @@
             // Restore submit
             document.getElementById('submit-restore')?.addEventListener('click', handleRestore);
             
+            // Force reset game buttons
+            document.getElementById('force-reset-game-btn')?.addEventListener('click', () => openModal('reset-game-modal'));
+            document.getElementById('confirm-reset-game')?.addEventListener('click', forceResetGame);
+            
             // Modal close buttons
             document.querySelectorAll('.modal-close, .btn-secondary[data-modal]').forEach(btn => {
                 btn.addEventListener('click', function() {
@@ -4192,6 +4317,7 @@
             // Game controls
             document.getElementById('start-game-btn')?.addEventListener('click', async () => {
                 try {
+                    showNotification('Starting new game...', 'info');
                     const response = await fetch('/api/admin/startgame', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
@@ -4200,18 +4326,29 @@
                     const data = await response.json();
                     if (data.success) {
                         showNotification('Game started!', 'success');
-                        loadGameStatus();
+                        addLiveUpdate('New game started');
+                        await loadGameStatus();
+                        await loadGames();
                     } else {
-                        showNotification('Failed to start game', 'danger');
+                        showNotification('Failed to start game: ' + (data.message || 'Unknown error'), 'danger');
+                        addLiveUpdate('Game start failed: ' + (data.message || 'Unknown error'), 'danger');
                     }
                 } catch (error) {
-                    showNotification('Error starting game', 'danger');
+                    console.error('Error starting game:', error);
+                    showNotification('Error starting game: ' + error.message, 'danger');
                 }
             });
             
             document.getElementById('stop-game-btn')?.addEventListener('click', async () => {
-                if (!currentGame?.game_id) return;
+                if (!currentGame?.game_id) {
+                    showNotification('No active game to stop', 'warning');
+                    return;
+                }
+                
+                if (!confirm('Stop the current game?')) return;
+                
                 try {
+                    showNotification('Stopping game...', 'info');
                     const response = await fetch('/api/admin/stopgame', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
@@ -4220,12 +4357,25 @@
                     const data = await response.json();
                     if (data.success) {
                         showNotification('Game stopped!', 'success');
-                        loadGameStatus();
+                        addLiveUpdate('Game stopped');
+                        await loadGameStatus();
+                        await loadGames();
+                        
+                        // Wait a moment and check if we can start a new game
+                        setTimeout(async () => {
+                            const checkResponse = await fetch('/api/game/active');
+                            const checkData = await checkResponse.json();
+                            if (!checkData.success || !checkData.game_id) {
+                                showNotification('Game is ready to start a new round', 'info');
+                            }
+                        }, 2000);
                     } else {
-                        showNotification('Failed to stop game', 'danger');
+                        showNotification('Failed to stop game: ' + (data.message || 'Unknown error'), 'danger');
+                        addLiveUpdate('Game stop failed: ' + (data.message || 'Unknown error'), 'danger');
                     }
                 } catch (error) {
-                    showNotification('Error stopping game', 'danger');
+                    console.error('Error stopping game:', error);
+                    showNotification('Error stopping game: ' + error.message, 'danger');
                 }
             });
             
@@ -4240,6 +4390,7 @@
                 if (!currentGame?.game_id) return;
                 
                 try {
+                    showNotification(`Calling number ${number}...`, 'info');
                     const response = await fetch('/api/admin/callnumber', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
@@ -4248,13 +4399,15 @@
                     const data = await response.json();
                     if (data.success) {
                         showNotification(`Number ${number} called!`, 'success');
+                        addLiveUpdate(`Called number ${number}`);
                         closeModal('call-number-modal');
-                        loadGameStatus();
+                        await loadGameStatus();
                     } else {
-                        showNotification('Failed to call number', 'danger');
+                        showNotification('Failed to call number: ' + (data.message || 'Unknown error'), 'danger');
                     }
                 } catch (error) {
-                    showNotification('Error calling number', 'danger');
+                    console.error('Error calling number:', error);
+                    showNotification('Error calling number: ' + error.message, 'danger');
                 }
             });
             
