@@ -20,7 +20,7 @@ import uuid
 import gc
 import shutil
 import tempfile
-import subprocess
+import sqlite3
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
@@ -1396,8 +1396,8 @@ async def process_withdrawal_request(withdrawal_id: int, admin_id: int, approve:
         traceback.print_exc()
         return False
 
-# ==================== DATABASE RESTORE FUNCTION (SAFE VERSION) ====================
-async def restore_database_from_file(file_path: str, admin_id: int) -> Tuple[bool, str]:
+# ==================== SAFE DATABASE RESTORE FUNCTION ====================
+async def restore_database_from_file(file_path: str, admin_id: int, original_message: types.Message, status_msg: types.Message) -> Tuple[bool, str]:
     """
     Safely restore database from a backup file with complete shutdown
     
@@ -1411,6 +1411,8 @@ async def restore_database_from_file(file_path: str, admin_id: int) -> Tuple[boo
     Args:
         file_path: Path to the uploaded database file
         admin_id: Admin ID performing the restore
+        original_message: Original message from user
+        status_msg: Status message to update
     
     Returns:
         Tuple of (success, message)
@@ -1423,6 +1425,17 @@ async def restore_database_from_file(file_path: str, admin_id: int) -> Tuple[boo
         
         # ========== STEP 1: VALIDATE FILE ==========
         logger.info("Step 1: Validating uploaded database file...")
+        
+        # Update status
+        try:
+            await status_msg.edit_text(
+                "⏳ **SAFE RESTORE PROCESS**\n\n"
+                "✅ Step 1/6: File downloaded\n"
+                "✅ Step 2/6: Basic validation passed\n"
+                "🔄 Step 3/6: Testing database integrity..."
+            )
+        except:
+            pass
         
         # Validate file exists
         if not os.path.exists(file_path):
@@ -1440,7 +1453,6 @@ async def restore_database_from_file(file_path: str, admin_id: int) -> Tuple[boo
                 return False, "❌ Invalid database file format - not a SQLite database"
         
         # Try to open the database to ensure it's valid
-        import sqlite3
         try:
             test_conn = sqlite3.connect(file_path)
             test_conn.execute("SELECT name FROM sqlite_master WHERE type='table' LIMIT 1")
@@ -1452,6 +1464,18 @@ async def restore_database_from_file(file_path: str, admin_id: int) -> Tuple[boo
         # Get current database path
         current_db_path = getattr(Database, '_db_path', 'habesha_bingo.db')
         logger.info(f"Current database path: {current_db_path}")
+        
+        # Update status
+        try:
+            await status_msg.edit_text(
+                "⏳ **SAFE RESTORE PROCESS**\n\n"
+                "✅ Step 1/6: File downloaded\n"
+                "✅ Step 2/6: Basic validation passed\n"
+                "✅ Step 3/6: Database integrity verified\n"
+                "🔄 Step 4/6: Creating backup..."
+            )
+        except:
+            pass
         
         # ========== STEP 2: CREATE BACKUP ==========
         logger.info("Step 2: Creating backup of current database...")
@@ -1469,6 +1493,19 @@ async def restore_database_from_file(file_path: str, admin_id: int) -> Tuple[boo
         else:
             logger.warning("⚠️ No existing database found to backup")
             backup_path = None
+        
+        # Update status
+        try:
+            await status_msg.edit_text(
+                "⏳ **SAFE RESTORE PROCESS**\n\n"
+                "✅ Step 1/6: File downloaded\n"
+                "✅ Step 2/6: Basic validation passed\n"
+                "✅ Step 3/6: Database integrity verified\n"
+                "✅ Step 4/6: Backup created\n"
+                "🔄 Step 5/6: Shutting down bot..."
+            )
+        except:
+            pass
         
         # ========== STEP 3: GRACEFUL SHUTDOWN ==========
         logger.info("Step 3: Performing graceful shutdown of all bot components...")
@@ -1520,6 +1557,20 @@ async def restore_database_from_file(file_path: str, admin_id: int) -> Tuple[boo
         # Wait to ensure all operations complete
         logger.info("Waiting 3 seconds for all operations to settle...")
         await asyncio.sleep(3)
+        
+        # Update status
+        try:
+            await status_msg.edit_text(
+                "⏳ **SAFE RESTORE PROCESS**\n\n"
+                "✅ Step 1/6: File downloaded\n"
+                "✅ Step 2/6: Basic validation passed\n"
+                "✅ Step 3/6: Database integrity verified\n"
+                "✅ Step 4/6: Backup created\n"
+                "✅ Step 5/6: Bot shutdown complete\n"
+                "🔄 Step 6/6: Replacing database..."
+            )
+        except:
+            pass
         
         # ========== STEP 4: SAFELY REPLACE DATABASE ==========
         logger.info("Step 4: Safely replacing database file...")
@@ -1574,6 +1625,23 @@ async def restore_database_from_file(file_path: str, admin_id: int) -> Tuple[boo
             
             return False, f"❌ Restored database is corrupted: {str(e)[:100]}"
         
+        # Update final status
+        try:
+            await status_msg.edit_text(
+                "✅ **SAFE RESTORE PROCESS COMPLETE**\n\n"
+                "✅ Step 1/6: File downloaded\n"
+                "✅ Step 2/6: Basic validation passed\n"
+                "✅ Step 3/6: Database integrity verified\n"
+                "✅ Step 4/6: Backup created\n"
+                "✅ Step 5/6: Bot shutdown complete\n"
+                "✅ Step 6/6: Database replaced successfully\n\n"
+                f"📁 Backup saved: {os.path.basename(backup_path) if backup_path else 'None'}\n"
+                f"📊 New database size: {file_size / (1024*1024):.2f} MB\n\n"
+                "🔄 **Bot is restarting now...**"
+            )
+        except:
+            pass
+        
         # ========== STEP 5: LOG THE RESTORE ACTION ==========
         logger.info("Step 5: Logging restore action...")
         
@@ -1597,25 +1665,11 @@ async def restore_database_from_file(file_path: str, admin_id: int) -> Tuple[boo
         except Exception as e:
             logger.warning(f"Could not log restore action: {e}")
         
+        # Wait a moment for final message
+        await asyncio.sleep(2)
+        
         # ========== STEP 6: RESTART BOT ==========
         logger.info("Step 6: Restarting bot...")
-        
-        # Send success message (this won't be delivered until after restart)
-        success_msg = f"✅ *Database restore successful!*\n\n"
-        success_msg += f"📁 Backup saved as: `{os.path.basename(backup_path) if backup_path else 'None'}`\n"
-        success_msg += f"📊 File size: {file_size / (1024*1024):.2f} MB\n\n"
-        success_msg += f"🔄 *Bot is restarting now...*\n"
-        success_msg += f"⏱️ Please wait a few seconds and use /start again."
-        
-        # Try to send the message (may fail if bot session is closed)
-        try:
-            if bot:
-                await message.answer(success_msg, parse_mode=ParseMode.MARKDOWN)
-        except:
-            pass
-        
-        # Wait a moment for message to send
-        await asyncio.sleep(2)
         
         # Perform full restart
         logger.info("🚀 Executing bot restart...")
@@ -2732,10 +2786,10 @@ async def main():
             await state.finish()
             return
         
-        # Send processing message
-        processing_msg = await message.answer(
+        # Send initial processing message (this will be our status message)
+        status_msg = await message.answer(
             "⏳ **SAFE RESTORE PROCESS INITIATED**\n\n"
-            "Step 1/6: Downloading file...",
+            "⬇️ Step 1/6: Downloading file...",
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=types.ReplyKeyboardRemove()
         )
@@ -2751,25 +2805,43 @@ async def main():
             
             logger.info(f"Admin {user_id} uploaded database file for restore: {document.file_name} ({file.file_size} bytes)")
             
-            await processing_msg.edit_text(
-                "⏳ Step 2/6: Validating file...\n"
-                f"📁 File: {document.file_name}\n"
-                f"📊 Size: {file.file_size / (1024*1024):.2f} MB"
-            )
+            # Update status - Step 2
+            try:
+                await status_msg.edit_text(
+                    "⏳ **SAFE RESTORE PROCESS**\n\n"
+                    "✅ Step 1/6: File downloaded\n"
+                    "🔄 Step 2/6: Validating file...\n"
+                    f"📁 File: {document.file_name}\n"
+                    f"📊 Size: {file.file_size / (1024*1024):.2f} MB"
+                )
+            except Exception as e:
+                # If edit fails, send new message
+                logger.warning(f"Could not edit message, sending new one: {e}")
+                status_msg = await message.answer(
+                    "⏳ **SAFE RESTORE PROCESS**\n\n"
+                    "✅ Step 1/6: File downloaded\n"
+                    "🔄 Step 2/6: Validating file...\n"
+                    f"📁 File: {document.file_name}\n"
+                    f"📊 Size: {file.file_size / (1024*1024):.2f} MB",
+                    parse_mode=ParseMode.MARKDOWN
+                )
             
             # Call the safe restore function
-            success, message_text = await restore_database_from_file(temp_file_path, user_id)
+            success, message_text = await restore_database_from_file(temp_file_path, user_id, message, status_msg)
             
             # Clean up temp directory
             shutil.rmtree(temp_dir, ignore_errors=True)
             
             if success:
                 # This message may not be sent if bot restarts immediately
-                await message.answer(
-                    f"✅ {message_text}\n\n"
-                    f"🔄 Bot is restarting...",
-                    parse_mode=ParseMode.MARKDOWN
-                )
+                try:
+                    await message.answer(
+                        f"✅ {message_text}\n\n"
+                        f"🔄 Bot is restarting...",
+                        parse_mode=ParseMode.MARKDOWN
+                    )
+                except:
+                    pass
             else:
                 await message.answer(f"❌ {message_text}")
             
