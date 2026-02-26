@@ -23,6 +23,7 @@ import tempfile
 import sqlite3
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
+from urllib.parse import urlencode
 
 # ==================== FIX FOR WINDOWS CONSOLE ====================
 if sys.platform == "win32":
@@ -102,17 +103,19 @@ PAYMENT_RECEIVER_NAME = "Nebiyu Asefa"
 SUPPORT_TELEGRAM_USER = "@Hasetbingosupport"
 
 # API URLs and keys (will be loaded from config)
-TELEBIRR_VERIFICATION_API_URL = "http://verify.mellainnovation.com/verify-telebirr"
+TELEBIRR_VERIFICATION_API_URL = "http://verifyapi.leulzenebe.pro/verify-telebirr"
+TELEBIRR_VERIFICATION_API_URL_2 = "https://www.verify.openmella.com.et/verify-telebirr"
 TELEBIRR_API_KEY = ""
 CBE_BIRR_VERIFICATION_API_URL = "https://verifyapi.leulzenebe.pro/verify-cbebirr"
 CBE_BIRR_API_KEY = ""
 
 # ==================== API CLIENTS ====================
 class TelebirrVerificationApiClient:
-    """Client for Telebirr verification API"""
+    """Client for Telebirr verification API with dual endpoint support"""
     
     def __init__(self, api_url: str = TELEBIRR_VERIFICATION_API_URL, api_key: str = ""):
-        self.api_url = api_url
+        self.primary_api_url = api_url
+        self.secondary_api_url = TELEBIRR_VERIFICATION_API_URL_2
         self.api_key = api_key
         self.timeout = 30
         self._session = None
@@ -127,16 +130,16 @@ class TelebirrVerificationApiClient:
         if self._session and not self._session.closed:
             await self._session.close()
             self._session = None
-        
-    async def verify_transaction(self, transaction_id: str):
-        """Verify transaction through Telebirr verification API"""
+    
+    async def verify_transaction_primary(self, transaction_id: str):
+        """Verify transaction through primary Telebirr verification API (POST method)"""
         if not transaction_id or transaction_id == "WITHDRAW":
             logger.error(f"Invalid transaction ID for Telebirr API: {transaction_id}")
             return None
             
         try:
             await self._ensure_session()
-            logger.info(f"🔍 Calling Telebirr verification API for transaction: {transaction_id}")
+            logger.info(f"🔍 Calling primary Telebirr verification API (POST) for transaction: {transaction_id}")
             
             headers = {
                 "Content-Type": "application/json",
@@ -147,22 +150,86 @@ class TelebirrVerificationApiClient:
                 "reference": transaction_id
             }
             
-            async with self._session.post(self.api_url, headers=headers, json=payload) as response:
+            async with self._session.post(self.primary_api_url, headers=headers, json=payload) as response:
                 if response.status == 200:
                     data = await response.json()
-                    logger.info(f"✅ Telebirr API response received. success: {data.get('success', False)}")
+                    logger.info(f"✅ Primary Telebirr API response received. success: {data.get('success', False)}")
                     return self._process_response(data, transaction_id)
                 else:
                     error_text = await response.text()
-                    logger.error(f"Telebirr API Error {response.status}: {error_text}")
+                    logger.error(f"Primary Telebirr API Error {response.status}: {error_text}")
                     return None
                     
         except asyncio.TimeoutError:
-            logger.error(f"Timeout verifying transaction {transaction_id} via Telebirr API")
+            logger.error(f"Timeout verifying transaction {transaction_id} via primary Telebirr API")
             return None
         except Exception as e:
-            logger.error(f"Error calling Telebirr API for {transaction_id}: {e}")
+            logger.error(f"Error calling primary Telebirr API for {transaction_id}: {e}")
             return None
+    
+    async def verify_transaction_secondary(self, transaction_id: str):
+        """Verify transaction through secondary Telebirr verification API (GET method)"""
+        if not transaction_id or transaction_id == "WITHDRAW":
+            logger.error(f"Invalid transaction ID for secondary Telebirr API: {transaction_id}")
+            return None
+            
+        try:
+            await self._ensure_session()
+            logger.info(f"🔍 Calling secondary Telebirr verification API (GET) for transaction: {transaction_id}")
+            
+            # Build GET URL with query parameters
+            params = {"reference": transaction_id}
+            url = f"{self.secondary_api_url}?{urlencode(params)}"
+            
+            headers = {
+                "x-api-key": self.api_key
+            }
+            
+            async with self._session.get(url, headers=headers) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    logger.info(f"✅ Secondary Telebirr API response received. success: {data.get('success', False)}")
+                    return self._process_response(data, transaction_id)
+                else:
+                    error_text = await response.text()
+                    logger.error(f"Secondary Telebirr API Error {response.status}: {error_text}")
+                    return None
+                    
+        except asyncio.TimeoutError:
+            logger.error(f"Timeout verifying transaction {transaction_id} via secondary Telebirr API")
+            return None
+        except Exception as e:
+            logger.error(f"Error calling secondary Telebirr API for {transaction_id}: {e}")
+            return None
+    
+    async def verify_transaction(self, transaction_id: str):
+        """
+        Verify transaction through Telebirr verification API with fallback
+        First tries primary API (POST), if fails tries secondary API (GET)
+        """
+        if not transaction_id or transaction_id == "WITHDRAW":
+            logger.error(f"Invalid transaction ID for Telebirr API: {transaction_id}")
+            return None
+        
+        # Try primary API first
+        result = await self.verify_transaction_primary(transaction_id)
+        
+        # If primary API succeeded, return result
+        if result and result.get('success', False):
+            logger.info(f"✅ Primary Telebirr API verification successful for {transaction_id}")
+            return result
+        
+        # If primary API failed, try secondary API
+        logger.info(f"⚠️ Primary Telebirr API failed, trying secondary API for {transaction_id}")
+        result = await self.verify_transaction_secondary(transaction_id)
+        
+        if result and result.get('success', False):
+            logger.info(f"✅ Secondary Telebirr API verification successful for {transaction_id}")
+            return result
+        
+        # Both APIs failed
+        logger.error(f"❌ Both Telebirr APIs failed for transaction {transaction_id}")
+        return None
     
     def _process_response(self, api_data: dict, transaction_id: str):
         """Process API response for bot use - FIXED to use settledAmount"""
@@ -740,7 +807,7 @@ class EnhancedPaymentValidator:
             return False
     
     async def verify_telebirr_transaction(self, sms_text: str):
-        """Verify Telebirr transaction"""
+        """Verify Telebirr transaction using dual API with fallback"""
         try:
             if not sms_text or sms_text == "WITHDRAW":
                 return False, None, ["Invalid SMS text provided"]
@@ -764,10 +831,11 @@ class EnhancedPaymentValidator:
             if not self.telebirr_client:
                 return False, None, ["Telebirr client not initialized"]
             
+            # Use the verify_transaction method that tries both APIs with fallback
             api_result = await self.telebirr_client.verify_transaction(sms_info['transaction_id'])
             
             if not api_result:
-                return False, None, ["Failed to verify transaction via Telebirr API"]
+                return False, None, ["Failed to verify transaction via Telebirr API (both endpoints failed)"]
             
             if not api_result.get('transaction_verified', False):
                 return False, None, ["Transaction verification failed"]
@@ -1743,7 +1811,8 @@ async def main():
     print(f"👤 Receiver Name: {PAYMENT_RECEIVER_NAME}")
     print(f"🆘 Support: {SUPPORT_TELEGRAM_USER}")
     print(f"🛡️ Fraud Prevention: ENABLED")
-    print(f"🌐 Telebirr API: {TELEBIRR_VERIFICATION_API_URL}")
+    print(f"🌐 Telebirr Primary API: {TELEBIRR_VERIFICATION_API_URL} (POST)")
+    print(f"🌐 Telebirr Secondary API: {TELEBIRR_VERIFICATION_API_URL_2} (GET)")
     print(f"🌐 CBE Birr API: {CBE_BIRR_VERIFICATION_API_URL}")
     print(f"🔑 Telebirr API Key: {'Configured' if TELEBIRR_API_KEY else 'Not Configured'}")
     print(f"🔑 CBE Birr API Key: {'Configured' if CBE_BIRR_API_KEY else 'Not Configured'}")
@@ -3190,7 +3259,8 @@ async def main():
     print(f"👤 Receiver Name: {PAYMENT_RECEIVER_NAME}")
     print(f"🆘 Support: {SUPPORT_TELEGRAM_USER}")
     print(f"🛡️ Fraud Prevention: ENABLED")
-    print(f"🌐 Telebirr API: {TELEBIRR_VERIFICATION_API_URL}")
+    print(f"🌐 Telebirr Primary API: {TELEBIRR_VERIFICATION_API_URL} (POST)")
+    print(f"🌐 Telebirr Secondary API: {TELEBIRR_VERIFICATION_API_URL_2} (GET)")
     print(f"🌐 CBE Birr API: {CBE_BIRR_VERIFICATION_API_URL}")
     print(f"🔑 Telebirr API Key: {'Configured' if TELEBIRR_API_KEY else 'Not Configured'}")
     print(f"🔑 CBE Birr API Key: {'Configured' if CBE_BIRR_API_KEY else 'Not Configured'}")
