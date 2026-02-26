@@ -1464,6 +1464,120 @@ async def process_withdrawal_request(withdrawal_id: int, admin_id: int, approve:
         traceback.print_exc()
         return False
 
+# ==================== GAME MANAGEMENT FUNCTIONS ====================
+async def start_new_round_game(admin_id: int) -> Tuple[bool, str]:
+    """Start a new round game"""
+    try:
+        from utils.game_manager import game_manager
+        
+        # Check if game is already running
+        if game_manager and game_manager.is_game_running():
+            return False, "A game is already running. Stop it first with /stopgame"
+        
+        # Start a new game
+        if game_manager:
+            success = await game_manager.start_new_round()
+            if success:
+                # Log the action
+                from database.db import Database
+                with Database.get_cursor() as cursor:
+                    cursor.execute("""
+                        CREATE TABLE IF NOT EXISTS admin_actions (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            admin_id INTEGER NOT NULL,
+                            action_type TEXT NOT NULL,
+                            details TEXT,
+                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        )
+                    """)
+                    cursor.execute("""
+                        INSERT INTO admin_actions (admin_id, action_type, details)
+                        VALUES (?, ?, ?)
+                    """, (admin_id, 'start_game', 'Started new round game'))
+                
+                # Notify all players
+                await notify_all_players("🎮 *አዲስ የቢንጎ ዙር ተጀምሯል!*\n\nወደ /play በመሄድ ካርድ ይግዙ እና ይጫወቱ! 🎯")
+                
+                return True, "New round game started successfully!"
+            else:
+                return False, "Failed to start new round game"
+        else:
+            return False, "Game manager not initialized"
+            
+    except Exception as e:
+        logger.error(f"Error starting game: {e}", exc_info=True)
+        return False, f"Error: {str(e)[:100]}"
+
+async def stop_current_game(admin_id: int) -> Tuple[bool, str]:
+    """Stop the current game"""
+    try:
+        from utils.game_manager import game_manager
+        
+        # Check if game is running
+        if not game_manager or not game_manager.is_game_running():
+            return False, "No game is currently running"
+        
+        # Stop the game
+        if game_manager:
+            success = await game_manager.stop_game()
+            if success:
+                # Log the action
+                from database.db import Database
+                with Database.get_cursor() as cursor:
+                    cursor.execute("""
+                        CREATE TABLE IF NOT EXISTS admin_actions (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            admin_id INTEGER NOT NULL,
+                            action_type TEXT NOT NULL,
+                            details TEXT,
+                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        )
+                    """)
+                    cursor.execute("""
+                        INSERT INTO admin_actions (admin_id, action_type, details)
+                        VALUES (?, ?, ?)
+                    """, (admin_id, 'stop_game', 'Stopped current game'))
+                
+                # Notify all players
+                await notify_all_players("🛑 *የቢንጎ ዙር ተቋርጧል!*\n\nለቀጣይ ዙር ይጠብቁ። አዲስ ዙር ሲጀመር እናሳውቅዎታለን።")
+                
+                return True, "Game stopped successfully!"
+            else:
+                return False, "Failed to stop game"
+        else:
+            return False, "Game manager not initialized"
+            
+    except Exception as e:
+        logger.error(f"Error stopping game: {e}", exc_info=True)
+        return False, f"Error: {str(e)[:100]}"
+
+async def notify_all_players(message: str):
+    """Notify all active players about game events"""
+    try:
+        from database.db import Database
+        from web_server import notification_queue
+        
+        # Get all users who have played recently
+        with Database.get_cursor() as cursor:
+            cursor.execute("""
+                SELECT DISTINCT user_id FROM games 
+                WHERE created_at > datetime('now', '-7 days')
+                UNION
+                SELECT DISTINCT user_id FROM users
+                WHERE balance > 0
+                LIMIT 100
+            """)
+            users = cursor.fetchall()
+        
+        for user in users:
+            user_id = user['user_id']
+            notification_queue.add_notification(user_id, message)
+            
+        logger.info(f"Sent notification to {len(users)} players")
+        
+    except Exception as e:
+        logger.error(f"Error notifying players: {e}")
+
 # ==================== SAFE DATABASE RESTORE FUNCTION ====================
 async def restore_database_from_file(file_path: str, admin_id: int, original_message, status_msg) -> Tuple[bool, str]:
     """
@@ -1942,6 +2056,8 @@ async def main():
             welcome_message += "• /adminpanel - ድር ፓነል ይክፈቱ\n"
             welcome_message += "• /stats - ስታቲስቲክስ\n"
             welcome_message += "• /pendingdeposits - በመጠባበቅ ላይ ያሉ ክፍያዎች\n"
+            welcome_message += "• /startgame - አዲስ ጨዋታ ይጀምሩ\n"
+            welcome_message += "• /stopgame - የአሁኑን ጨዋታ ያቁሙ\n"
             welcome_message += "• /getdb - የውሂብ ጎታ ያውርዱ (Download database)\n"
             welcome_message += "• /restoredb - የውሂብ ጎታ ወደነበረበት ይመልሱ (SAFE - Restore & Restart)\n"
         
@@ -2678,11 +2794,54 @@ async def main():
 • /pendingwithdrawals - በመጠባበቅ ላይ ያሉ የገንዘብ ማውጣቶች
 • /stats - ዝርዝር ስታቲስቲክስ
 • /adminpanel - ድር ፓነል ይክፈቱ
+• /startgame - አዲስ ጨዋታ ይጀምሩ
+• /stopgame - የአሁኑን ጨዋታ ያቁሙ
+• /addbalance - ለተጠቃሚ ገንዘብ ያክሉ
+• /callnumber - ቁጥር በእጅ ይጥሩ
 • /getdb - የውሂብ ጎታ ያውርዱ (Download database)
 • /restoredb - የውሂብ ጎታ ወደነበረበት ይመልሱ (SAFE - Restore & Restart)
     """
         
         await message.answer(admin_panel, parse_mode=ParseMode.MARKDOWN)
+
+    # ==================== GAME CONTROL COMMANDS ====================
+    @dp.message_handler(Command("startgame"))
+    async def cmd_start_game(message: types.Message):
+        """Admin command to start a new game"""
+        from config import ADMIN_IDS
+        
+        user_id = message.from_user.id
+        if user_id not in ADMIN_IDS:
+            await message.answer("⛔ ይህ ትእዛዝ ለአስተዳዳሪዎች ብቻ ነው።")
+            return
+        
+        status_msg = await message.answer("🔄 Starting new game...")
+        
+        success, result_msg = await start_new_round_game(user_id)
+        
+        await status_msg.edit_text(result_msg)
+        
+        # Log the action
+        logger.info(f"Admin {user_id} started a new game: {result_msg}")
+
+    @dp.message_handler(Command("stopgame"))
+    async def cmd_stop_game(message: types.Message):
+        """Admin command to stop the current game"""
+        from config import ADMIN_IDS
+        
+        user_id = message.from_user.id
+        if user_id not in ADMIN_IDS:
+            await message.answer("⛔ ይህ ትእዛዝ ለአስተዳዳሪዎች ብቻ ነው።")
+            return
+        
+        status_msg = await message.answer("🛑 Stopping current game...")
+        
+        success, result_msg = await stop_current_game(user_id)
+        
+        await status_msg.edit_text(result_msg)
+        
+        # Log the action
+        logger.info(f"Admin {user_id} stopped the game: {result_msg}")
 
     # ==================== DATABASE BACKUP COMMAND ====================
     @dp.message_handler(Command("getdb"))
@@ -3126,6 +3285,225 @@ async def main():
         except Exception as e:
             await message.answer(f"❌ ስህተት: {str(e)[:100]}")
     
+    # ==================== ADDITIONAL ADMIN COMMANDS ====================
+    @dp.message_handler(Command("addbalance"))
+    async def cmd_add_balance(message: types.Message):
+        """Admin command to add balance to user (format: /addbalance user_id amount)"""
+        from config import ADMIN_IDS
+        from database.db import Database
+        
+        user_id = message.from_user.id
+        if user_id not in ADMIN_IDS:
+            await message.answer("⛔ ይህ ትእዛዝ ለአስተዳዳሪዎች ብቻ ነው።")
+            return
+        
+        args = message.text.split()
+        if len(args) < 3:
+            await message.answer("📋 አጠቃቀም: /addbalance <user_id> <amount>\n\n📝 ምሳሌ: /addbalance 123456789 100")
+            return
+        
+        try:
+            target_user_id = int(args[1])
+            amount = float(args[2])
+            
+            if amount <= 0:
+                await message.answer("❌ መጠን ከዜሮ መብለጥ አለበት።")
+                return
+            
+            # Add balance
+            await Database.add_user_balance(target_user_id, amount, 'admin_add', f'Added by admin {user_id}')
+            
+            # Get updated balance
+            user = await Database.get_user(target_user_id)
+            new_balance = user.get('balance', 0) if user else 0
+            
+            await message.answer(
+                f"✅ *ገንዘብ ተጨምሯል!*\n\n"
+                f"👤 ተጠቃሚ: {target_user_id}\n"
+                f"💰 የተጨመረው መጠን: {amount:.2f} {currency}\n"
+                f"🏦 አዲስ ቀሪ ሒሳብ: {new_balance:.2f} {currency}"
+            )
+            
+            # Notify user
+            await send_notification_to_user(target_user_id,
+                f"💰 *ገንዘብ ተጨምሯል!*\n\n"
+                f"ወደ መለያዎ {amount:.2f} {currency} ተጨምሯል።\n"
+                f"አሁን ያለዎት ቀሪ ሒሳብ: {new_balance:.2f} {currency}\n\n"
+                f"ለማጫወት: /play"
+            )
+            
+            # Log the action
+            with Database.get_cursor() as cursor:
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS admin_actions (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        admin_id INTEGER NOT NULL,
+                        action_type TEXT NOT NULL,
+                        details TEXT,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                cursor.execute("""
+                    INSERT INTO admin_actions (admin_id, action_type, details)
+                    VALUES (?, ?, ?)
+                """, (user_id, 'add_balance', f'Added {amount} to user {target_user_id}'))
+            
+        except ValueError:
+            await message.answer("❌ እባክዎ ትክክለኛ የተጠቃሚ መታወቂያ እና መጠን ያስገቡ።")
+        except Exception as e:
+            await message.answer(f"❌ ስህተት: {str(e)[:100]}")
+
+    @dp.message_handler(Command("stats"))
+    async def cmd_stats(message: types.Message):
+        """Admin command to view game statistics"""
+        from config import ADMIN_IDS
+        from database.db import Database
+        
+        user_id = message.from_user.id
+        if user_id not in ADMIN_IDS:
+            await message.answer("⛔ ይህ ትእዛዝ ለአስተዳዳሪዎች ብቻ ነው።")
+            return
+        
+        try:
+            with Database.get_cursor() as cursor:
+                # Total users
+                cursor.execute("SELECT COUNT(*) as count FROM users")
+                total_users = cursor.fetchone()['count']
+                
+                # Active users (with balance > 0)
+                cursor.execute("SELECT COUNT(*) as count FROM users WHERE balance > 0")
+                active_users = cursor.fetchone()['count']
+                
+                # Total games
+                cursor.execute("SELECT COUNT(*) as count FROM games")
+                total_games = cursor.fetchone()['count']
+                
+                # Games won
+                cursor.execute("SELECT COUNT(*) as count FROM games WHERE status = 'won'")
+                games_won = cursor.fetchone()['count']
+                
+                # Total deposits
+                cursor.execute("SELECT COUNT(*) as count, SUM(amount) as total FROM payments WHERE status = 'approved'")
+                deposits = cursor.fetchone()
+                total_deposits = deposits['count'] or 0
+                deposit_amount = deposits['total'] or 0
+                
+                # Total withdrawals
+                cursor.execute("SELECT COUNT(*) as count, SUM(amount) as total FROM withdrawal_requests WHERE status = 'approved'")
+                withdrawals = cursor.fetchone()
+                total_withdrawals = withdrawals['count'] or 0
+                withdrawal_amount = withdrawals['total'] or 0
+                
+                # Total card sales
+                cursor.execute("SELECT COUNT(*) as count, SUM(amount) as total FROM transactions WHERE transaction_type = 'card_purchase'")
+                card_sales = cursor.fetchone()
+                total_cards = card_sales['count'] or 0
+                card_revenue = card_sales['total'] or 0
+                
+                # Today's stats
+                today = datetime.now().strftime('%Y-%m-%d')
+                cursor.execute("""
+                    SELECT COUNT(*) as count, SUM(amount) as total 
+                    FROM payments 
+                    WHERE status = 'approved' AND date(created_at) = date('now')
+                """)
+                today_deposits = cursor.fetchone()
+                today_deposit_count = today_deposits['count'] or 0
+                today_deposit_amount = today_deposits['total'] or 0
+                
+                cursor.execute("""
+                    SELECT COUNT(*) as count, SUM(amount) as total 
+                    FROM games 
+                    WHERE date(created_at) = date('now')
+                """)
+                today_games = cursor.fetchone()
+                today_games_count = today_games['count'] or 0
+            
+            stats_text = (
+                f"📊 *የስርዓት ስታቲስቲክስ*\n\n"
+                f"*ተጠቃሚዎች:*\n"
+                f"👥 ጠቅላላ ተጠቃሚዎች: {total_users}\n"
+                f"✨ ንቁ ተጠቃሚዎች: {active_users}\n\n"
+                f"*ጨዋታዎች:*\n"
+                f"🎮 ጠቅላላ ጨዋታዎች: {total_games}\n"
+                f"🏆 የተሸነፉ ጨዋታዎች: {games_won}\n"
+                f"📅 የዛሬ ጨዋታዎች: {today_games_count}\n\n"
+                f"*ክፍያዎች:*\n"
+                f"💰 ጠቅላላ ተቀማጭ: {total_deposits} ጊዜ\n"
+                f"💵 ጠቅላላ ተቀማጭ መጠን: {deposit_amount:.2f} {currency}\n"
+                f"📤 ጠቅላላ ማውጣት: {total_withdrawals} ጊዜ\n"
+                f"💸 ጠቅላላ ማውጣት መጠን: {withdrawal_amount:.2f} {currency}\n\n"
+                f"*ካርድ ሽያጭ:*\n"
+                f"🎟️ ጠቅላላ ካርዶች: {total_cards}\n"
+                f"💳 ጠቅላላ ገቢ: {card_revenue:.2f} {currency}\n\n"
+                f"*የዛሬ እንቅስቃሴ:*\n"
+                f"📥 የዛሬ ተቀማጭ: {today_deposit_count} ጊዜ ({today_deposit_amount:.2f} {currency})\n"
+            )
+            
+            await message.answer(stats_text, parse_mode=ParseMode.MARKDOWN)
+            
+        except Exception as e:
+            logger.error(f"Error getting stats: {e}")
+            await message.answer(f"❌ ስህተት: {str(e)[:100]}")
+
+    @dp.message_handler(Command("callnumber"))
+    async def cmd_call_number(message: types.Message):
+        """Admin command to manually call a number (format: /callnumber number)"""
+        from config import ADMIN_IDS
+        
+        user_id = message.from_user.id
+        if user_id not in ADMIN_IDS:
+            await message.answer("⛔ ይህ ትእዛዝ ለአስተዳዳሪዎች ብቻ ነው።")
+            return
+        
+        args = message.text.split()
+        if len(args) < 2:
+            await message.answer("📋 አጠቃቀም: /callnumber <number>\n\n📝 ምሳሌ: /callnumber 42")
+            return
+        
+        try:
+            number = int(args[1])
+            if number < 1 or number > 75:
+                await message.answer("❌ ቁጥር ከ1 እስከ 75 መሆን አለበት።")
+                return
+            
+            from utils.game_manager import game_manager
+            
+            if not game_manager or not game_manager.is_game_running():
+                await message.answer("❌ ምንም ጨዋታ እየተካሄደ አይደለም። መጀመሪያ /startgame ይጠቀሙ።")
+                return
+            
+            # Call the number
+            success = await game_manager.call_number(number)
+            
+            if success:
+                await message.answer(f"✅ ቁጥር {number} ተጠርቷል!")
+                
+                # Log the action
+                from database.db import Database
+                with Database.get_cursor() as cursor:
+                    cursor.execute("""
+                        CREATE TABLE IF NOT EXISTS admin_actions (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            admin_id INTEGER NOT NULL,
+                            action_type TEXT NOT NULL,
+                            details TEXT,
+                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        )
+                    """)
+                    cursor.execute("""
+                        INSERT INTO admin_actions (admin_id, action_type, details)
+                        VALUES (?, ?, ?)
+                    """, (user_id, 'call_number', f'Called number {number}'))
+            else:
+                await message.answer(f"❌ ቁጥር {number} መጥራት አልተቻለም (ምናልባት ቀድሞ ተጠርቷል)።")
+            
+        except ValueError:
+            await message.answer("❌ እባክዎ ትክክለኛ ቁጥር ያስገቡ።")
+        except Exception as e:
+            logger.error(f"Error calling number: {e}")
+            await message.answer(f"❌ ስህተት: {str(e)[:100]}")
+
     # Initialize database
     try:
         logger.info("Initializing enhanced database...")
@@ -3228,9 +3606,6 @@ async def main():
             BotCommand(command="addbalance", description="Add balance to user"),
             BotCommand(command="stats", description="Game statistics"),
             BotCommand(command="callnumber", description="Manually call number"),
-            BotCommand(command="fraudstats", description="Fraud detection statistics"),
-            BotCommand(command="viewuserfraud", description="View user fraud history"),
-            BotCommand(command="restrictuser", description="Restrict user from deposits"),
             BotCommand(command="getdb", description="Download database backup"),
             BotCommand(command="restoredb", description="SAFELY restore database from backup (auto-restart)"),
         ]
@@ -3297,9 +3672,6 @@ async def main():
     print(f"    /addbalance      - Add balance to user")
     print(f"    /stats           - Game statistics")
     print(f"    /callnumber      - Manually call number")
-    print(f"    /fraudstats      - Fraud detection statistics")
-    print(f"    /viewuserfraud   - View user fraud history")
-    print(f"    /restrictuser    - Restrict user from deposits")
     print(f"    /getdb           - Download database backup")
     print(f"    /restoredb       - **SAFE DATABASE RESTORE** - Upload .db file, auto-restart")
     print("="*60 + "\n")
