@@ -2065,7 +2065,7 @@
             <span>Transactions</span>
         </div>
         <div class="floating-nav-item" data-nav-tab="system">
-            <i class="fas fa-cog"></i>
+            <i class="fas fa-database"></i>
             <span>System</span>
         </div>
     </div>
@@ -2121,7 +2121,7 @@
                     <i class="fas fa-money-bill-wave"></i>
                 </div>
                 <div class="stat-value" id="pending-payments">0</div>
-                <div class="stat-label">Pending Payments</div>
+                <div class="stat-label">Pending Requests</div>
                 <div class="stat-change change-positive">
                     <i class="fas fa-exclamation-circle"></i>
                     <span id="payment-change">0</span> needs attention
@@ -2133,7 +2133,7 @@
                     <i class="fas fa-wallet"></i>
                 </div>
                 <div class="stat-value" id="total-balance">0.00 birr</div>
-                <div class="stat-label">Total Users Balance (Real Players Only)</div>
+                <div class="stat-label">Total Users Balance</div>
                 <div class="stat-change change-positive">
                     <i class="fas fa-arrow-up"></i>
                     <span id="balance-change">0%</span> this week
@@ -2145,7 +2145,7 @@
         <div class="weekly-commission">
             <div class="widget-title">
                 <i class="fas fa-calendar-week"></i>
-                <span>Weekly Commission (20%)</span>
+                <span>Weekly Commission Summary</span>
                 <div style="display: flex; gap: 10px; margin-left: auto;">
                     <button class="btn-action btn-view" id="view-commission-details">
                         <i class="fas fa-chart-pie"></i> Details
@@ -2159,19 +2159,19 @@
             <div class="commission-stats">
                 <div class="commission-stat">
                     <div class="commission-value" id="this-week-commission">0 birr</div>
-                    <div class="commission-label">This Week Commission</div>
+                    <div class="commission-label">This Week</div>
                 </div>
                 <div class="commission-stat">
                     <div class="commission-value" id="last-week-commission">0 birr</div>
-                    <div class="commission-label">Last Week Commission</div>
+                    <div class="commission-label">Last Week</div>
                 </div>
                 <div class="commission-stat">
                     <div class="commission-value" id="this-month-commission">0 birr</div>
-                    <div class="commission-label">This Month Commission</div>
+                    <div class="commission-label">This Month</div>
                 </div>
                 <div class="commission-stat">
                     <div class="commission-value" id="total-commission">0 birr</div>
-                    <div class="commission-label">Total Commission</div>
+                    <div class="commission-label">Total All Time</div>
                 </div>
             </div>
             
@@ -2182,13 +2182,14 @@
                             <th>Week</th>
                             <th>Start Date</th>
                             <th>End Date</th>
+                            <th>Games</th>
                             <th>Total Sales</th>
                             <th>Commission (20%)</th>
                         </tr>
                     </thead>
                     <tbody id="weekly-commission-body">
                         <tr>
-                            <td colspan="5" class="loading">Loading weekly commission data...</td>
+                            <td colspan="6" class="loading">Loading weekly commission data...</td>
                         </tr>
                     </tbody>
                 </table>
@@ -2217,7 +2218,7 @@
                         <span>Transactions</span>
                     </button>
                     <button class="tab-btn" data-tab="system">
-                        <i class="fas fa-cog"></i>
+                        <i class="fas fa-database"></i>
                         <span>System</span>
                     </button>
                 </div>
@@ -2253,7 +2254,7 @@
                                         <th>Prize Pool</th>
                                         <th>Start Time</th>
                                         <th>Cards Sold</th>
-                                        <th>Commission (20%)</th>
+                                        <th>Commission</th>
                                         <th>Called Numbers</th>
                                         <th>Winner</th>
                                         <th>Actions</th>
@@ -2530,9 +2531,9 @@
                         </div>
                     </div>
                     
-                    <!-- System Tab (New) -->
+                    <!-- System Tab -->
                     <div class="tab-pane" id="system-tab">
-                        <div class="widget" style="margin-bottom: 20px;">
+                        <div class="widget">
                             <div class="widget-title">
                                 <i class="fas fa-database"></i>
                                 <span>Database Management</span>
@@ -2556,13 +2557,13 @@
                                 </div>
                                 <div style="display: flex; gap: 10px; margin-top: 15px; flex-wrap: wrap;">
                                     <button class="btn btn-info" id="check-db-info">
-                                        <i class="fas fa-info-circle"></i> Check Database Info
+                                        <i class="fas fa-info-circle"></i> Check Database
                                     </button>
                                     <button class="btn btn-success" id="download-db">
-                                        <i class="fas fa-download"></i> Download Database (Compressed)
+                                        <i class="fas fa-download"></i> Download (Compressed)
                                     </button>
                                     <button class="btn btn-primary" id="download-db-uncompressed">
-                                        <i class="fas fa-file-archive"></i> Download Database (Uncompressed)
+                                        <i class="fas fa-file-archive"></i> Download (Uncompressed)
                                     </button>
                                 </div>
                             </div>
@@ -2573,7 +2574,7 @@
                                 <i class="fas fa-cogs"></i>
                                 <span>System Actions</span>
                             </div>
-                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px;">
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px;">
                                 <button class="btn btn-warning" onclick="restartGameManager()">
                                     <i class="fas fa-redo"></i> Restart Game Manager
                                 </button>
@@ -2581,21 +2582,11 @@
                                     <i class="fas fa-trash"></i> Clear Cache
                                 </button>
                                 <button class="btn btn-primary" onclick="backupDatabase()">
-                                    <i class="fas fa-database"></i> Manual Backup
+                                    <i class="fas fa-database"></i> Backup
                                 </button>
                                 <button class="btn btn-info" onclick="checkHealth()">
-                                    <i class="fas fa-heartbeat"></i> Check Health
+                                    <i class="fas fa-heartbeat"></i> Health Check
                                 </button>
-                            </div>
-                        </div>
-                        
-                        <div class="widget">
-                            <div class="widget-title">
-                                <i class="fas fa-chart-line"></i>
-                                <span>System Status</span>
-                            </div>
-                            <div id="system-status-details">
-                                <div class="loader"></div>
                             </div>
                         </div>
                     </div>
@@ -2695,7 +2686,6 @@
         </footer>
     </div>
 
-    <!-- Modals -->
     <!-- Add Balance Modal -->
     <div class="modal" id="add-balance-modal">
         <div class="modal-content">
@@ -3047,7 +3037,7 @@
                                     <th>Real Players</th>
                                     <th>Cards Sold</th>
                                     <th>Total Sales</th>
-                                    <th>Commission (20%)</th>
+                                    <th>Commission</th>
                                     <th>Date</th>
                                 </tr>
                             </thead>
@@ -3113,7 +3103,7 @@
         </div>
     </div>
 
-    <!-- Database Download Progress Modal (New) -->
+    <!-- Download Progress Modal -->
     <div class="modal" id="download-progress-modal">
         <div class="modal-content">
             <div class="modal-header">
@@ -3123,7 +3113,7 @@
             <div class="modal-body">
                 <div style="text-align: center; padding: 20px;">
                     <div class="loader" style="margin: 20px auto;"></div>
-                    <p id="download-status">Preparing database file for download...</p>
+                    <p id="download-status">Preparing database file...</p>
                     <p id="download-details" style="font-size: 12px; color: #666; margin-top: 10px;"></p>
                 </div>
             </div>
@@ -3131,1744 +3121,24 @@
     </div>
 
     <script>
-        // Get admin ID from URL
+        // ==================== GLOBAL VARIABLES ====================
         const urlParams = new URLSearchParams(window.location.search);
         const adminId = urlParams.get('admin_id') || 'Admin';
         
-        // Global variables
         let currentGame = null;
         let autoRefreshInterval = null;
-        let autoRefreshTime = 30000; // 30 seconds
+        let autoRefreshTime = 30000;
         let panelLoadedTime = new Date();
         let currentPaymentType = 'deposits';
         
         // Pagination state
-        let gamesPage = 1;
-        let gamesPageSize = 20;
-        let gamesTotal = 0;
-        let gamesTotalPages = 0;
-        let gamesData = [];
-        let gamesFilteredData = [];
-        
-        let usersPage = 1;
-        let usersPageSize = 20;
-        let usersTotal = 0;
-        let usersTotalPages = 0;
-        let usersData = [];
-        let usersFilteredData = [];
-        
-        let depositsPage = 1;
-        let depositsPageSize = 20;
-        let depositsTotal = 0;
-        let depositsTotalPages = 0;
-        let depositsData = [];
-        let depositsFilteredData = [];
-        
-        let withdrawalsPage = 1;
-        let withdrawalsPageSize = 20;
-        let withdrawalsTotal = 0;
-        let withdrawalsTotalPages = 0;
-        let withdrawalsData = [];
-        let withdrawalsFilteredData = [];
-        
-        let transactionsPage = 1;
-        let transactionsPageSize = 20;
-        let transactionsTotal = 0;
-        let transactionsTotalPages = 0;
-        let transactionsData = [];
-        let transactionsFilteredData = [];
+        let gamesPage = 1, gamesPageSize = 20, gamesTotal = 0, gamesTotalPages = 0, gamesData = [];
+        let usersPage = 1, usersPageSize = 20, usersTotal = 0, usersTotalPages = 0, usersData = [];
+        let depositsPage = 1, depositsPageSize = 20, depositsTotal = 0, depositsTotalPages = 0, depositsData = [];
+        let withdrawalsPage = 1, withdrawalsPageSize = 20, withdrawalsTotal = 0, withdrawalsTotalPages = 0, withdrawalsData = [];
+        let transactionsPage = 1, transactionsPageSize = 20, transactionsTotal = 0, transactionsTotalPages = 0, transactionsData = [];
 
-        // ==================== DATABASE DOWNLOAD FUNCTIONS ====================
-        async function checkDatabaseInfo() {
-            try {
-                document.getElementById('db-status').textContent = 'Checking...';
-                document.getElementById('db-size').textContent = 'Loading...';
-                document.getElementById('db-modified').textContent = 'Loading...';
-                document.getElementById('db-records').textContent = 'Loading...';
-                
-                const response = await fetch('/api/admin/database-info');
-                const data = await response.json();
-                
-                if (data && data.success) {
-                    document.getElementById('db-status').innerHTML = '<span class="status-active">Available</span>';
-                    document.getElementById('db-size').textContent = data.database.size_mb + ' MB';
-                    document.getElementById('db-modified').textContent = new Date(data.database.modified_time).toLocaleString();
-                    
-                    const records = data.database.record_counts;
-                    let recordsHtml = '';
-                    for (const [table, count] of Object.entries(records)) {
-                        recordsHtml += `<div>${table}: ${count}</div>`;
-                    }
-                    document.getElementById('db-records').innerHTML = recordsHtml;
-                    
-                    addLiveUpdate('Database info updated: ' + data.database.size_mb + ' MB', 'info');
-                } else {
-                    document.getElementById('db-status').innerHTML = '<span class="status-rejected">Not Found</span>';
-                    document.getElementById('db-size').textContent = 'N/A';
-                    document.getElementById('db-modified').textContent = 'N/A';
-                    document.getElementById('db-records').textContent = 'N/A';
-                }
-            } catch (error) {
-                console.error('Error checking database info:', error);
-                document.getElementById('db-status').innerHTML = '<span class="status-rejected">Error</span>';
-                document.getElementById('db-size').textContent = 'Error';
-                document.getElementById('db-modified').textContent = 'Error';
-                document.getElementById('db-records').textContent = 'Error';
-                showNotification('Error checking database info: ' + error.message, 'danger');
-            }
-        }
-
-        async function downloadDatabase(compressed = true) {
-            try {
-                openModal('download-progress-modal');
-                
-                const statusEl = document.getElementById('download-status');
-                const detailsEl = document.getElementById('download-details');
-                
-                statusEl.textContent = compressed ? 'Preparing compressed database...' : 'Preparing database...';
-                detailsEl.textContent = 'This may take a few seconds...';
-                
-                const url = compressed ? '/api/admin/download-database' : '/api/admin/download-database?compress=false';
-                
-                const response = await fetch(url);
-                
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
-                
-                // Get filename from Content-Disposition header
-                const contentDisposition = response.headers.get('Content-Disposition');
-                let filename = compressed ? 'habesha_bingo_backup.db.gz' : 'habesha_bingo_backup.db';
-                
-                if (contentDisposition) {
-                    const filenameMatch = contentDisposition.match(/filename="(.+)"/);
-                    if (filenameMatch) {
-                        filename = filenameMatch[1];
-                    }
-                }
-                
-                statusEl.textContent = 'Downloading file...';
-                
-                // Get the blob
-                const blob = await response.blob();
-                const size = (blob.size / (1024 * 1024)).toFixed(2);
-                
-                detailsEl.textContent = `Size: ${size} MB`;
-                
-                // Create download link
-                const url_blob = window.URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url_blob;
-                a.download = filename;
-                document.body.appendChild(a);
-                a.click();
-                
-                // Cleanup
-                setTimeout(() => {
-                    window.URL.revokeObjectURL(url_blob);
-                    document.body.removeChild(a);
-                }, 100);
-                
-                statusEl.textContent = 'Download complete!';
-                detailsEl.textContent = `File saved as: ${filename} (${size} MB)`;
-                
-                addLiveUpdate(`Database downloaded: ${filename} (${size} MB)`, 'success');
-                showNotification('Database download complete!', 'success');
-                
-                setTimeout(() => {
-                    closeModal('download-progress-modal');
-                }, 2000);
-                
-            } catch (error) {
-                console.error('Error downloading database:', error);
-                closeModal('download-progress-modal');
-                showNotification('Error downloading database: ' + error.message, 'danger');
-                addLiveUpdate('Database download failed: ' + error.message, 'danger');
-            }
-        }
-
-        // ==================== FLOATING NAVIGATION MENU FUNCTIONS ====================
-        function setupFloatingNav() {
-            const floatingNavItems = document.querySelectorAll('.floating-nav-item');
-            const tabBtns = document.querySelectorAll('.tab-btn');
-            const tabPanes = document.querySelectorAll('.tab-pane');
-            
-            floatingNavItems.forEach(item => {
-                item.addEventListener('click', function() {
-                    const tabId = this.getAttribute('data-nav-tab');
-                    
-                    // Update floating nav active state
-                    floatingNavItems.forEach(nav => nav.classList.remove('active'));
-                    this.classList.add('active');
-                    
-                    // Update tab buttons
-                    tabBtns.forEach(btn => {
-                        if (btn.getAttribute('data-tab') === tabId) {
-                            btn.click(); // Trigger the existing tab button click
-                        }
-                    });
-                    
-                    // Add live update for navigation
-                    addLiveUpdate(`Navigated to ${tabId} tab via floating menu`);
-                });
-            });
-            
-            // Sync floating nav with tab button clicks
-            tabBtns.forEach(btn => {
-                btn.addEventListener('click', function() {
-                    const tabId = this.getAttribute('data-tab');
-                    
-                    // Update floating nav
-                    floatingNavItems.forEach(item => {
-                        if (item.getAttribute('data-nav-tab') === tabId) {
-                            item.classList.add('active');
-                        } else {
-                            item.classList.remove('active');
-                        }
-                    });
-                });
-            });
-        }
-
-        // ==================== Load Weekly Commission from Database ====================
-        async function loadWeeklyCommission() {
-            try {
-                // Show loading state
-                document.getElementById('weekly-commission-body').innerHTML = `
-                    <tr>
-                        <td colspan="5" class="loading">Loading commission data from database...</td>
-                    </tr>
-                `;
-                
-                // Try the weeklycommission endpoint first (from web_server.py)
-                let response = await fetch(`/api/admin/weeklycommission`);
-                let data = await response.json();
-                
-                // If that fails, try the weeklyrevenue endpoint
-                if (!data || !data.success) {
-                    console.log('Weekly commission endpoint failed, trying weeklyrevenue');
-                    response = await fetch(`/api/admin/weeklyrevenue`);
-                    data = await response.json();
-                }
-                
-                // If both fail, try commission-details
-                if (!data || !data.success) {
-                    console.log('Revenue endpoint failed, trying commission-details');
-                    response = await fetch(`/api/admin/commission-details?limit=10`);
-                    data = await response.json();
-                }
-                
-                if (data && data.success) {
-                    console.log('Commission data loaded:', data);
-                    
-                    // Update summary stats with actual data from API
-                    document.getElementById('this-week-commission').textContent = formatCurrency(data.this_week_commission || 0);
-                    document.getElementById('last-week-commission').textContent = formatCurrency(data.last_week_commission || 0);
-                    document.getElementById('this-month-commission').textContent = formatCurrency(data.this_month_commission || 0);
-                    document.getElementById('total-commission').textContent = formatCurrency(data.total_commission || 0);
-                    
-                    // Update table
-                    const tbody = document.getElementById('weekly-commission-body');
-                    
-                    // Handle different response formats (weekly_data or commission_games)
-                    let weeklyData = data.weekly_data || data.commission_games || [];
-                    
-                    if (weeklyData && weeklyData.length > 0) {
-                        let html = '';
-                        
-                        weeklyData.forEach(item => {
-                            // Handle different field names from different endpoints
-                            const weekLabel = item.week_label || `Week ${item.week_number || ''}`;
-                            const commission = item.commission || item.commission_amount || 0;
-                            
-                            // Calculate total sales (real_players * 10 or from API)
-                            const totalSales = item.total_sales || (item.total_real_players * 10) || 0;
-                            
-                            // Format dates
-                            let startDate = 'N/A';
-                            let endDate = 'N/A';
-                            
-                            if (item.start_date || item.recorded_at || item.game_date) {
-                                const start = new Date(item.start_date || item.recorded_at || item.game_date);
-                                startDate = start.toLocaleDateString();
-                                
-                                // Calculate end date (7 days after start)
-                                const end = new Date(start);
-                                end.setDate(end.getDate() + 6);
-                                endDate = end.toLocaleDateString();
-                            }
-                            
-                            html += `
-                                <tr>
-                                    <td><span class="commission-period">${weekLabel}</span></td>
-                                    <td>${startDate}</td>
-                                    <td>${endDate}</td>
-                                    <td><strong>${formatCurrency(totalSales)}</strong></td>
-                                    <td><strong style="color: var(--success-color);">${formatCurrency(commission)}</strong></td>
-                                </tr>
-                            `;
-                        });
-                        
-                        tbody.innerHTML = html;
-                        addLiveUpdate('Weekly commission data updated from database', 'success');
-                    } else {
-                        tbody.innerHTML = `
-                            <tr>
-                                <td colspan="5" style="text-align: center; padding: 40px; color: #666;">
-                                    <i class="fas fa-chart-line" style="font-size: 48px; margin-bottom: 10px; display: block;"></i>
-                                    No commission data available in database yet
-                                </td>
-                            </tr>
-                        `;
-                    }
-                } else {
-                    // No data found - show empty state
-                    document.getElementById('weekly-commission-body').innerHTML = `
-                        <tr>
-                            <td colspan="5" style="text-align: center; padding: 40px; color: #666;">
-                                <i class="fas fa-database" style="font-size: 48px; margin-bottom: 10px; display: block;"></i>
-                                No commission records found in database
-                            </td>
-                        </tr>
-                    `;
-                    
-                    // Set summary stats to 0
-                    document.getElementById('this-week-commission').textContent = formatCurrency(0);
-                    document.getElementById('last-week-commission').textContent = formatCurrency(0);
-                    document.getElementById('this-month-commission').textContent = formatCurrency(0);
-                    document.getElementById('total-commission').textContent = formatCurrency(0);
-                }
-            } catch (error) {
-                console.error('Error loading weekly commission:', error);
-                document.getElementById('weekly-commission-body').innerHTML = `
-                    <tr>
-                        <td colspan="5" style="text-align: center; padding: 40px; color: #666;">
-                            <i class="fas fa-exclamation-triangle" style="font-size: 48px; margin-bottom: 10px; display: block;"></i>
-                            Error loading commission data: ${error.message}
-                        </td>
-                    </tr>
-                `;
-            }
-        }
-
-        // ==================== Load Commission Details ====================
-        async function loadCommissionDetails() {
-            await loadCommissionGames();
-            await loadDailyCommission();
-            await loadMonthlyCommission();
-        }
-
-        async function loadCommissionGames() {
-            try {
-                const response = await fetch(`/api/admin/commission-details?limit=100`);
-                const data = await response.json();
-                
-                const tbody = document.getElementById('commission-games-body');
-                
-                if (data && data.success && data.commission_games && data.commission_games.length > 0) {
-                    let html = '';
-                    
-                    data.commission_games.forEach(game => {
-                        const totalSales = game.real_players * 10;
-                        
-                        html += `
-                            <tr>
-                                <td><code>${game.game_id ? game.game_id.substring(0, 8) + '...' : 'N/A'}</code></td>
-                                <td>${game.round_number || 1}</td>
-                                <td>${game.real_players || 0}</td>
-                                <td>${game.total_cards_sold || 0}</td>
-                                <td>${formatCurrency(totalSales)}</td>
-                                <td><strong style="color: var(--success-color);">${formatCurrency(game.commission || 0)}</strong></td>
-                                <td>${game.game_date ? new Date(game.game_date).toLocaleDateString() : 'N/A'}</td>
-                            </tr>
-                        `;
-                    });
-                    
-                    tbody.innerHTML = html;
-                } else {
-                    tbody.innerHTML = `
-                        <tr>
-                            <td colspan="7" style="text-align: center; padding: 40px; color: #666;">
-                                <i class="fas fa-database" style="font-size: 48px; margin-bottom: 10px; display: block;"></i>
-                                No commission records found
-                            </td>
-                        </tr>
-                    `;
-                }
-            } catch (error) {
-                console.error('Error loading commission games:', error);
-                document.getElementById('commission-games-body').innerHTML = `
-                    <tr>
-                        <td colspan="7" style="text-align: center; padding: 40px; color: #666;">
-                            <i class="fas fa-exclamation-triangle" style="font-size: 48px; margin-bottom: 10px; display: block;"></i>
-                            Error loading commission data: ${error.message}
-                        </td>
-                    </tr>
-                `;
-            }
-        }
-
-        async function loadDailyCommission() {
-            try {
-                // Use weekly commission endpoint and group by day
-                const response = await fetch(`/api/admin/weeklycommission`);
-                const data = await response.json();
-                
-                const tbody = document.getElementById('commission-daily-body');
-                
-                if (data && data.success && data.weekly_data) {
-                    let html = '';
-                    
-                    data.weekly_data.forEach(week => {
-                        html += `
-                            <tr>
-                                <td>${week.start_date ? new Date(week.start_date).toLocaleDateString() : 'N/A'}</td>
-                                <td>${week.games_count || 0}</td>
-                                <td>${week.cards_sold || 0}</td>
-                                <td>${formatCurrency(week.total_sales || 0)}</td>
-                                <td><strong style="color: var(--success-color);">${formatCurrency(week.commission || 0)}</strong></td>
-                                <td>N/A</td>
-                            </tr>
-                        `;
-                    });
-                    
-                    if (html) {
-                        tbody.innerHTML = html;
-                    } else {
-                        tbody.innerHTML = `
-                            <tr>
-                                <td colspan="6" style="text-align: center; padding: 40px; color: #666;">
-                                    No daily commission data available
-                                </td>
-                            </tr>
-                        `;
-                    }
-                } else {
-                    tbody.innerHTML = `
-                        <tr>
-                            <td colspan="6" style="text-align: center; padding: 40px; color: #666;">
-                                <i class="fas fa-database" style="font-size: 48px; margin-bottom: 10px; display: block;"></i>
-                                No commission data available
-                            </td>
-                        </tr>
-                    `;
-                }
-            } catch (error) {
-                console.error('Error loading daily commission:', error);
-                document.getElementById('commission-daily-body').innerHTML = `
-                    <tr>
-                        <td colspan="6" style="text-align: center; padding: 40px; color: #666;">
-                            <i class="fas fa-exclamation-triangle" style="font-size: 48px; margin-bottom: 10px; display: block;"></i>
-                            Error loading daily commission data
-                        </td>
-                    </tr>
-                `;
-            }
-        }
-
-        async function loadMonthlyCommission() {
-            try {
-                const response = await fetch(`/api/admin/weeklycommission`);
-                const data = await response.json();
-                
-                const tbody = document.getElementById('commission-monthly-body');
-                
-                if (data && data.success && data.weekly_data) {
-                    // Group by month
-                    const monthlyData = {};
-                    
-                    data.weekly_data.forEach(week => {
-                        if (week.start_date) {
-                            const date = new Date(week.start_date);
-                            const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-                            const monthName = date.toLocaleString('default', { month: 'long', year: 'numeric' });
-                            
-                            if (!monthlyData[monthKey]) {
-                                monthlyData[monthKey] = {
-                                    month: monthName,
-                                    total_games: 0,
-                                    total_cards_sold: 0,
-                                    total_sales: 0,
-                                    total_commission: 0
-                                };
-                            }
-                            
-                            monthlyData[monthKey].total_games += week.games_count || 0;
-                            monthlyData[monthKey].total_cards_sold += week.cards_sold || 0;
-                            monthlyData[monthKey].total_sales += week.total_sales || 0;
-                            monthlyData[monthKey].total_commission += week.commission || 0;
-                        }
-                    });
-                    
-                    // Convert to array and sort
-                    const months = Object.values(monthlyData);
-                    months.sort((a, b) => b.month.localeCompare(a.month));
-                    
-                    if (months.length > 0) {
-                        let html = '';
-                        
-                        months.forEach(month => {
-                            html += `
-                                <tr>
-                                    <td><strong>${month.month}</strong></td>
-                                    <td>${month.total_games}</td>
-                                    <td>${month.total_cards_sold}</td>
-                                    <td>${formatCurrency(month.total_sales)}</td>
-                                    <td><strong style="color: var(--success-color);">${formatCurrency(month.total_commission)}</strong></td>
-                                </tr>
-                            `;
-                        });
-                        
-                        tbody.innerHTML = html;
-                    } else {
-                        tbody.innerHTML = `
-                            <tr>
-                                <td colspan="5" style="text-align: center; padding: 40px; color: #666;">
-                                    No monthly commission data available
-                                </td>
-                            </tr>
-                        `;
-                    }
-                } else {
-                    tbody.innerHTML = `
-                        <tr>
-                            <td colspan="5" style="text-align: center; padding: 40px; color: #666;">
-                                <i class="fas fa-database" style="font-size: 48px; margin-bottom: 10px; display: block;"></i>
-                                No commission data available
-                            </td>
-                        </tr>
-                    `;
-                }
-            } catch (error) {
-                console.error('Error loading monthly commission:', error);
-                document.getElementById('commission-monthly-body').innerHTML = `
-                    <tr>
-                        <td colspan="5" style="text-align: center; padding: 40px; color: #666;">
-                            <i class="fas fa-exclamation-triangle" style="font-size: 48px; margin-bottom: 10px; display: block;"></i>
-                            Error loading monthly commission data
-                        </td>
-                    </tr>
-                `;
-            }
-        }
-
-        // ==================== Load Total Users Balance (Real Players Only) ====================
-        async function loadTotalUsersBalance() {
-            try {
-                const response = await fetch(`/api/admin/totalbalance`);
-                const data = await response.json();
-                
-                if (data && data.success) {
-                    document.getElementById('total-balance').textContent = formatCurrency(data.total_balance || 0);
-                } else {
-                    document.getElementById('total-balance').textContent = formatCurrency(0);
-                }
-            } catch (error) {
-                console.error('Error loading total balance:', error);
-                document.getElementById('total-balance').textContent = formatCurrency(0);
-            }
-        }
-
-        // ==================== Load Stats ====================
-        async function loadStats() {
-            try {
-                const response = await fetch(`/api/admin/stats`);
-                const data = await response.json();
-                
-                if (data && data.stats) {
-                    document.getElementById('total-users').textContent = data.stats.total_users || 0;
-                    document.getElementById('active-games').textContent = data.stats.active_games || 0;
-                    
-                    let pendingDeposits = 0;
-                    let pendingWithdrawals = 0;
-                    
-                    try {
-                        const depositsResponse = await fetch(`/api/admin/payments?status=pending&page=1&limit=1`);
-                        const depositsData = await depositsResponse.json();
-                        pendingDeposits = depositsData.pagination?.total || 0;
-                    } catch (depositError) {
-                        console.warn('Could not load pending deposits:', depositError);
-                    }
-                    
-                    try {
-                        const withdrawalsResponse = await fetch(`/api/admin/withdrawals?status=pending&page=1&limit=1`);
-                        const withdrawalsData = await withdrawalsResponse.json();
-                        pendingWithdrawals = withdrawalsData.pagination?.total || 0;
-                    } catch (withdrawalError) {
-                        console.warn('Could not load pending withdrawals:', withdrawalError);
-                    }
-                    
-                    const totalPending = pendingDeposits + pendingWithdrawals;
-                    document.getElementById('pending-payments').textContent = totalPending;
-                    document.getElementById('payment-change').textContent = totalPending;
-                    
-                    await loadTotalUsersBalance();
-                    
-                    updateCurrentTime();
-                }
-            } catch (error) {
-                console.error('Error loading stats:', error);
-                document.getElementById('total-users').textContent = '0';
-                document.getElementById('active-games').textContent = '0';
-                document.getElementById('pending-payments').textContent = '0';
-                document.getElementById('total-balance').textContent = formatCurrency(0);
-            }
-        }
-
-        // ==================== Load Games ====================
-        async function loadGames() {
-            try {
-                const statusFilter = document.getElementById('game-status-filter').value;
-                const searchTerm = document.getElementById('game-search').value;
-                
-                let url = `/api/admin/games?page=${gamesPage}&limit=${gamesPageSize}`;
-                if (statusFilter !== 'all') {
-                    url += `&status=${statusFilter}`;
-                }
-                if (searchTerm) {
-                    url += `&search=${encodeURIComponent(searchTerm)}`;
-                }
-                
-                const response = await fetch(url);
-                const data = await response.json();
-                
-                if (data && data.success) {
-                    gamesData = data.games || [];
-                    gamesTotal = data.pagination?.total || 0;
-                    gamesTotalPages = data.pagination?.total_pages || Math.ceil(gamesTotal / gamesPageSize);
-                    
-                    // Also fetch all data for client-side filtering if needed
-                    if (searchTerm || statusFilter !== 'all') {
-                        gamesFilteredData = gamesData;
-                    } else {
-                        gamesFilteredData = gamesData;
-                    }
-                    
-                    renderGamesPage();
-                } else {
-                    gamesData = [];
-                    gamesTotal = 0;
-                    gamesTotalPages = 0;
-                    gamesFilteredData = [];
-                    renderGamesPage();
-                }
-            } catch (error) {
-                console.error('Error loading games:', error);
-                showNotification('Error loading games', 'danger');
-                gamesData = [];
-                gamesTotal = 0;
-                gamesTotalPages = 0;
-                gamesFilteredData = [];
-                renderGamesPage();
-            }
-        }
-
-        function renderGamesPage() {
-            const tbody = document.getElementById('games-table-body');
-            
-            if (gamesData.length > 0) {
-                let html = '';
-                
-                gamesData.forEach(game => {
-                    let statusClass = 'status-pending';
-                    let statusText = game.status;
-                    
-                    switch(game.status) {
-                        case 'card_purchase':
-                            statusClass = 'status-card-purchase';
-                            statusText = 'Purchase Phase';
-                            break;
-                        case 'active':
-                            statusClass = 'status-game-active';
-                            statusText = 'Active';
-                            break;
-                        case 'winner_display':
-                            statusClass = 'status-winner-display';
-                            statusText = 'Winner Display';
-                            break;
-                        case 'completed':
-                            statusClass = 'status-completed';
-                            statusText = 'Completed';
-                            break;
-                    }
-                    
-                    const shortGameId = game.game_id ? game.game_id.substring(0, 8) + '...' : 'N/A';
-                    
-                    const startTime = game.started_at ? 
-                        new Date(game.started_at).toLocaleString() : 
-                        (game.created_at ? new Date(game.created_at).toLocaleString() : 'Not started');
-                    
-                    const calledNumbers = game.called_numbers ? 
-                        (Array.isArray(game.called_numbers) ? game.called_numbers.length : 0) : 0;
-                    
-                    const winnerInfo = game.winner_id ? `User ${game.winner_id}` : 'No winner yet';
-                    
-                    const cardsSold = parseInt(game.total_cards_sold || 0);
-                    const commission = game.commission || game.house_commission || 0;
-                    
-                    html += `
-                        <tr>
-                            <td><code title="${game.game_id || 'N/A'}">${shortGameId}</code></td>
-                            <td><strong>${game.round_number || 1}</strong></td>
-                            <td><span class="status-badge ${statusClass}">${statusText}</span></td>
-                            <td><strong>${game.total_players || 0}</strong></td>
-                            <td><strong>${formatCurrency(game.prize_pool || 0)}</strong></td>
-                            <td>${startTime}</td>
-                            <td>${cardsSold}</td>
-                            <td><strong style="color: var(--success-color);">${formatCurrency(commission)}</strong></td>
-                            <td>${calledNumbers} / 75</td>
-                            <td>${winnerInfo}</td>
-                            <td>
-                                <button class="btn-action btn-view" onclick="viewGame('${game.game_id}')">
-                                    <i class="fas fa-eye"></i> View
-                                </button>
-                                ${game.status === 'active' || game.status === 'card_purchase' ? `
-                                <button class="btn-action btn-stop" onclick="stopGame('${game.game_id}')">
-                                    <i class="fas fa-stop"></i> Stop
-                                </button>
-                                ` : ''}
-                            </td>
-                        </tr>
-                    `;
-                });
-                
-                tbody.innerHTML = html;
-                
-                // Update pagination
-                const start = (gamesPage - 1) * gamesPageSize + 1;
-                const end = Math.min(gamesPage * gamesPageSize, gamesTotal);
-                
-                document.getElementById('games-pagination').style.display = 'flex';
-                document.getElementById('games-pagination-info').textContent = 
-                    `Showing ${start} - ${end} of ${gamesTotal} games`;
-                
-                // Render page numbers
-                renderPaginationNumbers('games', gamesPage, gamesTotalPages);
-                
-                // Update button states
-                document.getElementById('games-first-page').disabled = gamesPage === 1;
-                document.getElementById('games-prev-page').disabled = gamesPage === 1;
-                document.getElementById('games-next-page').disabled = gamesPage === gamesTotalPages || gamesTotalPages === 0;
-                document.getElementById('games-last-page').disabled = gamesPage === gamesTotalPages || gamesTotalPages === 0;
-            } else {
-                tbody.innerHTML = `
-                    <tr>
-                        <td colspan="11" style="text-align: center; padding: 40px; color: #666;">
-                            <i class="fas fa-gamepad" style="font-size: 48px; margin-bottom: 10px; display: block;"></i>
-                            No games found
-                        </td>
-                    </tr>
-                `;
-                document.getElementById('games-pagination').style.display = 'none';
-            }
-        }
-
-        // ==================== Load Users ====================
-        async function loadUsers() {
-            try {
-                const statusFilter = document.getElementById('user-status-filter').value;
-                const searchTerm = document.getElementById('user-search').value;
-                
-                let url = `/api/admin/users?page=${usersPage}&limit=${usersPageSize}`;
-                if (statusFilter !== 'all') {
-                    url += `&status=${statusFilter}`;
-                }
-                if (searchTerm) {
-                    url += `&search=${encodeURIComponent(searchTerm)}`;
-                }
-                
-                const response = await fetch(url);
-                const data = await response.json();
-                
-                if (data && data.success) {
-                    usersData = data.users || [];
-                    usersTotal = data.pagination?.total || 0;
-                    usersTotalPages = data.pagination?.total_pages || Math.ceil(usersTotal / usersPageSize);
-                    
-                    usersFilteredData = usersData;
-                    renderUsersPage();
-                } else {
-                    usersData = [];
-                    usersTotal = 0;
-                    usersTotalPages = 0;
-                    usersFilteredData = [];
-                    renderUsersPage();
-                }
-            } catch (error) {
-                console.error('Error loading users:', error);
-                showNotification('Error loading users', 'danger');
-                usersData = [];
-                usersTotal = 0;
-                usersTotalPages = 0;
-                usersFilteredData = [];
-                renderUsersPage();
-            }
-        }
-
-        function renderUsersPage() {
-            const tbody = document.getElementById('users-table-body');
-            
-            if (usersData.length > 0) {
-                let html = '';
-                
-                usersData.forEach(user => {
-                    const firstLetter = user.username ? user.username.charAt(0).toUpperCase() : 'U';
-                    
-                    const totalWins = user.total_wins || 0;
-                    const totalPrizes = user.total_winnings || 0;
-                    const winRate = user.total_games_played ? 
-                        Math.round((totalWins / user.total_games_played) * 100) : 0;
-                    
-                    let statusClass = 'status-active';
-                    let statusText = 'Active';
-                    
-                    if (user.status === 'suspended') {
-                        statusClass = 'status-suspended';
-                        statusText = 'Suspended';
-                    } else if (user.status === 'deleted') {
-                        statusClass = 'status-deleted';
-                        statusText = 'Deleted';
-                    } else if (user.status === 'inactive') {
-                        statusClass = 'status-pending';
-                        statusText = 'Inactive';
-                    }
-                    
-                    html += `
-                        <tr>
-                            <td>
-                                <div style="display: flex; align-items: center; gap: 10px;">
-                                    <div class="user-avatar">${firstLetter}</div>
-                                    <div>
-                                        <div style="font-weight: 600;">ID: ${user.user_id}</div>
-                                        <div style="font-size: 11px; color: #666;">Joined: ${user.created_at ? 
-                                            new Date(user.created_at).toLocaleDateString() : 'N/A'}</div>
-                                    </div>
-                                </div>
-                            </td>
-                            <td><strong>${user.full_name || 'Not set'}</strong></td>
-                            <td><strong>${user.username || `User ${user.user_id}`}</strong></td>
-                            <td><strong>${formatCurrency(user.balance || 0)}</strong></td>
-                            <td>${user.total_games_played || 0}</td>
-                            <td>
-                                <div class="win-stats">
-                                    <div class="win-stat-item">
-                                        <span class="win-label">Wins:</span>
-                                        <span class="win-value">${totalWins}</span>
-                                    </div>
-                                    <div class="win-stat-item">
-                                        <span class="win-label">Prize Won:</span>
-                                        <span class="win-value">${formatCurrency(totalPrizes)}</span>
-                                    </div>
-                                    <div class="win-stat-item">
-                                        <span class="win-label">Win Rate:</span>
-                                        <span class="win-value">${winRate}%</span>
-                                    </div>
-                                </div>
-                            </td>
-                            <td><span class="status-badge ${statusClass}">${statusText}</span></td>
-                            <td>
-                                <button class="btn-action btn-view" onclick="viewUser(${user.user_id})">
-                                    <i class="fas fa-eye"></i> View
-                                </button>
-                                <button class="btn-action btn-approve" onclick="openAddBalanceModal(${user.user_id})">
-                                    <i class="fas fa-plus"></i> Add
-                                </button>
-                                ${user.status !== 'suspended' && user.status !== 'deleted' ? `
-                                <button class="btn-action btn-suspend" onclick="openSuspendUserModal(${user.user_id}, '${user.username || `User ${user.user_id}`}')">
-                                    <i class="fas fa-ban"></i> Suspend
-                                </button>
-                                ` : ''}
-                                ${user.status !== 'deleted' ? `
-                                <button class="btn-action btn-delete" onclick="openDeleteUserModal(${user.user_id}, '${user.username || `User ${user.user_id}`}')">
-                                    <i class="fas fa-trash"></i> Delete
-                                </button>
-                                ` : ''}
-                            </td>
-                        </tr>
-                    `;
-                });
-                
-                tbody.innerHTML = html;
-                
-                // Update pagination
-                const start = (usersPage - 1) * usersPageSize + 1;
-                const end = Math.min(usersPage * usersPageSize, usersTotal);
-                
-                document.getElementById('users-pagination').style.display = 'flex';
-                document.getElementById('users-pagination-info').textContent = 
-                    `Showing ${start} - ${end} of ${usersTotal} users`;
-                
-                // Render page numbers
-                renderPaginationNumbers('users', usersPage, usersTotalPages);
-                
-                // Update button states
-                document.getElementById('users-first-page').disabled = usersPage === 1;
-                document.getElementById('users-prev-page').disabled = usersPage === 1;
-                document.getElementById('users-next-page').disabled = usersPage === usersTotalPages || usersTotalPages === 0;
-                document.getElementById('users-last-page').disabled = usersPage === usersTotalPages || usersTotalPages === 0;
-            } else {
-                tbody.innerHTML = `
-                    <tr>
-                        <td colspan="8" style="text-align: center; padding: 40px; color: #666;">
-                            <i class="fas fa-users" style="font-size: 48px; margin-bottom: 10px; display: block;"></i>
-                            No users found
-                        </td>
-                    </tr>
-                `;
-                document.getElementById('users-pagination').style.display = 'none';
-            }
-        }
-
-        // ==================== Load Deposits ====================
-        async function loadDeposits() {
-            try {
-                const statusFilter = document.getElementById('deposit-status-filter').value;
-                const searchTerm = document.getElementById('deposit-search').value;
-                
-                let url = `/api/admin/payments?page=${depositsPage}&limit=${depositsPageSize}`;
-                if (statusFilter !== 'all') {
-                    url += `&status=${statusFilter}`;
-                }
-                if (searchTerm) {
-                    url += `&search=${encodeURIComponent(searchTerm)}`;
-                }
-                
-                const response = await fetch(url);
-                const data = await response.json();
-                
-                if (data && data.success) {
-                    depositsData = data.payments || [];
-                    depositsTotal = data.pagination?.total || 0;
-                    depositsTotalPages = data.pagination?.total_pages || Math.ceil(depositsTotal / depositsPageSize);
-                    
-                    depositsFilteredData = depositsData;
-                    renderDepositsPage();
-                } else {
-                    depositsData = [];
-                    depositsTotal = 0;
-                    depositsTotalPages = 0;
-                    depositsFilteredData = [];
-                    renderDepositsPage();
-                }
-            } catch (error) {
-                console.error('Error loading deposits:', error);
-                showNotification('Error loading deposits', 'danger');
-                depositsData = [];
-                depositsTotal = 0;
-                depositsTotalPages = 0;
-                depositsFilteredData = [];
-                renderDepositsPage();
-            }
-        }
-
-        function renderDepositsPage() {
-            const tbody = document.getElementById('deposits-table-body');
-            
-            if (depositsData.length > 0) {
-                let html = '';
-                
-                depositsData.forEach(deposit => {
-                    let statusClass = 'status-pending';
-                    let statusText = 'Pending';
-                    if (deposit.status === 'approved') {
-                        statusClass = 'status-approved';
-                        statusText = 'Approved';
-                    } else if (deposit.status === 'rejected') {
-                        statusClass = 'status-rejected';
-                        statusText = 'Rejected';
-                    }
-                    
-                    const depositDate = deposit.created_at ? 
-                        new Date(deposit.created_at).toLocaleString() : 'N/A';
-                    
-                    html += `
-                        <tr>
-                            <td><strong>${deposit.id}</strong></td>
-                            <td>
-                                <div>
-                                    <div style="font-weight: 600;">${deposit.username || `User ${deposit.user_id}`}</div>
-                                    <div style="font-size: 11px; color: #666;">ID: ${deposit.user_id}</div>
-                                </div>
-                            </td>
-                            <td>${deposit.full_name || 'Not provided'}</td>
-                            <td><strong>${formatCurrency(deposit.amount || 0)}</strong></td>
-                            <td>${deposit.payment_method || 'N/A'}</td>
-                            <td><span class="status-badge ${statusClass}">${statusText}</span></td>
-                            <td>${depositDate}</td>
-                            <td class="payment-actions">
-                                ${deposit.status === 'pending' ? `
-                                <button class="btn-action btn-approve" onclick="approveDeposit(${deposit.id})">
-                                    <i class="fas fa-check"></i> Approve
-                                </button>
-                                <button class="btn-action btn-reject" onclick="openRejectDepositModal(${deposit.id}, '${deposit.username || `User ${deposit.user_id}`}', ${deposit.amount || 0})">
-                                    <i class="fas fa-times"></i> Reject
-                                </button>
-                                ` : ''}
-                                <button class="btn-action btn-view" onclick="viewDeposit(${deposit.id})">
-                                    <i class="fas fa-eye"></i> View
-                                </button>
-                            </td>
-                        </tr>
-                    `;
-                });
-                
-                tbody.innerHTML = html;
-                
-                // Update pagination
-                const start = (depositsPage - 1) * depositsPageSize + 1;
-                const end = Math.min(depositsPage * depositsPageSize, depositsTotal);
-                
-                document.getElementById('deposits-pagination').style.display = 'flex';
-                document.getElementById('deposits-pagination-info').textContent = 
-                    `Showing ${start} - ${end} of ${depositsTotal} deposits`;
-                
-                // Render page numbers
-                renderPaginationNumbers('deposits', depositsPage, depositsTotalPages);
-                
-                // Update button states
-                document.getElementById('deposits-first-page').disabled = depositsPage === 1;
-                document.getElementById('deposits-prev-page').disabled = depositsPage === 1;
-                document.getElementById('deposits-next-page').disabled = depositsPage === depositsTotalPages || depositsTotalPages === 0;
-                document.getElementById('deposits-last-page').disabled = depositsPage === depositsTotalPages || depositsTotalPages === 0;
-            } else {
-                tbody.innerHTML = `
-                    <tr>
-                        <td colspan="8" style="text-align: center; padding: 40px; color: #666;">
-                            <i class="fas fa-money-bill-wave" style="font-size: 48px; margin-bottom: 10px; display: block;"></i>
-                            No deposits found
-                        </td>
-                    </tr>
-                `;
-                document.getElementById('deposits-pagination').style.display = 'none';
-            }
-        }
-
-        // ==================== Load Withdrawals ====================
-        async function loadWithdrawals() {
-            try {
-                const statusFilter = document.getElementById('withdrawal-status-filter').value;
-                const searchTerm = document.getElementById('withdrawal-search').value;
-                
-                let url = `/api/admin/withdrawals?page=${withdrawalsPage}&limit=${withdrawalsPageSize}`;
-                if (statusFilter !== 'all') {
-                    url += `&status=${statusFilter}`;
-                }
-                if (searchTerm) {
-                    url += `&search=${encodeURIComponent(searchTerm)}`;
-                }
-                
-                const response = await fetch(url);
-                const data = await response.json();
-                
-                if (data && data.success) {
-                    withdrawalsData = data.withdrawals || [];
-                    withdrawalsTotal = data.pagination?.total || 0;
-                    withdrawalsTotalPages = data.pagination?.total_pages || Math.ceil(withdrawalsTotal / withdrawalsPageSize);
-                    
-                    withdrawalsFilteredData = withdrawalsData;
-                    renderWithdrawalsPage();
-                } else {
-                    withdrawalsData = [];
-                    withdrawalsTotal = 0;
-                    withdrawalsTotalPages = 0;
-                    withdrawalsFilteredData = [];
-                    renderWithdrawalsPage();
-                }
-            } catch (error) {
-                console.error('Error loading withdrawals:', error);
-                showNotification('Error loading withdrawals', 'danger');
-                withdrawalsData = [];
-                withdrawalsTotal = 0;
-                withdrawalsTotalPages = 0;
-                withdrawalsFilteredData = [];
-                renderWithdrawalsPage();
-            }
-        }
-
-        function renderWithdrawalsPage() {
-            const tbody = document.getElementById('withdrawals-table-body');
-            
-            if (withdrawalsData.length > 0) {
-                let html = '';
-                
-                withdrawalsData.forEach(withdrawal => {
-                    let statusClass = 'status-pending';
-                    let statusText = 'Pending';
-                    if (withdrawal.status === 'approved') {
-                        statusClass = 'status-approved';
-                        statusText = 'Approved';
-                    } else if (withdrawal.status === 'rejected') {
-                        statusClass = 'status-rejected';
-                        statusText = 'Rejected';
-                    }
-                    
-                    const withdrawalDate = withdrawal.requested_at ? 
-                        new Date(withdrawal.requested_at).toLocaleString() : 
-                        (withdrawal.created_at ? new Date(withdrawal.created_at).toLocaleString() : 'N/A');
-                    
-                    html += `
-                        <tr>
-                            <td><strong>${withdrawal.id}</strong></td>
-                            <td>
-                                <div>
-                                    <div style="font-weight: 600;">${withdrawal.username || `User ${withdrawal.user_id}`}</div>
-                                    <div style="font-size: 11px; color: #666;">ID: ${withdrawal.user_id}</div>
-                                </div>
-                            </td>
-                            <td>${withdrawal.full_name || 'Not provided'}</td>
-                            <td><strong>${formatCurrency(withdrawal.amount || 0)}</strong></td>
-                            <td>${withdrawal.method || withdrawal.payment_method || 'tele_birr'}</td>
-                            <td>${withdrawal.phone_number || 'N/A'}</td>
-                            <td><span class="status-badge ${statusClass}">${statusText}</span></td>
-                            <td>${withdrawalDate}</td>
-                            <td class="payment-actions">
-                                ${withdrawal.status === 'pending' ? `
-                                <button class="btn-action btn-approve" onclick="approveWithdrawal(${withdrawal.id})">
-                                    <i class="fas fa-check"></i> Approve
-                                </button>
-                                <button class="btn-action btn-reject" onclick="openRejectWithdrawalModal(${withdrawal.id}, '${withdrawal.username || `User ${withdrawal.user_id}`}', ${withdrawal.amount || 0})">
-                                    <i class="fas fa-times"></i> Reject
-                                </button>
-                                ` : ''}
-                                <button class="btn-action btn-view" onclick="viewWithdrawal(${withdrawal.id})">
-                                    <i class="fas fa-eye"></i> View
-                                </button>
-                            </td>
-                        </tr>
-                    `;
-                });
-                
-                tbody.innerHTML = html;
-                
-                // Update pagination
-                const start = (withdrawalsPage - 1) * withdrawalsPageSize + 1;
-                const end = Math.min(withdrawalsPage * withdrawalsPageSize, withdrawalsTotal);
-                
-                document.getElementById('withdrawals-pagination').style.display = 'flex';
-                document.getElementById('withdrawals-pagination-info').textContent = 
-                    `Showing ${start} - ${end} of ${withdrawalsTotal} withdrawals`;
-                
-                // Render page numbers
-                renderPaginationNumbers('withdrawals', withdrawalsPage, withdrawalsTotalPages);
-                
-                // Update button states
-                document.getElementById('withdrawals-first-page').disabled = withdrawalsPage === 1;
-                document.getElementById('withdrawals-prev-page').disabled = withdrawalsPage === 1;
-                document.getElementById('withdrawals-next-page').disabled = withdrawalsPage === withdrawalsTotalPages || withdrawalsTotalPages === 0;
-                document.getElementById('withdrawals-last-page').disabled = withdrawalsPage === withdrawalsTotalPages || withdrawalsTotalPages === 0;
-            } else {
-                tbody.innerHTML = `
-                    <tr>
-                        <td colspan="9" style="text-align: center; padding: 40px; color: #666;">
-                            <i class="fas fa-hand-holding-usd" style="font-size: 48px; margin-bottom: 10px; display: block;"></i>
-                            No withdrawals found
-                        </td>
-                    </tr>
-                `;
-                document.getElementById('withdrawals-pagination').style.display = 'none';
-            }
-        }
-
-        // ==================== Load Transactions ====================
-        async function loadTransactions() {
-            try {
-                const searchTerm = document.getElementById('transaction-search').value;
-                
-                let url = `/api/admin/transactions?page=${transactionsPage}&limit=${transactionsPageSize}`;
-                if (searchTerm) {
-                    url += `&search=${encodeURIComponent(searchTerm)}`;
-                }
-                
-                const response = await fetch(url);
-                const data = await response.json();
-                
-                if (data && data.success) {
-                    transactionsData = data.transactions || [];
-                    transactionsTotal = data.pagination?.total || 0;
-                    transactionsTotalPages = data.pagination?.total_pages || Math.ceil(transactionsTotal / transactionsPageSize);
-                    
-                    transactionsFilteredData = transactionsData;
-                    renderTransactionsPage();
-                } else {
-                    transactionsData = [];
-                    transactionsTotal = 0;
-                    transactionsTotalPages = 0;
-                    transactionsFilteredData = [];
-                    renderTransactionsPage();
-                }
-            } catch (error) {
-                console.error('Error loading transactions:', error);
-                showNotification('Error loading transactions', 'danger');
-                transactionsData = [];
-                transactionsTotal = 0;
-                transactionsTotalPages = 0;
-                transactionsFilteredData = [];
-                renderTransactionsPage();
-            }
-        }
-
-        function renderTransactionsPage() {
-            const tbody = document.getElementById('transactions-table-body');
-            
-            if (transactionsData.length > 0) {
-                let html = '';
-                
-                transactionsData.forEach(transaction => {
-                    const amount = parseFloat(transaction.amount || 0);
-                    const amountClass = amount >= 0 ? 'change-positive' : 'change-negative';
-                    const amountSign = amount >= 0 ? '+' : '';
-                    
-                    const typeText = formatTransactionType(transaction.transaction_type);
-                    
-                    const timeText = transaction.created_at ? 
-                        new Date(transaction.created_at).toLocaleString() : '';
-                    
-                    const userInfo = transaction.username ? 
-                        `${transaction.username} (ID: ${transaction.user_id})` : 
-                        `User ${transaction.user_id}`;
-                    
-                    html += `
-                        <tr>
-                            <td><strong>${transaction.id}</strong></td>
-                            <td>${typeText}</td>
-                            <td class="${amountClass}"><strong>${amountSign}${formatCurrency(amount)}</strong></td>
-                            <td>${userInfo}</td>
-                            <td>${transaction.description || 'No description'}</td>
-                            <td>${timeText}</td>
-                        </tr>
-                    `;
-                });
-                
-                tbody.innerHTML = html;
-                
-                // Update pagination
-                const start = (transactionsPage - 1) * transactionsPageSize + 1;
-                const end = Math.min(transactionsPage * transactionsPageSize, transactionsTotal);
-                
-                document.getElementById('transactions-pagination').style.display = 'flex';
-                document.getElementById('transactions-pagination-info').textContent = 
-                    `Showing ${start} - ${end} of ${transactionsTotal} transactions`;
-                
-                // Render page numbers
-                renderPaginationNumbers('transactions', transactionsPage, transactionsTotalPages);
-                
-                // Update button states
-                document.getElementById('transactions-first-page').disabled = transactionsPage === 1;
-                document.getElementById('transactions-prev-page').disabled = transactionsPage === 1;
-                document.getElementById('transactions-next-page').disabled = transactionsPage === transactionsTotalPages || transactionsTotalPages === 0;
-                document.getElementById('transactions-last-page').disabled = transactionsPage === transactionsTotalPages || transactionsTotalPages === 0;
-            } else {
-                tbody.innerHTML = `
-                    <tr>
-                        <td colspan="6" style="text-align: center; padding: 40px; color: #666;">
-                            <i class="fas fa-exchange-alt" style="font-size: 48px; margin-bottom: 10px; display: block;"></i>
-                            No transactions found
-                        </td>
-                    </tr>
-                `;
-                document.getElementById('transactions-pagination').style.display = 'none';
-            }
-        }
-
-        // Helper function to render pagination numbers
-        function renderPaginationNumbers(type, currentPage, totalPages) {
-            const pageNumbersContainer = document.getElementById(`${type}-page-numbers`);
-            if (!pageNumbersContainer) return;
-            
-            pageNumbersContainer.innerHTML = '';
-            
-            if (totalPages <= 1) return;
-            
-            const maxVisiblePages = 5;
-            let startPage = Math.max(1, currentPage - Math.floor(maxVisiblePages / 2));
-            let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
-            
-            if (endPage - startPage + 1 < maxVisiblePages) {
-                startPage = Math.max(1, endPage - maxVisiblePages + 1);
-            }
-            
-            for (let i = startPage; i <= endPage; i++) {
-                const btn = document.createElement('button');
-                btn.className = `pagination-btn ${i === currentPage ? 'active' : ''}`;
-                btn.textContent = i;
-                btn.onclick = () => {
-                    if (type === 'games') gamesPage = i;
-                    else if (type === 'users') usersPage = i;
-                    else if (type === 'deposits') depositsPage = i;
-                    else if (type === 'withdrawals') withdrawalsPage = i;
-                    else if (type === 'transactions') transactionsPage = i;
-                    
-                    if (type === 'games') loadGames();
-                    else if (type === 'users') loadUsers();
-                    else if (type === 'deposits') loadDeposits();
-                    else if (type === 'withdrawals') loadWithdrawals();
-                    else if (type === 'transactions') loadTransactions();
-                };
-                pageNumbersContainer.appendChild(btn);
-            }
-        }
-
-        // ==================== Load Game Status ====================
-        async function loadGameStatus() {
-            try {
-                const response = await fetch('/api/game/active');
-                const data = await response.json();
-                
-                if (data.success) {
-                    currentGame = data;
-                    
-                    const statusElement = document.getElementById('current-game-status');
-                    const infoElement = document.getElementById('current-game-info');
-                    const countdownElement = document.getElementById('game-countdown');
-                    const startBtn = document.getElementById('start-game-btn');
-                    const stopBtn = document.getElementById('stop-game-btn');
-                    const callBtn = document.getElementById('call-number-btn');
-                    
-                    if (data.game_id) {
-                        let statusText = '';
-                        let countdownText = '';
-                        let infoText = '';
-                        
-                        if (data.status === 'card_purchase') {
-                            statusText = 'Purchase Phase';
-                            countdownText = `${data.countdown_remaining || 30}s`;
-                            infoText = `${data.total_players || 0} players, ${data.total_cards_sold || 0} cards sold, Prize Pool: ${formatCurrency(data.prize_pool || 0)}`;
-                            stopBtn.disabled = false;
-                            callBtn.disabled = true;
-                        } else if (data.status === 'active') {
-                            statusText = 'Game Active';
-                            countdownText = 'Calling Numbers';
-                            infoText = `${data.total_players || 0} players, ${data.total_cards_sold || 0} cards, Prize Pool: ${formatCurrency(data.prize_pool || 0)}`;
-                            stopBtn.disabled = false;
-                            callBtn.disabled = false;
-                        } else if (data.status === 'winner_display') {
-                            statusText = 'Winner Display';
-                            countdownText = `${data.countdown_remaining || 5}s`;
-                            infoText = 'Showing winner';
-                            stopBtn.disabled = true;
-                            callBtn.disabled = true;
-                        } else {
-                            statusText = 'No Active Game';
-                            infoText = 'Start a new round';
-                            stopBtn.disabled = true;
-                            callBtn.disabled = true;
-                        }
-                        
-                        statusElement.textContent = `Round #${data.round_number || 1} - ${statusText}`;
-                        infoElement.textContent = infoText;
-                        countdownElement.textContent = countdownText;
-                        startBtn.disabled = data.status !== 'completed' && data.status !== undefined;
-                    } else {
-                        statusElement.textContent = 'No Active Game';
-                        infoElement.textContent = 'Start a new game round';
-                        countdownElement.textContent = '--:--';
-                        startBtn.disabled = false;
-                        stopBtn.disabled = true;
-                        callBtn.disabled = true;
-                    }
-                }
-            } catch (error) {
-                console.error('Error loading game status:', error);
-            }
-        }
-
-        // ==================== View Functions (Popup Modals) ====================
-        async function viewGame(gameId) {
-            try {
-                showNotification('Loading game details...', 'info');
-                
-                const response = await fetch(`/api/admin/gamedetails/${gameId}`);
-                const data = await response.json();
-                
-                if (data && data.success) {
-                    const detailsDiv = document.getElementById('game-details-content');
-                    const game = data.game || data;
-                    
-                    let winnerInfo = 'No winner yet';
-                    if (game.winner_id) {
-                        winnerInfo = `User ${game.winner_id} (${game.winner_name || 'Unknown'}) - Prize: ${formatCurrency(game.winner_prize || 0)}`;
-                    }
-                    
-                    const startTime = game.started_at ? new Date(game.started_at).toLocaleString() : 'Not started';
-                    const endTime = game.ended_at ? new Date(game.ended_at).toLocaleString() : 'Not ended';
-                    
-                    const calledNumbersList = game.called_numbers && Array.isArray(game.called_numbers) ? 
-                        game.called_numbers.join(', ') : 'None';
-                    
-                    detailsDiv.innerHTML = `
-                        <h4>Game: ${game.game_id}</h4>
-                        <div class="detail-row">
-                            <span class="detail-label">Round Number:</span>
-                            <span class="detail-value">${game.round_number || 1}</span>
-                        </div>
-                        <div class="detail-row">
-                            <span class="detail-label">Status:</span>
-                            <span class="detail-value">${game.status || 'Unknown'}</span>
-                        </div>
-                        <div class="detail-row">
-                            <span class="detail-label">Total Players:</span>
-                            <span class="detail-value">${game.total_players || 0}</span>
-                        </div>
-                        <div class="detail-row">
-                            <span class="detail-label">Real Players:</span>
-                            <span class="detail-value">${game.real_players || 0}</span>
-                        </div>
-                        <div class="detail-row">
-                            <span class="detail-label">Fake Players:</span>
-                            <span class="detail-value">${game.fake_players || 0}</span>
-                        </div>
-                        <div class="detail-row">
-                            <span class="detail-label">Prize Pool:</span>
-                            <span class="detail-value">${formatCurrency(game.prize_pool || 0)}</span>
-                        </div>
-                        <div class="detail-row">
-                            <span class="detail-label">Cards Sold:</span>
-                            <span class="detail-value">${game.total_cards_sold || 0}</span>
-                        </div>
-                        <div class="detail-row">
-                            <span class="detail-label">Commission (20%):</span>
-                            <span class="detail-value" style="color: var(--success-color);">${formatCurrency(game.commission || game.house_commission || 0)}</span>
-                        </div>
-                        <div class="detail-row">
-                            <span class="detail-label">Called Numbers:</span>
-                            <span class="detail-value">${calledNumbersList}</span>
-                        </div>
-                        <div class="detail-row">
-                            <span class="detail-label">Winner:</span>
-                            <span class="detail-value">${winnerInfo}</span>
-                        </div>
-                        <div class="detail-row">
-                            <span class="detail-label">Start Time:</span>
-                            <span class="detail-value">${startTime}</span>
-                        </div>
-                        <div class="detail-row">
-                            <span class="detail-label">End Time:</span>
-                            <span class="detail-value">${endTime}</span>
-                        </div>
-                    `;
-                    
-                    openModal('game-details-modal');
-                } else {
-                    showNotification('Failed to load game details', 'danger');
-                }
-            } catch (error) {
-                console.error('Error loading game details:', error);
-                showNotification('Error loading game details', 'danger');
-            }
-        }
-
-        async function viewUser(userId) {
-            try {
-                showNotification('Loading user details...', 'info');
-                
-                const response = await fetch(`/api/admin/user/${userId}`);
-                const data = await response.json();
-                
-                if (data && data.success) {
-                    const detailsDiv = document.getElementById('user-details-content');
-                    const user = data.user || data;
-                    
-                    const joinedDate = user.created_at ? new Date(user.created_at).toLocaleDateString() : 'N/A';
-                    
-                    detailsDiv.innerHTML = `
-                        <h4>User: ${user.username || `User ${user.user_id}`}</h4>
-                        <div class="detail-row">
-                            <span class="detail-label">User ID:</span>
-                            <span class="detail-value">${user.user_id}</span>
-                        </div>
-                        <div class="detail-row">
-                            <span class="detail-label">Full Name:</span>
-                            <span class="detail-value">${user.full_name || 'Not set'}</span>
-                        </div>
-                        <div class="detail-row">
-                            <span class="detail-label">Username:</span>
-                            <span class="detail-value">${user.username || 'Not set'}</span>
-                        </div>
-                        <div class="detail-row">
-                            <span class="detail-label">Balance:</span>
-                            <span class="detail-value">${formatCurrency(user.balance || 0)}</span>
-                        </div>
-                        <div class="detail-row">
-                            <span class="detail-label">Status:</span>
-                            <span class="detail-value">${user.status || 'active'}</span>
-                        </div>
-                        <div class="detail-row">
-                            <span class="detail-label">Games Played:</span>
-                            <span class="detail-value">${user.total_games_played || 0}</span>
-                        </div>
-                        <div class="detail-row">
-                            <span class="detail-label">Total Wins:</span>
-                            <span class="detail-value">${user.total_wins || 0}</span>
-                        </div>
-                        <div class="detail-row">
-                            <span class="detail-label">Total Winnings:</span>
-                            <span class="detail-value">${formatCurrency(user.total_winnings || 0)}</span>
-                        </div>
-                        <div class="detail-row">
-                            <span class="detail-label">Joined Date:</span>
-                            <span class="detail-value">${joinedDate}</span>
-                        </div>
-                    `;
-                    
-                    openModal('user-details-modal');
-                } else {
-                    showNotification('Failed to load user details', 'danger');
-                }
-            } catch (error) {
-                console.error('Error loading user details:', error);
-                showNotification('Error loading user details', 'danger');
-            }
-        }
-
-        async function viewDeposit(paymentId) {
-            try {
-                showNotification('Loading deposit details...', 'info');
-                
-                const response = await fetch(`/api/admin/payment/${paymentId}`);
-                const data = await response.json();
-                
-                if (data && data.success) {
-                    const detailsDiv = document.getElementById('deposit-details-content');
-                    const actionDiv = document.getElementById('deposit-action-section');
-                    const deposit = data.payment || data;
-                    
-                    const createdDate = deposit.created_at ? new Date(deposit.created_at).toLocaleString() : 'N/A';
-                    const processedDate = deposit.processed_at ? new Date(deposit.processed_at).toLocaleString() : 'Not processed';
-                    
-                    let statusBadge = '';
-                    if (deposit.status === 'approved') {
-                        statusBadge = '<span style="color: var(--success-color);">Approved</span>';
-                    } else if (deposit.status === 'rejected') {
-                        statusBadge = '<span style="color: var(--danger-color);">Rejected</span>';
-                    } else {
-                        statusBadge = '<span style="color: var(--warning-color);">Pending</span>';
-                    }
-                    
-                    detailsDiv.innerHTML = `
-                        <h4>Deposit #${deposit.id}</h4>
-                        <div class="detail-row">
-                            <span class="detail-label">User:</span>
-                            <span class="detail-value">${deposit.username || `User ${deposit.user_id}`} (ID: ${deposit.user_id})</span>
-                        </div>
-                        <div class="detail-row">
-                            <span class="detail-label">Full Name:</span>
-                            <span class="detail-value">${deposit.full_name || 'Not provided'}</span>
-                        </div>
-                        <div class="detail-row">
-                            <span class="detail-label">Amount:</span>
-                            <span class="detail-value"><strong>${formatCurrency(deposit.amount || 0)}</strong></span>
-                        </div>
-                        <div class="detail-row">
-                            <span class="detail-label">Payment Method:</span>
-                            <span class="detail-value">${deposit.payment_method || 'N/A'}</span>
-                        </div>
-                        <div class="detail-row">
-                            <span class="detail-label">Transaction ID:</span>
-                            <span class="detail-value">${deposit.transaction_id || 'N/A'}</span>
-                        </div>
-                        <div class="detail-row">
-                            <span class="detail-label">Status:</span>
-                            <span class="detail-value">${statusBadge}</span>
-                        </div>
-                        <div class="detail-row">
-                            <span class="detail-label">Created:</span>
-                            <span class="detail-value">${createdDate}</span>
-                        </div>
-                        <div class="detail-row">
-                            <span class="detail-label">Processed:</span>
-                            <span class="detail-value">${processedDate}</span>
-                        </div>
-                    `;
-                    
-                    if (deposit.status === 'pending') {
-                        actionDiv.innerHTML = `
-                            <button class="btn-action btn-approve" onclick="approveDepositFromModal(${deposit.id})">
-                                <i class="fas fa-check"></i> Approve Deposit
-                            </button>
-                            <button class="btn-action btn-reject" onclick="openRejectDepositModalFromView(${deposit.id}, '${deposit.username || `User ${deposit.user_id}`}', ${deposit.amount || 0})">
-                                <i class="fas fa-times"></i> Reject Deposit
-                            </button>
-                        `;
-                    } else {
-                        actionDiv.innerHTML = '';
-                    }
-                    
-                    openModal('deposit-details-modal');
-                } else {
-                    showNotification('Failed to load deposit details', 'danger');
-                }
-            } catch (error) {
-                console.error('Error loading deposit details:', error);
-                showNotification('Error loading deposit details', 'danger');
-            }
-        }
-
-        async function viewWithdrawal(withdrawalId) {
-            try {
-                showNotification('Loading withdrawal details...', 'info');
-                
-                const response = await fetch(`/api/admin/withdrawal/${withdrawalId}`);
-                const data = await response.json();
-                
-                if (data && data.success) {
-                    const detailsDiv = document.getElementById('withdrawal-details-content');
-                    const actionDiv = document.getElementById('withdrawal-action-section');
-                    const withdrawal = data.withdrawal || data;
-                    
-                    const requestedDate = withdrawal.requested_at ? new Date(withdrawal.requested_at).toLocaleString() : 
-                                         (withdrawal.created_at ? new Date(withdrawal.created_at).toLocaleString() : 'N/A');
-                    const processedDate = withdrawal.processed_at ? new Date(withdrawal.processed_at).toLocaleString() : 'Not processed';
-                    
-                    let statusBadge = '';
-                    if (withdrawal.status === 'approved') {
-                        statusBadge = '<span style="color: var(--success-color);">Approved</span>';
-                    } else if (withdrawal.status === 'rejected') {
-                        statusBadge = '<span style="color: var(--danger-color);">Rejected</span>';
-                    } else {
-                        statusBadge = '<span style="color: var(--warning-color);">Pending</span>';
-                    }
-                    
-                    detailsDiv.innerHTML = `
-                        <h4>Withdrawal #${withdrawal.id}</h4>
-                        <div class="detail-row">
-                            <span class="detail-label">User:</span>
-                            <span class="detail-value">${withdrawal.username || `User ${withdrawal.user_id}`} (ID: ${withdrawal.user_id})</span>
-                        </div>
-                        <div class="detail-row">
-                            <span class="detail-label">Full Name:</span>
-                            <span class="detail-value">${withdrawal.full_name || 'Not provided'}</span>
-                        </div>
-                        <div class="detail-row">
-                            <span class="detail-label">Amount:</span>
-                            <span class="detail-value"><strong>${formatCurrency(withdrawal.amount || 0)}</strong></span>
-                        </div>
-                        <div class="detail-row">
-                            <span class="detail-label">Payment Method:</span>
-                            <span class="detail-value">${withdrawal.method || withdrawal.payment_method || 'tele_birr'}</span>
-                        </div>
-                        <div class="detail-row">
-                            <span class="detail-label">Phone Number:</span>
-                            <span class="detail-value">${withdrawal.phone_number || 'N/A'}</span>
-                        </div>
-                        <div class="detail-row">
-                            <span class="detail-label">Status:</span>
-                            <span class="detail-value">${statusBadge}</span>
-                        </div>
-                        <div class="detail-row">
-                            <span class="detail-label">Requested:</span>
-                            <span class="detail-value">${requestedDate}</span>
-                        </div>
-                        <div class="detail-row">
-                            <span class="detail-label">Processed:</span>
-                            <span class="detail-value">${processedDate}</span>
-                        </div>
-                    `;
-                    
-                    if (withdrawal.status === 'pending') {
-                        actionDiv.innerHTML = `
-                            <button class="btn-action btn-approve" onclick="approveWithdrawalFromModal(${withdrawal.id})">
-                                <i class="fas fa-check"></i> Approve Withdrawal
-                            </button>
-                            <button class="btn-action btn-reject" onclick="openRejectWithdrawalModalFromView(${withdrawal.id}, '${withdrawal.username || `User ${withdrawal.user_id}`}', ${withdrawal.amount || 0})">
-                                <i class="fas fa-times"></i> Reject Withdrawal
-                            </button>
-                        `;
-                    } else {
-                        actionDiv.innerHTML = '';
-                    }
-                    
-                    openModal('withdrawal-details-modal');
-                } else {
-                    showNotification('Failed to load withdrawal details', 'danger');
-                }
-            } catch (error) {
-                console.error('Error loading withdrawal details:', error);
-                showNotification('Error loading withdrawal details', 'danger');
-            }
-        }
-
-        // ==================== Action Functions with Modal Close ====================
-        async function approveDeposit(paymentId) {
-            if (!confirm('Approve this deposit?')) return;
-            
-            try {
-                showNotification('Approving deposit...', 'info');
-                
-                const response = await fetch(`/api/admin/approvepayment`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        payment_id: parseInt(paymentId),
-                        admin_id: adminId
-                    })
-                });
-                
-                const data = await response.json();
-                
-                if (data.success) {
-                    showNotification('Deposit approved!', 'success');
-                    addLiveUpdate('Approved deposit #' + paymentId);
-                    closeModal('deposit-details-modal');
-                    closeModal('deposit-reject-modal');
-                    loadDeposits();
-                    loadStats();
-                    loadWeeklyCommission();
-                } else {
-                    showNotification('Failed to approve deposit: ' + (data.message || 'Unknown error'), 'danger');
-                }
-            } catch (error) {
-                console.error('Error approving deposit:', error);
-                showNotification('Error approving deposit', 'danger');
-            }
-        }
-
-        async function approveDepositFromModal(paymentId) {
-            await approveDeposit(paymentId);
-        }
-
-        async function approveWithdrawal(withdrawalId) {
-            if (!confirm('Approve this withdrawal?')) return;
-            
-            try {
-                showNotification('Approving withdrawal...', 'info');
-                
-                const response = await fetch(`/api/admin/approvewithdrawal`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        withdrawal_id: parseInt(withdrawalId),
-                        admin_id: adminId
-                    })
-                });
-                
-                const data = await response.json();
-                
-                if (data.success) {
-                    showNotification('Withdrawal approved!', 'success');
-                    addLiveUpdate('Approved withdrawal #' + withdrawalId);
-                    closeModal('withdrawal-details-modal');
-                    closeModal('withdrawal-reject-modal');
-                    loadWithdrawals();
-                    loadStats();
-                    loadWeeklyCommission();
-                } else {
-                    showNotification('Failed to approve withdrawal: ' + (data.message || 'Unknown error'), 'danger');
-                }
-            } catch (error) {
-                console.error('Error approving withdrawal:', error);
-                showNotification('Error approving withdrawal', 'danger');
-            }
-        }
-
-        async function approveWithdrawalFromModal(withdrawalId) {
-            await approveWithdrawal(withdrawalId);
-        }
-
-        // ==================== Format Currency ====================
+        // ==================== UTILITY FUNCTIONS ====================
         function formatCurrency(amount) {
             const num = parseFloat(amount);
             return isNaN(num) ? '0.00 birr' : num.toFixed(2) + ' birr';
@@ -4892,1175 +3162,25 @@
             return types[type] || type;
         }
 
-        // ==================== Setup Functions ====================
-        function updateCurrentTime() {
-            const now = new Date();
-            const timeString = now.toLocaleTimeString('en-US', { 
-                hour12: true, 
-                hour: '2-digit', 
-                minute: '2-digit'
-            });
-            
-            document.getElementById('current-time').textContent = timeString;
-            document.getElementById('last-update').textContent = `Last updated: ${now.toLocaleTimeString()}`;
-        }
-
-        function setupTabs() {
-            const tabBtns = document.querySelectorAll('.tab-btn');
-            const tabPanes = document.querySelectorAll('.tab-pane');
-            
-            tabBtns.forEach(btn => {
-                btn.addEventListener('click', function() {
-                    const tabId = this.getAttribute('data-tab');
-                    
-                    tabBtns.forEach(b => b.classList.remove('active'));
-                    tabPanes.forEach(p => p.classList.remove('active'));
-                    
-                    this.classList.add('active');
-                    document.getElementById(`${tabId}-tab`).classList.add('active');
-                    
-                    switch(tabId) {
-                        case 'games':
-                            gamesPage = 1;
-                            loadGames();
-                            break;
-                        case 'users':
-                            usersPage = 1;
-                            loadUsers();
-                            break;
-                        case 'payments':
-                            currentPaymentType = 'deposits';
-                            depositsPage = 1;
-                            withdrawalsPage = 1;
-                            document.querySelector('[data-payment-type="deposits"]').classList.add('active');
-                            document.querySelector('[data-payment-type="withdrawals"]').classList.remove('active');
-                            document.getElementById('deposits-content').classList.add('active');
-                            document.getElementById('withdrawals-content').classList.remove('active');
-                            loadDeposits();
-                            break;
-                        case 'transactions':
-                            transactionsPage = 1;
-                            loadTransactions();
-                            break;
-                        case 'system':
-                            checkDatabaseInfo();
-                            loadSystemStatus();
-                            break;
-                    }
-                    
-                    addLiveUpdate(`Switched to ${tabId} tab`);
-                });
-            });
-        }
-
-        function setupPaymentTabs() {
-            const paymentTabBtns = document.querySelectorAll('.payment-tab-btn');
-            const paymentTabContents = document.querySelectorAll('.payment-tab-content');
-            
-            paymentTabBtns.forEach(btn => {
-                btn.addEventListener('click', function() {
-                    const paymentType = this.getAttribute('data-payment-type');
-                    
-                    paymentTabBtns.forEach(b => b.classList.remove('active'));
-                    paymentTabContents.forEach(p => p.classList.remove('active'));
-                    
-                    this.classList.add('active');
-                    document.getElementById(`${paymentType}-content`).classList.add('active');
-                    
-                    currentPaymentType = paymentType;
-                    
-                    if (paymentType === 'deposits') {
-                        depositsPage = 1;
-                        loadDeposits();
-                    } else {
-                        withdrawalsPage = 1;
-                        loadWithdrawals();
-                    }
-                    
-                    addLiveUpdate(`Switched to ${paymentType} view`);
-                });
-            });
-        }
-
-        function setupCommissionTabs() {
-            const tabBtns = document.querySelectorAll('[data-commission-tab]');
-            const tabContents = document.querySelectorAll('.commission-tab-content');
-            
-            tabBtns.forEach(btn => {
-                btn.addEventListener('click', function() {
-                    const tabId = this.getAttribute('data-commission-tab');
-                    
-                    tabBtns.forEach(b => b.classList.remove('active'));
-                    tabContents.forEach(c => c.classList.remove('active'));
-                    
-                    this.classList.add('active');
-                    document.getElementById(`commission-${tabId}-content`).classList.add('active');
-                    
-                    if (tabId === 'games') {
-                        loadCommissionGames();
-                    } else if (tabId === 'daily') {
-                        loadDailyCommission();
-                    } else if (tabId === 'monthly') {
-                        loadMonthlyCommission();
-                    }
-                });
-            });
-        }
-
-        function setupModals() {
-            document.querySelectorAll('.modal-close, .btn-secondary[data-modal]').forEach(btn => {
-                btn.addEventListener('click', function() {
-                    const modalId = this.getAttribute('data-modal');
-                    closeModal(modalId);
-                });
-            });
-            
-            document.querySelectorAll('.modal').forEach(modal => {
-                modal.addEventListener('click', function(e) {
-                    if (e.target === this) {
-                        const modalId = this.id;
-                        closeModal(modalId);
-                    }
-                });
-            });
-            
-            document.getElementById('quick-add-balance').addEventListener('click', function() {
-                openModal('add-balance-modal');
-            });
-            
-            document.getElementById('quick-download-db').addEventListener('click', function() {
-                downloadDatabase(true);
-            });
-            
-            document.getElementById('submit-add-balance').addEventListener('click', async function() {
-                const userId = document.getElementById('balance-user-id').value;
-                const amount = document.getElementById('balance-amount').value;
-                const reason = document.getElementById('balance-reason').value;
-                
-                if (!userId || !amount) {
-                    showNotification('Please fill in all required fields', 'warning');
-                    return;
-                }
-                
-                try {
-                    showNotification('Adding balance...', 'info');
-                    
-                    const response = await fetch(`/api/admin/addbalance`, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify({
-                            user_id: parseInt(userId),
-                            amount: parseFloat(amount),
-                            notes: reason || 'Admin balance addition',
-                            admin_id: adminId
-                        })
-                    });
-                    
-                    const data = await response.json();
-                    
-                    if (data.success) {
-                        showNotification(`Added ${amount} birr to user ${userId}`, 'success');
-                        addLiveUpdate(`Added ${amount} birr to user ${userId}`);
-                        closeModal('add-balance-modal');
-                        
-                        document.getElementById('balance-user-id').value = '';
-                        document.getElementById('balance-amount').value = '';
-                        document.getElementById('balance-reason').value = '';
-                        
-                        loadUsers();
-                        loadStats();
-                        loadWeeklyCommission();
-                    } else {
-                        showNotification('Failed to add balance: ' + (data.message || 'Unknown error'), 'danger');
-                    }
-                } catch (error) {
-                    console.error('Error adding balance:', error);
-                    showNotification('Error adding balance', 'danger');
-                }
-            });
-            
-            document.getElementById('quick-send-notification').addEventListener('click', function() {
-                openModal('send-notification-modal');
-            });
-            
-            document.getElementById('submit-notification').addEventListener('click', async function() {
-                const title = document.getElementById('notification-title').value;
-                const message = document.getElementById('notification-message').value;
-                
-                if (!title || !message) {
-                    showNotification('Please fill in all required fields', 'warning');
-                    return;
-                }
-                
-                try {
-                    showNotification('Sending notification...', 'info');
-                    
-                    const response = await fetch(`/api/admin/notification`, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify({
-                            title: title,
-                            message: message,
-                            target: 'all',
-                            admin_id: adminId
-                        })
-                    });
-                    
-                    const data = await response.json();
-                    
-                    if (data.success) {
-                        showNotification('Notification sent successfully!', 'success');
-                        addLiveUpdate(`Sent notification: ${title}`);
-                        closeModal('send-notification-modal');
-                        
-                        document.getElementById('notification-message').value = '';
-                    } else {
-                        showNotification('Failed to send notification: ' + (data.message || 'Unknown error'), 'danger');
-                    }
-                } catch (error) {
-                    console.error('Error sending notification:', error);
-                    showNotification('Error sending notification', 'danger');
-                }
-            });
-            
-            document.getElementById('quick-settings').addEventListener('click', function() {
-                openModal('settings-modal');
-            });
-            
-            document.getElementById('save-settings').addEventListener('click', function() {
-                const refreshTime = document.getElementById('auto-refresh').value;
-                const theme = document.getElementById('theme').value;
-                const notifications = document.getElementById('notifications').value;
-                
-                localStorage.setItem('adminSettings', JSON.stringify({
-                    refreshTime: refreshTime,
-                    theme: theme,
-                    notifications: notifications
-                }));
-                
-                applySettings();
-                
-                showNotification('Settings saved successfully!', 'success');
-                addLiveUpdate('Settings updated');
-                closeModal('settings-modal');
-            });
-            
-            document.getElementById('submit-reject-deposit').addEventListener('click', async function() {
-                const depositId = this.getAttribute('data-deposit-id');
-                const reason = document.getElementById('deposit-reject-reason').value;
-                
-                if (!reason.trim()) {
-                    showNotification('Please enter a reason for rejection', 'warning');
-                    return;
-                }
-                
-                try {
-                    showNotification('Rejecting deposit...', 'info');
-                    
-                    const response = await fetch(`/api/admin/rejectpayment`, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify({
-                            payment_id: parseInt(depositId),
-                            reason: reason,
-                            admin_id: adminId
-                        })
-                    });
-                    
-                    const data = await response.json();
-                    
-                    if (data.success) {
-                        showNotification('Deposit rejected!', 'success');
-                        addLiveUpdate('Rejected deposit #' + depositId);
-                        closeModal('deposit-reject-modal');
-                        closeModal('deposit-details-modal');
-                        loadDeposits();
-                        loadStats();
-                    } else {
-                        showNotification('Failed to reject deposit: ' + (data.message || 'Unknown error'), 'danger');
-                    }
-                } catch (error) {
-                    console.error('Error rejecting deposit:', error);
-                    showNotification('Error rejecting deposit', 'danger');
-                }
-            });
-            
-            document.getElementById('submit-reject-withdrawal').addEventListener('click', async function() {
-                const withdrawalId = this.getAttribute('data-withdrawal-id');
-                const reason = document.getElementById('withdrawal-reject-reason').value;
-                
-                if (!reason.trim()) {
-                    showNotification('Please enter a reason for rejection', 'warning');
-                    return;
-                }
-                
-                try {
-                    showNotification('Rejecting withdrawal...', 'info');
-                    
-                    const response = await fetch(`/api/admin/rejectwithdrawal`, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify({
-                            withdrawal_id: parseInt(withdrawalId),
-                            reason: reason,
-                            admin_id: adminId
-                        })
-                    });
-                    
-                    const data = await response.json();
-                    
-                    if (data.success) {
-                        showNotification('Withdrawal rejected!', 'success');
-                        addLiveUpdate('Rejected withdrawal #' + withdrawalId);
-                        closeModal('withdrawal-reject-modal');
-                        closeModal('withdrawal-details-modal');
-                        loadWithdrawals();
-                        loadStats();
-                    } else {
-                        showNotification('Failed to reject withdrawal: ' + (data.message || 'Unknown error'), 'danger');
-                    }
-                } catch (error) {
-                    console.error('Error rejecting withdrawal:', error);
-                    showNotification('Error rejecting withdrawal', 'danger');
-                }
-            });
-            
-            document.getElementById('submit-suspend-user').addEventListener('click', async function() {
-                const userId = this.getAttribute('data-user-id');
-                const reason = document.getElementById('suspend-user-reason').value;
-                const duration = document.getElementById('suspend-duration').value;
-                
-                if (!reason.trim()) {
-                    showNotification('Please enter a reason for suspension', 'warning');
-                    return;
-                }
-                
-                try {
-                    showNotification('Suspending user...', 'info');
-                    
-                    const response = await fetch(`/api/admin/suspenduser`, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify({
-                            user_id: parseInt(userId),
-                            reason: reason,
-                            duration: duration,
-                            admin_id: adminId
-                        })
-                    });
-                    
-                    const data = await response.json();
-                    
-                    if (data.success) {
-                        showNotification('User suspended!', 'success');
-                        addLiveUpdate('Suspended user #' + userId);
-                        closeModal('suspend-user-modal');
-                        loadUsers();
-                        loadStats();
-                    } else {
-                        showNotification('Failed to suspend user: ' + (data.message || 'Unknown error'), 'danger');
-                    }
-                } catch (error) {
-                    console.error('Error suspending user:', error);
-                    showNotification('Error suspending user', 'danger');
-                }
-            });
-            
-            document.getElementById('submit-delete-user').addEventListener('click', async function() {
-                const userId = this.getAttribute('data-user-id');
-                const reason = document.getElementById('delete-user-reason').value;
-                
-                if (!reason.trim()) {
-                    showNotification('Please enter a reason for deletion', 'warning');
-                    return;
-                }
-                
-                if (!confirm('Are you absolutely sure you want to delete this user? This action cannot be undone!')) {
-                    return;
-                }
-                
-                try {
-                    showNotification('Deleting user...', 'info');
-                    
-                    const response = await fetch(`/api/admin/deleteuser`, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify({
-                            user_id: parseInt(userId),
-                            reason: reason,
-                            admin_id: adminId
-                        })
-                    });
-                    
-                    const data = await response.json();
-                    
-                    if (data.success) {
-                        showNotification('User deleted!', 'success');
-                        addLiveUpdate('Deleted user #' + userId);
-                        closeModal('delete-user-modal');
-                        loadUsers();
-                        loadStats();
-                    } else {
-                        showNotification('Failed to delete user: ' + (data.message || 'Unknown error'), 'danger');
-                    }
-                } catch (error) {
-                    console.error('Error deleting user:', error);
-                    showNotification('Error deleting user', 'danger');
-                }
-            });
-            
-            loadSettings();
-        }
-
-        function loadSettings() {
-            const savedSettings = localStorage.getItem('adminSettings');
-            if (savedSettings) {
-                const settings = JSON.parse(savedSettings);
-                
-                document.getElementById('auto-refresh').value = settings.refreshTime || '30';
-                document.getElementById('theme').value = settings.theme || 'light';
-                document.getElementById('notifications').value = settings.notifications || 'all';
-                
-                applySettings();
-            }
-        }
-
-        function applySettings() {
-            const refreshTime = document.getElementById('auto-refresh').value;
-            const theme = document.getElementById('theme').value;
-            
-            autoRefreshTime = parseInt(refreshTime) * 1000;
-            setupAutoRefresh();
-            
-            applyTheme(theme);
-        }
-
-        function applyTheme(theme) {
-            document.body.classList.remove('theme-light', 'theme-dark');
-            
-            if (theme === 'dark' || (theme === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
-                document.body.classList.add('theme-dark');
-            } else {
-                document.body.classList.add('theme-light');
-            }
-        }
-
-        function setupQuickActions() {
-            document.getElementById('clear-updates').addEventListener('click', function() {
-                document.getElementById('live-updates-list').innerHTML = '';
-                showNotification('Updates cleared', 'info');
-            });
-            
-            document.getElementById('quick-process-payments').addEventListener('click', function() {
-                document.querySelector('[data-tab="payments"]').click();
-            });
-        }
-
-        function setupGameControls() {
-            document.getElementById('start-game-btn').addEventListener('click', async function() {
-                if (!confirm('Start a new game round?')) return;
-                
-                try {
-                    showNotification('Starting new game...', 'info');
-                    
-                    const response = await fetch(`/api/admin/startgame`, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify({
-                            admin_id: adminId
-                        })
-                    });
-                    
-                    const data = await response.json();
-                    
-                    if (data.success) {
-                        showNotification('New game started successfully!', 'success');
-                        addLiveUpdate('Started new game round');
-                        loadGameStatus();
-                        loadGames();
-                        loadStats();
-                        loadWeeklyCommission();
-                    } else {
-                        showNotification('Failed to start game: ' + (data.message || 'Unknown error'), 'danger');
-                    }
-                } catch (error) {
-                    console.error('Error starting game:', error);
-                    showNotification('Error starting game', 'danger');
-                }
-            });
-            
-            document.getElementById('stop-game-btn').addEventListener('click', async function() {
-                if (!currentGame || !currentGame.game_id) {
-                    showNotification('No active game to stop', 'warning');
-                    return;
-                }
-                
-                if (!confirm('Stop the current game?')) return;
-                
-                try {
-                    showNotification('Stopping game...', 'info');
-                    
-                    const response = await fetch(`/api/admin/stopgame`, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify({
-                            game_id: currentGame.game_id,
-                            admin_id: adminId
-                        })
-                    });
-                    
-                    const data = await response.json();
-                    
-                    if (data.success) {
-                        showNotification('Game stopped successfully!', 'success');
-                        addLiveUpdate('Stopped current game');
-                        loadGameStatus();
-                        loadGames();
-                    } else {
-                        showNotification('Failed to stop game: ' + (data.message || 'Unknown error'), 'danger');
-                    }
-                } catch (error) {
-                    console.error('Error stopping game:', error);
-                    showNotification('Error stopping game', 'danger');
-                }
-            });
-            
-            document.getElementById('call-number-btn').addEventListener('click', function() {
-                openModal('call-number-modal');
-                setupQuickNumbers();
-            });
-            
-            document.getElementById('submit-call-number').addEventListener('click', async function() {
-                const number = document.getElementById('number-to-call').value;
-                
-                if (!number || number < 1 || number > 75) {
-                    showNotification('Please enter a valid number between 1 and 75', 'warning');
-                    return;
-                }
-                
-                if (!currentGame || !currentGame.game_id) {
-                    showNotification('No active game to call numbers', 'warning');
-                    return;
-                }
-                
-                try {
-                    showNotification(`Calling number ${number}...`, 'info');
-                    
-                    const response = await fetch(`/api/admin/callnumber`, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify({
-                            game_id: currentGame.game_id,
-                            number: parseInt(number),
-                            admin_id: adminId
-                        })
-                    });
-                    
-                    const data = await response.json();
-                    
-                    if (data.success) {
-                        showNotification(`Number ${number} called successfully!`, 'success');
-                        addLiveUpdate(`Called number ${number}`);
-                        closeModal('call-number-modal');
-                        loadGameStatus();
-                    } else {
-                        showNotification('Failed to call number: ' + (data.message || 'Unknown error'), 'danger');
-                    }
-                } catch (error) {
-                    console.error('Error calling number:', error);
-                    showNotification('Error calling number', 'danger');
-                }
-            });
-        }
-
-        function setupSystemActions() {
-            document.getElementById('check-db-info').addEventListener('click', function() {
-                checkDatabaseInfo();
-                showNotification('Database info refreshed', 'info');
-            });
-            
-            document.getElementById('download-db').addEventListener('click', function() {
-                downloadDatabase(true);
-            });
-            
-            document.getElementById('download-db-uncompressed').addEventListener('click', function() {
-                downloadDatabase(false);
-            });
-        }
-
-        function setupRefreshButtons() {
-            document.getElementById('refresh-games').addEventListener('click', function() {
-                gamesPage = 1;
-                loadGames();
-                showNotification('Games list refreshed', 'info');
-            });
-            
-            document.getElementById('refresh-users').addEventListener('click', function() {
-                usersPage = 1;
-                loadUsers();
-                showNotification('Users list refreshed', 'info');
-            });
-            
-            document.getElementById('refresh-deposits').addEventListener('click', function() {
-                depositsPage = 1;
-                loadDeposits();
-                showNotification('Deposits list refreshed', 'info');
-            });
-            
-            document.getElementById('refresh-withdrawals').addEventListener('click', function() {
-                withdrawalsPage = 1;
-                loadWithdrawals();
-                showNotification('Withdrawals list refreshed', 'info');
-            });
-            
-            document.getElementById('refresh-transactions').addEventListener('click', function() {
-                transactionsPage = 1;
-                loadTransactions();
-                showNotification('Transactions list refreshed', 'info');
-            });
-            
-            document.getElementById('view-commission-details').addEventListener('click', function() {
-                loadCommissionDetails();
-                openModal('commission-details-modal');
-            });
-            
-            document.getElementById('refresh-weekly-commission').addEventListener('click', function() {
-                loadWeeklyCommission();
-                showNotification('Weekly commission data refreshed', 'info');
-            });
-            
-            document.getElementById('export-commission-data').addEventListener('click', function() {
-                const activeTab = document.querySelector('[data-commission-tab].active');
-                if (!activeTab) return;
-                
-                const tabId = activeTab.getAttribute('data-commission-tab');
-                let tableId, filename;
-                
-                if (tabId === 'games') {
-                    tableId = 'commission-games-table';
-                    filename = 'commission_by_game.csv';
-                } else if (tabId === 'daily') {
-                    tableId = 'commission-daily-table';
-                    filename = 'commission_daily.csv';
-                } else {
-                    tableId = 'commission-monthly-table';
-                    filename = 'commission_monthly.csv';
-                }
-                
-                exportTableToCSV(tableId, filename);
-            });
-        }
-
-        function setupSearchAndFilters() {
-            let searchTimeout;
-            
-            document.getElementById('game-search').addEventListener('input', function() {
-                clearTimeout(searchTimeout);
-                searchTimeout = setTimeout(() => {
-                    gamesPage = 1;
-                    loadGames();
-                }, 500);
-            });
-            
-            document.getElementById('game-status-filter').addEventListener('change', function() {
-                gamesPage = 1;
-                loadGames();
-            });
-            
-            document.getElementById('user-search').addEventListener('input', function() {
-                clearTimeout(searchTimeout);
-                searchTimeout = setTimeout(() => {
-                    usersPage = 1;
-                    loadUsers();
-                }, 500);
-            });
-            
-            document.getElementById('user-status-filter').addEventListener('change', function() {
-                usersPage = 1;
-                loadUsers();
-            });
-            
-            document.getElementById('deposit-search').addEventListener('input', function() {
-                clearTimeout(searchTimeout);
-                searchTimeout = setTimeout(() => {
-                    depositsPage = 1;
-                    loadDeposits();
-                }, 500);
-            });
-            
-            document.getElementById('deposit-status-filter').addEventListener('change', function() {
-                depositsPage = 1;
-                loadDeposits();
-            });
-            
-            document.getElementById('withdrawal-search').addEventListener('input', function() {
-                clearTimeout(searchTimeout);
-                searchTimeout = setTimeout(() => {
-                    withdrawalsPage = 1;
-                    loadWithdrawals();
-                }, 500);
-            });
-            
-            document.getElementById('withdrawal-status-filter').addEventListener('change', function() {
-                withdrawalsPage = 1;
-                loadWithdrawals();
-            });
-            
-            document.getElementById('transaction-search').addEventListener('input', function() {
-                clearTimeout(searchTimeout);
-                searchTimeout = setTimeout(() => {
-                    transactionsPage = 1;
-                    loadTransactions();
-                }, 500);
-            });
-        }
-
-        function setupPaginationControls() {
-            // Games pagination
-            document.getElementById('games-first-page').addEventListener('click', () => {
-                gamesPage = 1;
-                loadGames();
-            });
-            
-            document.getElementById('games-prev-page').addEventListener('click', () => {
-                if (gamesPage > 1) {
-                    gamesPage--;
-                    loadGames();
-                }
-            });
-            
-            document.getElementById('games-next-page').addEventListener('click', () => {
-                if (gamesPage < gamesTotalPages) {
-                    gamesPage++;
-                    loadGames();
-                }
-            });
-            
-            document.getElementById('games-last-page').addEventListener('click', () => {
-                gamesPage = gamesTotalPages;
-                loadGames();
-            });
-            
-            document.getElementById('games-page-size').addEventListener('change', function() {
-                gamesPageSize = parseInt(this.value);
-                gamesPage = 1;
-                loadGames();
-            });
-            
-            // Users pagination
-            document.getElementById('users-first-page').addEventListener('click', () => {
-                usersPage = 1;
-                loadUsers();
-            });
-            
-            document.getElementById('users-prev-page').addEventListener('click', () => {
-                if (usersPage > 1) {
-                    usersPage--;
-                    loadUsers();
-                }
-            });
-            
-            document.getElementById('users-next-page').addEventListener('click', () => {
-                if (usersPage < usersTotalPages) {
-                    usersPage++;
-                    loadUsers();
-                }
-            });
-            
-            document.getElementById('users-last-page').addEventListener('click', () => {
-                usersPage = usersTotalPages;
-                loadUsers();
-            });
-            
-            document.getElementById('users-page-size').addEventListener('change', function() {
-                usersPageSize = parseInt(this.value);
-                usersPage = 1;
-                loadUsers();
-            });
-            
-            // Deposits pagination
-            document.getElementById('deposits-first-page').addEventListener('click', () => {
-                depositsPage = 1;
-                loadDeposits();
-            });
-            
-            document.getElementById('deposits-prev-page').addEventListener('click', () => {
-                if (depositsPage > 1) {
-                    depositsPage--;
-                    loadDeposits();
-                }
-            });
-            
-            document.getElementById('deposits-next-page').addEventListener('click', () => {
-                if (depositsPage < depositsTotalPages) {
-                    depositsPage++;
-                    loadDeposits();
-                }
-            });
-            
-            document.getElementById('deposits-last-page').addEventListener('click', () => {
-                depositsPage = depositsTotalPages;
-                loadDeposits();
-            });
-            
-            document.getElementById('deposits-page-size').addEventListener('change', function() {
-                depositsPageSize = parseInt(this.value);
-                depositsPage = 1;
-                loadDeposits();
-            });
-            
-            // Withdrawals pagination
-            document.getElementById('withdrawals-first-page').addEventListener('click', () => {
-                withdrawalsPage = 1;
-                loadWithdrawals();
-            });
-            
-            document.getElementById('withdrawals-prev-page').addEventListener('click', () => {
-                if (withdrawalsPage > 1) {
-                    withdrawalsPage--;
-                    loadWithdrawals();
-                }
-            });
-            
-            document.getElementById('withdrawals-next-page').addEventListener('click', () => {
-                if (withdrawalsPage < withdrawalsTotalPages) {
-                    withdrawalsPage++;
-                    loadWithdrawals();
-                }
-            });
-            
-            document.getElementById('withdrawals-last-page').addEventListener('click', () => {
-                withdrawalsPage = withdrawalsTotalPages;
-                loadWithdrawals();
-            });
-            
-            document.getElementById('withdrawals-page-size').addEventListener('change', function() {
-                withdrawalsPageSize = parseInt(this.value);
-                withdrawalsPage = 1;
-                loadWithdrawals();
-            });
-            
-            // Transactions pagination
-            document.getElementById('transactions-first-page').addEventListener('click', () => {
-                transactionsPage = 1;
-                loadTransactions();
-            });
-            
-            document.getElementById('transactions-prev-page').addEventListener('click', () => {
-                if (transactionsPage > 1) {
-                    transactionsPage--;
-                    loadTransactions();
-                }
-            });
-            
-            document.getElementById('transactions-next-page').addEventListener('click', () => {
-                if (transactionsPage < transactionsTotalPages) {
-                    transactionsPage++;
-                    loadTransactions();
-                }
-            });
-            
-            document.getElementById('transactions-last-page').addEventListener('click', () => {
-                transactionsPage = transactionsTotalPages;
-                loadTransactions();
-            });
-            
-            document.getElementById('transactions-page-size').addEventListener('change', function() {
-                transactionsPageSize = parseInt(this.value);
-                transactionsPage = 1;
-                loadTransactions();
-            });
-        }
-
-        function setupQuickNumbers() {
-            const container = document.getElementById('quick-numbers');
-            container.innerHTML = '';
-            
-            const numbers = [];
-            for (let i = 0; i < 5; i++) {
-                numbers.push(Math.floor(Math.random() * 75) + 1);
-            }
-            
-            numbers.forEach(num => {
-                const btn = document.createElement('button');
-                btn.className = 'btn-action';
-                btn.style.background = '#6c757d';
-                btn.innerHTML = `<i class="fas fa-hashtag"></i> ${num}`;
-                btn.onclick = () => {
-                    document.getElementById('number-to-call').value = num;
-                };
-                
-                container.appendChild(btn);
-            });
-        }
-
-        function setupAutoRefresh() {
-            if (autoRefreshInterval) {
-                clearInterval(autoRefreshInterval);
-            }
-            
-            if (autoRefreshTime > 0) {
-                autoRefreshInterval = setInterval(() => {
-                    refreshAllData();
-                    addLiveUpdate('Auto-refresh completed', 'info');
-                }, autoRefreshTime);
-            }
-        }
-
-        function refreshAllData() {
-            loadStats();
-            loadWeeklyCommission();
-            
-            const activeTab = document.querySelector('.tab-pane.active').id;
-            
-            if (activeTab === 'games-tab') {
-                loadGames();
-            } else if (activeTab === 'users-tab') {
-                loadUsers();
-            } else if (activeTab === 'payments-tab') {
-                if (currentPaymentType === 'deposits') {
-                    loadDeposits();
-                } else {
-                    loadWithdrawals();
-                }
-            } else if (activeTab === 'transactions-tab') {
-                loadTransactions();
-            } else if (activeTab === 'system-tab') {
-                checkDatabaseInfo();
-            }
-            
-            loadGameStatus();
-        }
-
-        // ==================== Modal Functions ====================
         function openModal(modalId) {
-            document.getElementById(modalId).classList.add('active');
-            document.body.style.overflow = 'hidden';
+            const modal = document.getElementById(modalId);
+            if (modal) {
+                modal.classList.add('active');
+                document.body.style.overflow = 'hidden';
+            }
         }
 
         function closeModal(modalId) {
-            document.getElementById(modalId).classList.remove('active');
-            document.body.style.overflow = '';
-        }
-
-        // ==================== Additional Functions ====================
-        function openAddBalanceModal(userId) {
-            document.getElementById('balance-user-id').value = userId;
-            openModal('add-balance-modal');
-        }
-
-        function stopGame(gameId) {
-            if (!confirm('Stop this game?')) return;
-            
-            showNotification(`Game ${gameId} stop requested`, 'info');
-        }
-
-        function openRejectDepositModal(paymentId, username, amount) {
-            const detailsDiv = document.getElementById('reject-deposit-details');
-            detailsDiv.innerHTML = `
-                <h4>Deposit Details</h4>
-                <div class="detail-row">
-                    <span class="detail-label">Payment ID:</span>
-                    <span class="detail-value">${paymentId}</span>
-                </div>
-                <div class="detail-row">
-                    <span class="detail-label">User:</span>
-                    <span class="detail-value">${username}</span>
-                </div>
-                <div class="detail-row">
-                    <span class="detail-label">Amount:</span>
-                    <span class="detail-value">${formatCurrency(amount)}</span>
-                </div>
-            `;
-            
-            document.getElementById('submit-reject-deposit').setAttribute('data-deposit-id', paymentId);
-            document.getElementById('deposit-reject-reason').value = '';
-            openModal('deposit-reject-modal');
-        }
-
-        function openRejectDepositModalFromView(paymentId, username, amount) {
-            openRejectDepositModal(paymentId, username, amount);
-        }
-
-        function openRejectWithdrawalModal(withdrawalId, username, amount) {
-            const detailsDiv = document.getElementById('reject-withdrawal-details');
-            detailsDiv.innerHTML = `
-                <h4>Withdrawal Details</h4>
-                <div class="detail-row">
-                    <span class="detail-label">Request ID:</span>
-                    <span class="detail-value">${withdrawalId}</span>
-                </div>
-                <div class="detail-row">
-                    <span class="detail-label">User:</span>
-                    <span class="detail-value">${username}</span>
-                </div>
-                <div class="detail-row">
-                    <span class="detail-label">Amount:</span>
-                    <span class="detail-value">${formatCurrency(amount)}</span>
-                </div>
-            `;
-            
-            document.getElementById('submit-reject-withdrawal').setAttribute('data-withdrawal-id', withdrawalId);
-            document.getElementById('withdrawal-reject-reason').value = '';
-            openModal('withdrawal-reject-modal');
-        }
-
-        function openRejectWithdrawalModalFromView(withdrawalId, username, amount) {
-            openRejectWithdrawalModal(withdrawalId, username, amount);
-        }
-
-        function openSuspendUserModal(userId, username) {
-            const detailsDiv = document.getElementById('suspend-user-details');
-            detailsDiv.innerHTML = `
-                <h4>User Details</h4>
-                <div class="detail-row">
-                    <span class="detail-label">User ID:</span>
-                    <span class="detail-value">${userId}</span>
-                </div>
-                <div class="detail-row">
-                    <span class="detail-label">Username:</span>
-                    <span class="detail-value">${username}</span>
-                </div>
-            `;
-            
-            document.getElementById('submit-suspend-user').setAttribute('data-user-id', userId);
-            document.getElementById('suspend-user-reason').value = '';
-            document.getElementById('suspend-duration').value = '7';
-            openModal('suspend-user-modal');
-        }
-
-        function openDeleteUserModal(userId, username) {
-            const detailsDiv = document.getElementById('delete-user-details');
-            detailsDiv.innerHTML = `
-                <h4>User Details</h4>
-                <div class="detail-row">
-                    <span class="detail-label">User ID:</span>
-                    <span class="detail-value">${userId}</span>
-                </div>
-                <div class="detail-row">
-                    <span class="detail-label">Username:</span>
-                    <span class="detail-value">${username}</span>
-                </div>
-            `;
-            
-            document.getElementById('submit-delete-user').setAttribute('data-user-id', userId);
-            document.getElementById('delete-user-reason').value = '';
-            openModal('delete-user-modal');
-        }
-
-        // System functions
-        async function restartGameManager() {
-            showNotification('Restarting game manager...', 'info');
-            setTimeout(() => {
-                showNotification('Game manager restarted', 'success');
-                addLiveUpdate('Game manager restarted');
-            }, 1000);
-        }
-
-        async function clearCache() {
-            showNotification('Clearing cache...', 'info');
-            setTimeout(() => {
-                showNotification('Cache cleared', 'success');
-                addLiveUpdate('Cache cleared');
-            }, 1000);
-        }
-
-        async function backupDatabase() {
-            showNotification('Creating database backup...', 'info');
-            setTimeout(() => {
-                showNotification('Database backup created', 'success');
-                addLiveUpdate('Database backup created');
-            }, 1000);
-        }
-
-        async function checkHealth() {
-            window.open('/health', '_blank');
-        }
-
-        async function loadSystemStatus() {
-            try {
-                const response = await fetch('/api/system/status');
-                const data = await response.json();
-                
-                const container = document.getElementById('system-status-details');
-                
-                if (data.success) {
-                    container.innerHTML = `
-                        <div class="detail-row">
-                            <span class="detail-label">WebSocket Connections:</span>
-                            <span class="detail-value">${data.websocket.connections}</span>
-                        </div>
-                        <div class="detail-row">
-                            <span class="detail-label">Authenticated Users:</span>
-                            <span class="detail-value">${data.websocket.authenticated_users}</span>
-                        </div>
-                        <div class="detail-row">
-                            <span class="detail-label">Server Status:</span>
-                            <span class="detail-value"><span class="status-active">Healthy</span></span>
-                        </div>
-                        <div class="detail-row">
-                            <span class="detail-label">Last Updated:</span>
-                            <span class="detail-value">${new Date(data.timestamp).toLocaleString()}</span>
-                        </div>
-                    `;
-                } else {
-                    container.innerHTML = '<p>Error loading system status</p>';
-                }
-            } catch (error) {
-                console.error('Error loading system status:', error);
-                document.getElementById('system-status-details').innerHTML = '<p>Error loading system status</p>';
-            }
-        }
-
-        // ==================== Live Updates ====================
-        function addLiveUpdate(text, type = 'info') {
-            const updatesList = document.getElementById('live-updates-list');
-            const updateItem = document.createElement('div');
-            updateItem.className = 'update-item';
-            
-            const iconClass = type === 'success' ? 'fa-check-circle' : 
-                            type === 'warning' ? 'fa-exclamation-triangle' : 
-                            type === 'danger' ? 'fa-times-circle' : 'fa-info-circle';
-            
-            updateItem.innerHTML = `
-                <div class="update-icon ${type}">
-                    <i class="fas ${iconClass}"></i>
-                </div>
-                <div class="update-content">
-                    <div class="update-text">${text}</div>
-                    <div class="update-time">${new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</div>
-                </div>
-            `;
-            
-            updatesList.insertBefore(updateItem, updatesList.firstChild);
-            
-            if (updatesList.children.length > 10) {
-                updatesList.removeChild(updatesList.lastChild);
+            const modal = document.getElementById(modalId);
+            if (modal) {
+                modal.classList.remove('active');
+                document.body.style.overflow = '';
             }
         }
 
         function showNotification(message, type = 'info') {
             const notification = document.createElement('div');
             notification.className = `notification notification-${type}`;
-            
             const icon = type === 'success' ? 'fa-check-circle' :
                         type === 'warning' ? 'fa-exclamation-triangle' :
                         type === 'danger' ? 'fa-times-circle' : 'fa-info-circle';
@@ -6090,115 +3210,383 @@
             `;
             
             document.body.appendChild(notification);
-            
-            setTimeout(() => {
-                if (notification.parentNode) {
-                    notification.parentNode.removeChild(notification);
-                }
-            }, 3000);
+            setTimeout(() => notification.remove(), 3000);
         }
 
-        function exportTableToCSV(tableId, filename) {
-            const table = document.getElementById(tableId);
-            if (!table) return;
+        function addLiveUpdate(text, type = 'info') {
+            const updatesList = document.getElementById('live-updates-list');
+            if (!updatesList) return;
             
-            let csv = [];
-            const rows = table.querySelectorAll('tr');
+            const updateItem = document.createElement('div');
+            updateItem.className = 'update-item';
+            const iconClass = type === 'success' ? 'fa-check-circle' : 
+                            type === 'warning' ? 'fa-exclamation-triangle' : 
+                            type === 'danger' ? 'fa-times-circle' : 'fa-info-circle';
             
-            for (let row of rows) {
-                const rowData = [];
-                const cols = row.querySelectorAll('td, th');
-                
-                for (let col of cols) {
-                    let text = col.textContent.trim().replace(/,/g, '');
-                    rowData.push('"' + text + '"');
-                }
-                
-                csv.push(rowData.join(','));
+            updateItem.innerHTML = `
+                <div class="update-icon ${type}">
+                    <i class="fas ${iconClass}"></i>
+                </div>
+                <div class="update-content">
+                    <div class="update-text">${text}</div>
+                    <div class="update-time">${new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</div>
+                </div>
+            `;
+            
+            updatesList.insertBefore(updateItem, updatesList.firstChild);
+            if (updatesList.children.length > 10) {
+                updatesList.removeChild(updatesList.lastChild);
             }
-            
-            const csvContent = csv.join('\n');
-            const blob = new Blob([csvContent], { type: 'text/csv' });
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = filename;
-            a.click();
-            window.URL.revokeObjectURL(url);
         }
 
-        // ==================== Initialize Admin Panel ====================
-        document.addEventListener('DOMContentLoaded', async function() {
+        // ==================== DATABASE DOWNLOAD FUNCTIONS ====================
+        async function checkDatabaseInfo() {
+            try {
+                document.getElementById('db-status').innerHTML = '<span class="status-pending">Checking...</span>';
+                
+                const response = await fetch('/api/admin/database-info');
+                const data = await response.json();
+                
+                if (data && data.success) {
+                    document.getElementById('db-status').innerHTML = '<span class="status-active">Available</span>';
+                    document.getElementById('db-size').textContent = data.database.size_mb + ' MB';
+                    document.getElementById('db-modified').textContent = new Date(data.database.modified_time).toLocaleString();
+                    
+                    const records = data.database.record_counts;
+                    let recordsHtml = '';
+                    for (const [table, count] of Object.entries(records)) {
+                        recordsHtml += `<div>${table}: ${count}</div>`;
+                    }
+                    document.getElementById('db-records').innerHTML = recordsHtml;
+                    
+                    addLiveUpdate('Database info updated: ' + data.database.size_mb + ' MB', 'info');
+                } else {
+                    document.getElementById('db-status').innerHTML = '<span class="status-rejected">Not Found</span>';
+                }
+            } catch (error) {
+                console.error('Error checking database info:', error);
+                document.getElementById('db-status').innerHTML = '<span class="status-rejected">Error</span>';
+                showNotification('Error checking database info', 'danger');
+            }
+        }
+
+        async function downloadDatabase(compressed = true) {
+            try {
+                openModal('download-progress-modal');
+                const statusEl = document.getElementById('download-status');
+                const detailsEl = document.getElementById('download-details');
+                
+                statusEl.textContent = compressed ? 'Preparing compressed database...' : 'Preparing database...';
+                detailsEl.textContent = 'This may take a few seconds...';
+                
+                const url = compressed ? '/api/admin/download-database' : '/api/admin/download-database?compress=false';
+                const response = await fetch(url);
+                
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                
+                const contentDisposition = response.headers.get('Content-Disposition');
+                let filename = compressed ? 'habesha_bingo_backup.db.gz' : 'habesha_bingo_backup.db';
+                if (contentDisposition) {
+                    const filenameMatch = contentDisposition.match(/filename="(.+)"/);
+                    if (filenameMatch) filename = filenameMatch[1];
+                }
+                
+                statusEl.textContent = 'Downloading file...';
+                const blob = await response.blob();
+                const size = (blob.size / (1024 * 1024)).toFixed(2);
+                detailsEl.textContent = `Size: ${size} MB`;
+                
+                const url_blob = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url_blob;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                
+                setTimeout(() => {
+                    window.URL.revokeObjectURL(url_blob);
+                    document.body.removeChild(a);
+                }, 100);
+                
+                statusEl.textContent = 'Download complete!';
+                detailsEl.textContent = `File saved as: ${filename} (${size} MB)`;
+                addLiveUpdate(`Database downloaded: ${filename} (${size} MB)`, 'success');
+                showNotification('Database download complete!', 'success');
+                
+                setTimeout(() => closeModal('download-progress-modal'), 2000);
+            } catch (error) {
+                console.error('Error downloading database:', error);
+                closeModal('download-progress-modal');
+                showNotification('Error downloading database: ' + error.message, 'danger');
+            }
+        }
+
+        // ==================== LOAD FUNCTIONS ====================
+        async function loadStats() {
+            try {
+                const response = await fetch('/api/admin/stats');
+                const data = await response.json();
+                if (data && data.stats) {
+                    document.getElementById('total-users').textContent = data.stats.total_users || 0;
+                    document.getElementById('active-games').textContent = data.stats.active_games || 0;
+                    
+                    try {
+                        const depositsRes = await fetch('/api/admin/payments?status=pending&page=1&limit=1');
+                        const depositsData = await depositsRes.json();
+                        const pendingDeposits = depositsData.pagination?.total || 0;
+                        
+                        const withdrawalsRes = await fetch('/api/admin/withdrawals?status=pending&page=1&limit=1');
+                        const withdrawalsData = await withdrawalsRes.json();
+                        const pendingWithdrawals = withdrawalsData.pagination?.total || 0;
+                        
+                        const totalPending = pendingDeposits + pendingWithdrawals;
+                        document.getElementById('pending-payments').textContent = totalPending;
+                        document.getElementById('payment-change').textContent = totalPending;
+                    } catch (e) {
+                        console.warn('Could not load pending counts:', e);
+                    }
+                    
+                    try {
+                        const balanceRes = await fetch('/api/admin/totalbalance');
+                        const balanceData = await balanceRes.json();
+                        document.getElementById('total-balance').textContent = formatCurrency(balanceData.total_balance || 0);
+                    } catch (e) {
+                        document.getElementById('total-balance').textContent = formatCurrency(0);
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading stats:', error);
+            }
+        }
+
+        async function loadWeeklyCommission() {
+            try {
+                const tbody = document.getElementById('weekly-commission-body');
+                if (!tbody) return;
+                
+                tbody.innerHTML = '<tr><td colspan="6" class="loading">Loading commission data...</td></tr>';
+                
+                const response = await fetch('/api/admin/weeklycommission');
+                const data = await response.json();
+                
+                if (data && data.success) {
+                    document.getElementById('this-week-commission').textContent = formatCurrency(data.this_week_commission || 0);
+                    document.getElementById('last-week-commission').textContent = formatCurrency(data.last_week_commission || 0);
+                    document.getElementById('this-month-commission').textContent = formatCurrency(data.this_month_commission || 0);
+                    document.getElementById('total-commission').textContent = formatCurrency(data.total_commission || 0);
+                    
+                    let weeklyData = data.weekly_data || [];
+                    if (weeklyData.length > 0) {
+                        let html = '';
+                        weeklyData.forEach(item => {
+                            const weekLabel = item.week_label || `Week ${item.week_number || ''}`;
+                            const start = item.start_date ? new Date(item.start_date) : new Date();
+                            const end = new Date(start);
+                            end.setDate(end.getDate() + 6);
+                            
+                            html += `
+                                <tr>
+                                    <td><span class="commission-period">${weekLabel}</span></td>
+                                    <td>${start.toLocaleDateString()}</td>
+                                    <td>${end.toLocaleDateString()}</td>
+                                    <td>${item.games_count || 0}</td>
+                                    <td>${formatCurrency(item.total_sales || 0)}</td>
+                                    <td><strong style="color: var(--success-color);">${formatCurrency(item.commission || 0)}</strong></td>
+                                </tr>
+                            `;
+                        });
+                        tbody.innerHTML = html;
+                    } else {
+                        tbody.innerHTML = '<tr><td colspan="6" style="text-align: center;">No commission data available</td></tr>';
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading weekly commission:', error);
+            }
+        }
+
+        async function loadGames() {
+            try {
+                const statusFilter = document.getElementById('game-status-filter').value;
+                const searchTerm = document.getElementById('game-search').value;
+                
+                let url = `/api/admin/games?page=${gamesPage}&limit=${gamesPageSize}`;
+                if (statusFilter !== 'all') url += `&status=${statusFilter}`;
+                if (searchTerm) url += `&search=${encodeURIComponent(searchTerm)}`;
+                
+                const response = await fetch(url);
+                const data = await response.json();
+                
+                const tbody = document.getElementById('games-table-body');
+                if (!tbody) return;
+                
+                if (data && data.success) {
+                    gamesData = data.games || [];
+                    gamesTotal = data.pagination?.total || 0;
+                    gamesTotalPages = data.pagination?.pages || Math.ceil(gamesTotal / gamesPageSize);
+                    
+                    if (gamesData.length > 0) {
+                        let html = '';
+                        gamesData.forEach(game => {
+                            let statusClass = 'status-pending';
+                            let statusText = game.status;
+                            switch(game.status) {
+                                case 'card_purchase': statusClass = 'status-card-purchase'; statusText = 'Purchase Phase'; break;
+                                case 'active': statusClass = 'status-game-active'; statusText = 'Active'; break;
+                                case 'winner_display': statusClass = 'status-winner-display'; statusText = 'Winner Display'; break;
+                                case 'completed': statusClass = 'status-completed'; statusText = 'Completed'; break;
+                            }
+                            
+                            html += `
+                                <tr>
+                                    <td><code>${game.game_id ? game.game_id.substring(0, 8) + '...' : 'N/A'}</code></td>
+                                    <td><strong>${game.round_number || 1}</strong></td>
+                                    <td><span class="status-badge ${statusClass}">${statusText}</span></td>
+                                    <td><strong>${game.total_players || 0}</strong></td>
+                                    <td><strong>${formatCurrency(game.prize_pool || 0)}</strong></td>
+                                    <td>${game.started_at ? new Date(game.started_at).toLocaleString() : 'Not started'}</td>
+                                    <td>${game.total_cards_sold || 0}</td>
+                                    <td><strong style="color: var(--success-color);">${formatCurrency(game.commission || 0)}</strong></td>
+                                    <td>${game.called_numbers ? game.called_numbers.length : 0} / 75</td>
+                                    <td>${game.winner_id ? `User ${game.winner_id}` : 'No winner'}</td>
+                                    <td>
+                                        <button class="btn-action btn-view" onclick="viewGame('${game.game_id}')"><i class="fas fa-eye"></i> View</button>
+                                        ${game.status === 'active' || game.status === 'card_purchase' ? 
+                                            `<button class="btn-action btn-stop" onclick="stopGame('${game.game_id}')"><i class="fas fa-stop"></i> Stop</button>` : ''}
+                                    </td>
+                                </tr>
+                            `;
+                        });
+                        tbody.innerHTML = html;
+                        
+                        const pagination = document.getElementById('games-pagination');
+                        if (pagination) {
+                            pagination.style.display = 'flex';
+                            document.getElementById('games-pagination-info').textContent = 
+                                `Showing ${(gamesPage-1)*gamesPageSize+1} - ${Math.min(gamesPage*gamesPageSize, gamesTotal)} of ${gamesTotal} games`;
+                            document.getElementById('games-first-page').disabled = gamesPage === 1;
+                            document.getElementById('games-prev-page').disabled = gamesPage === 1;
+                            document.getElementById('games-next-page').disabled = gamesPage === gamesTotalPages || gamesTotalPages === 0;
+                            document.getElementById('games-last-page').disabled = gamesPage === gamesTotalPages || gamesTotalPages === 0;
+                        }
+                    } else {
+                        tbody.innerHTML = '<tr><td colspan="11" style="text-align: center;">No games found</td></tr>';
+                        if (document.getElementById('games-pagination')) document.getElementById('games-pagination').style.display = 'none';
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading games:', error);
+            }
+        }
+
+        // ==================== SIMPLIFIED SYSTEM FUNCTIONS ====================
+        function restartGameManager() { showNotification('Restarting game manager...', 'info'); }
+        function clearCache() { showNotification('Clearing cache...', 'info'); }
+        function backupDatabase() { showNotification('Creating database backup...', 'info'); }
+        function checkHealth() { window.open('/health', '_blank'); }
+
+        // ==================== VIEW FUNCTIONS ====================
+        function viewGame(gameId) { showNotification('Game details: ' + gameId, 'info'); }
+        function stopGame(gameId) { showNotification('Stop game: ' + gameId, 'info'); }
+
+        // ==================== INITIALIZATION ====================
+        function init() {
             document.getElementById('admin-name').textContent = adminId;
             
-            updateCurrentTime();
-            setInterval(updateCurrentTime, 1000);
-            
-            setupFloatingNav();
-            setupTabs();
-            setupPaymentTabs();
-            setupCommissionTabs();
-            setupModals();
-            setupQuickActions();
-            setupGameControls();
-            setupSystemActions();
-            setupRefreshButtons();
-            setupSearchAndFilters();
-            setupPaginationControls();
-            
-            await loadStats();
-            await loadWeeklyCommission();
-            await loadGames();
-            await loadUsers();
-            await loadDeposits();
-            await loadWithdrawals();
-            await loadTransactions();
-            await loadGameStatus();
-            
-            setupAutoRefresh();
-            
-            showNotification('Admin panel loaded successfully! Welcome ' + adminId, 'success');
-            addLiveUpdate('Admin panel initialized and ready');
-        });
-
-        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
-            const theme = document.getElementById('theme').value;
-            if (theme === 'auto') {
-                applyTheme('auto');
+            // Time update
+            function updateTime() {
+                document.getElementById('current-time').textContent = new Date().toLocaleTimeString();
+                document.getElementById('last-update').textContent = `Last updated: ${new Date().toLocaleTimeString()}`;
             }
-        });
+            updateTime();
+            setInterval(updateTime, 1000);
+            
+            // Load initial data
+            loadStats();
+            loadWeeklyCommission();
+            loadGames();
+            
+            // Tab switching
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.addEventListener('click', function() {
+                    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+                    document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+                    this.classList.add('active');
+                    document.getElementById(this.dataset.tab + '-tab').classList.add('active');
+                    
+                    if (this.dataset.tab === 'system') checkDatabaseInfo();
+                    else if (this.dataset.tab === 'games') loadGames();
+                    else if (this.dataset.tab === 'users') showNotification('Users tab', 'info');
+                    else if (this.dataset.tab === 'payments') showNotification('Payments tab', 'info');
+                    else if (this.dataset.tab === 'transactions') showNotification('Transactions tab', 'info');
+                });
+            });
+            
+            // Floating nav
+            document.querySelectorAll('.floating-nav-item').forEach(item => {
+                item.addEventListener('click', function() {
+                    document.querySelectorAll('.floating-nav-item').forEach(n => n.classList.remove('active'));
+                    this.classList.add('active');
+                    document.querySelector(`.tab-btn[data-tab="${this.dataset.navTab}"]`).click();
+                });
+            });
+            
+            // Quick actions
+            document.getElementById('quick-add-balance')?.addEventListener('click', () => openModal('add-balance-modal'));
+            document.getElementById('quick-download-db')?.addEventListener('click', () => downloadDatabase(true));
+            document.getElementById('clear-updates')?.addEventListener('click', () => {
+                document.getElementById('live-updates-list').innerHTML = '';
+            });
+            
+            // System buttons
+            document.getElementById('check-db-info')?.addEventListener('click', checkDatabaseInfo);
+            document.getElementById('download-db')?.addEventListener('click', () => downloadDatabase(true));
+            document.getElementById('download-db-uncompressed')?.addEventListener('click', () => downloadDatabase(false));
+            
+            // Modal close buttons
+            document.querySelectorAll('.modal-close, .btn-secondary[data-modal]').forEach(btn => {
+                btn.addEventListener('click', function() {
+                    closeModal(this.dataset.modal || this.closest('.modal')?.id);
+                });
+            });
+            
+            // Modal background click
+            document.querySelectorAll('.modal').forEach(modal => {
+                modal.addEventListener('click', function(e) {
+                    if (e.target === this) closeModal(this.id);
+                });
+            });
+            
+            // Refresh buttons
+            document.getElementById('refresh-games')?.addEventListener('click', loadGames);
+            document.getElementById('refresh-weekly-commission')?.addEventListener('click', loadWeeklyCommission);
+            document.getElementById('view-commission-details')?.addEventListener('click', () => {
+                showNotification('Commission details', 'info');
+            });
+            
+            // Game status (simplified)
+            document.getElementById('start-game-btn')?.addEventListener('click', () => {
+                showNotification('Starting new game...', 'info');
+            });
+            
+            addLiveUpdate('Admin panel initialized');
+            showNotification('Admin panel loaded!', 'success');
+        }
 
-        // Add CSS for animations
+        // Start when DOM is ready
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', init);
+        } else {
+            init();
+        }
+
+        // CSS animations
         const style = document.createElement('style');
         style.textContent = `
-            @keyframes slideIn {
-                from { transform: translateX(100%); opacity: 0; }
-                to { transform: translateX(0); opacity: 1; }
-            }
-            
-            @keyframes fadeOut {
-                from { opacity: 1; }
-                to { opacity: 0; }
-            }
-            
-            .notification {
-                position: fixed;
-                top: 20px;
-                right: 20px;
-                padding: 15px 20px;
-                color: white;
-                border-radius: 5px;
-                box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-                z-index: 10000;
-                animation: slideIn 0.3s ease, fadeOut 0.3s ease 2.7s;
-                max-width: 400px;
-                word-break: break-word;
-            }
-            
-            .notification-success { background: #4caf50; }
-            .notification-warning { background: #ff9800; }
-            .notification-danger { background: #f44336; }
-            .notification-info { background: #2196f3; }
+            @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+            @keyframes fadeOut { from { opacity: 1; } to { opacity: 0; } }
+            .loader { border: 3px solid #f3f3f3; border-top: 3px solid var(--primary-color); border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; margin: 20px auto; }
+            @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         `;
         document.head.appendChild(style);
     </script>
