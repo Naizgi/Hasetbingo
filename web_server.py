@@ -3478,7 +3478,7 @@ async def admin_database_info(request):
         import sqlite3
         
         # Get database file path
-        db_path = Database.db_path
+        db_path = Database._db_path
         
         if not os.path.exists(db_path):
             return web.json_response({
@@ -3491,24 +3491,58 @@ async def admin_database_info(request):
         file_size_mb = file_stats.st_size / (1024 * 1024)
         last_modified = datetime.fromtimestamp(file_stats.st_mtime)
         
-        # Get record counts from all tables
+        # Get record counts from all tables using Database methods
         record_counts = {}
+        
+        # Count users
+        total_users = await Database.get_total_users()
+        record_counts['users'] = total_users
+        
+        # Count games
+        total_games = await Database.get_total_games()
+        record_counts['games'] = total_games
+        
+        # Count transactions
         with Database.get_cursor() as cursor:
-            # List of tables to check
-            tables = [
-                'users', 'games', 'transactions', 'payments', 
-                'withdrawal_requests', 'player_cards', 'called_numbers',
-                'commission_records', 'house_balance', 'admin_logs'
-            ]
-            
-            for table in tables:
-                try:
-                    cursor.execute(f"SELECT COUNT(*) FROM {table}")
-                    count = cursor.fetchone()[0]
-                    record_counts[table] = count
-                except sqlite3.OperationalError:
-                    # Table might not exist
-                    record_counts[table] = 0
+            cursor.execute("SELECT COUNT(*) as count FROM transactions")
+            row = cursor.fetchone()
+            record_counts['transactions'] = row[0] if row and row[0] else 0
+        
+        # Count payments
+        with Database.get_cursor() as cursor:
+            cursor.execute("SELECT COUNT(*) as count FROM payments")
+            row = cursor.fetchone()
+            record_counts['payments'] = row[0] if row and row[0] else 0
+        
+        # Count withdrawals
+        with Database.get_cursor() as cursor:
+            cursor.execute("SELECT COUNT(*) as count FROM withdrawal_requests")
+            row = cursor.fetchone()
+            record_counts['withdrawal_requests'] = row[0] if row and row[0] else 0
+        
+        # Count player cards
+        with Database.get_cursor() as cursor:
+            cursor.execute("SELECT COUNT(*) as count FROM player_cards WHERE is_active = 1")
+            row = cursor.fetchone()
+            record_counts['active_cards'] = row[0] if row and row[0] else 0
+        
+        # Count called numbers
+        with Database.get_cursor() as cursor:
+            cursor.execute("SELECT COUNT(*) as count FROM called_numbers")
+            row = cursor.fetchone()
+            record_counts['called_numbers'] = row[0] if row and row[0] else 0
+        
+        # Count commission records
+        with Database.get_cursor() as cursor:
+            cursor.execute("SELECT COUNT(*) as count FROM commission_records")
+            row = cursor.fetchone()
+            record_counts['commission_records'] = row[0] if row and row[0] else 0
+        
+        # Count fake players
+        with Database.get_cursor() as cursor:
+            cursor.execute("SELECT COUNT(*) as count FROM fake_players")
+            row = cursor.fetchone()
+            record_counts['fake_players'] = row[0] if row and row[0] else 0
         
         return web.json_response({
             'success': True,
@@ -3541,7 +3575,7 @@ async def admin_download_database(request):
         import shutil
         from aiohttp.web import FileResponse
         
-        db_path = Database.db_path
+        db_path = Database._db_path
         
         if not os.path.exists(db_path):
             return web.json_response({
@@ -3643,7 +3677,7 @@ async def admin_restore_database(request):
         import tempfile
         from datetime import datetime
         
-        db_path = Database.db_path
+        db_path = Database._db_path
         backup_path = db_path + f".backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         
         # Create backup of current database
@@ -3727,25 +3761,28 @@ async def admin_restore_database(request):
         # Replace the database
         try:
             # Close any open connections
-            if hasattr(Database, 'close_all'):
-                await Database.close_all()
+            if hasattr(Database, 'close_connection'):
+                await Database.close_connection()
             
             # Replace the database file
             shutil.move(temp_path, db_path)
             logger.info(f"✅ Database restored from uploaded file")
             
             # Record admin transaction
-            await Database.record_admin_transaction(
-                admin_id=admin_id or 'system',
-                action='restore_database',
-                target_type='system',
-                target_id='database',
-                details={
-                    'filename': filename,
-                    'size_bytes': size,
-                    'backup_created': os.path.exists(backup_path)
-                }
-            )
+            try:
+                await Database.record_admin_transaction(
+                    admin_id=admin_id or 'system',
+                    action='restore_database',
+                    target_type='system',
+                    target_id='database',
+                    details={
+                        'filename': filename,
+                        'size_bytes': size,
+                        'backup_created': os.path.exists(backup_path)
+                    }
+                )
+            except:
+                logger.warning("Could not record admin transaction")
             
             # Schedule bot restart
             import asyncio
@@ -3852,15 +3889,18 @@ async def admin_force_reset_game(request):
             })
             
             # Record admin transaction
-            await Database.record_admin_transaction(
-                admin_id=admin_id,
-                action='force_reset_game',
-                target_type='game',
-                target_id=game_id or 'none',
-                details={
-                    'new_game_id': new_game_id
-                }
-            )
+            try:
+                await Database.record_admin_transaction(
+                    admin_id=admin_id,
+                    action='force_reset_game',
+                    target_type='game',
+                    target_id=game_id or 'none',
+                    details={
+                        'new_game_id': new_game_id
+                    }
+                )
+            except:
+                logger.warning("Could not record admin transaction")
             
             return web.json_response({
                 'success': True,

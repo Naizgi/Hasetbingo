@@ -116,6 +116,9 @@ class NumberCaller:
             
             logger.info(f"Starting number calling loop for game {game_id}")
             
+            # ⏳ Wait 3 seconds before calling the first number
+            await asyncio.sleep(3)
+            
             # Initialize called numbers set for this game
             if game_id not in self.called_numbers:
                 self.called_numbers[game_id] = set(await Database.get_drawn_numbers(game_id))
