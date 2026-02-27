@@ -49,7 +49,6 @@
             margin: 0 auto;
         }
 
-        /* ==================== FLOATING NAVIGATION MENU FOR MOBILE ==================== */
         .floating-nav {
             position: fixed;
             bottom: 0;
@@ -3465,10 +3464,16 @@
             try {
                 document.getElementById('db-status').innerHTML = '<span class="status-pending">Checking...</span>';
                 
-                const response = await fetch('/api/admin/database-info');
+                const response = await fetch('/api/admin/database-info').catch(() => null);
                 
-                if (!response.ok) {
-                    throw new Error(`HTTP error ${response.status}`);
+                if (!response || !response.ok) {
+                    // API endpoint doesn't exist - show as not available
+                    document.getElementById('db-status').innerHTML = '<span class="status-rejected">API Not Available</span>';
+                    document.getElementById('db-size').textContent = 'N/A';
+                    document.getElementById('db-modified').textContent = 'N/A';
+                    document.getElementById('db-records').innerHTML = '<div>Database info API not found</div>';
+                    addLiveUpdate('Database info API not available (404)', 'warning');
+                    return;
                 }
                 
                 const data = await response.json();
@@ -3495,7 +3500,7 @@
                 document.getElementById('db-size').textContent = 'N/A';
                 document.getElementById('db-modified').textContent = 'N/A';
                 document.getElementById('db-records').innerHTML = '<div>Error loading database info</div>';
-                showNotification('Error checking database info: ' + error.message, 'danger');
+                showNotification('Database info API not available', 'warning');
             }
         }
 
@@ -3509,10 +3514,17 @@
                 detailsEl.textContent = 'This may take a few seconds...';
                 
                 const url = compressed ? '/api/admin/download-database' : '/api/admin/download-database?compress=false';
-                const response = await fetch(url);
+                const response = await fetch(url).catch(() => null);
                 
-                if (!response.ok) {
-                    throw new Error(`HTTP error ${response.status}`);
+                if (!response || !response.ok) {
+                    // API endpoint doesn't exist
+                    statusEl.textContent = 'Download API not available';
+                    detailsEl.textContent = 'This feature is not implemented on the server';
+                    addLiveUpdate('Database download API not available', 'warning');
+                    showNotification('Download API not available', 'warning');
+                    
+                    setTimeout(() => closeModal('download-progress-modal'), 2000);
+                    return;
                 }
                 
                 const contentDisposition = response.headers.get('Content-Disposition');
@@ -3568,7 +3580,13 @@
                         const response = await fetch('/api/admin/restore-database', {
                             method: 'POST',
                             body: formData
+                        }).catch(() => {
+                            // API doesn't exist
+                            reject(new Error('Restore API not available'));
+                            return null;
                         });
+                        
+                        if (!response) return;
                         
                         if (!response.ok) {
                             const errorText = await response.text();
@@ -3704,7 +3722,12 @@
                         const stopData = await stopResponse.json();
                         if (stopData.success) {
                             addLiveUpdate('Game stopped successfully', 'success');
+                        } else {
+                            addLiveUpdate('Failed to stop game: ' + (stopData.message || 'Unknown error'), 'warning');
                         }
+                    } else {
+                        const errorText = await stopResponse.text();
+                        addLiveUpdate(`Stop game error (${stopResponse.status}): ${errorText}`, 'warning');
                     }
                 }
                 
@@ -3730,8 +3753,8 @@
                         showNotification('Failed to start new game: ' + (startData.message || 'Unknown error'), 'warning');
                     }
                 } else {
-                    const errorData = await startResponse.json();
-                    showNotification('Failed to start new game: ' + (errorData.message || 'Unknown error'), 'danger');
+                    const errorText = await startResponse.text();
+                    showNotification(`Start game error (${startResponse.status}): ${errorText}`, 'danger');
                 }
                 
             } catch (error) {
@@ -4696,6 +4719,12 @@
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ admin_id: adminId })
                     });
+                    
+                    if (!response.ok) {
+                        const errorText = await response.text();
+                        throw new Error(`Server error (${response.status}): ${errorText}`);
+                    }
+                    
                     const data = await response.json();
                     if (data.success) {
                         showNotification('Game started!', 'success');
@@ -4727,6 +4756,12 @@
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ game_id: currentGame.game_id, admin_id: adminId })
                     });
+                    
+                    if (!response.ok) {
+                        const errorText = await response.text();
+                        throw new Error(`Server error (${response.status}): ${errorText}`);
+                    }
+                    
                     const data = await response.json();
                     if (data.success) {
                         showNotification('Game stopped!', 'success');
@@ -4769,6 +4804,12 @@
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ game_id: currentGame.game_id, number: parseInt(number), admin_id: adminId })
                     });
+                    
+                    if (!response.ok) {
+                        const errorText = await response.text();
+                        throw new Error(`Server error (${response.status}): ${errorText}`);
+                    }
+                    
                     const data = await response.json();
                     if (data.success) {
                         showNotification(`Number ${number} called!`, 'success');
@@ -4807,6 +4848,11 @@
                         })
                     });
                     
+                    if (!response.ok) {
+                        const errorText = await response.text();
+                        throw new Error(`Server error (${response.status}): ${errorText}`);
+                    }
+                    
                     const data = await response.json();
                     if (data.success) {
                         showNotification(`Added ${amount} birr to user ${userId}`, 'success');
@@ -4841,6 +4887,11 @@
                             admin_id: adminId
                         })
                     });
+                    
+                    if (!response.ok) {
+                        const errorText = await response.text();
+                        throw new Error(`Server error (${response.status}): ${errorText}`);
+                    }
                     
                     const data = await response.json();
                     if (data.success) {
