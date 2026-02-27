@@ -26,6 +26,10 @@ from datetime import datetime, timedelta, date
 from typing import Set, Dict, List
 import time
 import sys
+import gzip
+import shutil
+import tempfile
+import sqlite3
 
 logger = logging.getLogger(__name__)
 
@@ -3393,12 +3397,6 @@ async def admin_reject_withdrawal_endpoint(request):
             new_balance = user.get('balance', 0.00) if user else 0.00
         except:
             new_balance = 0.00
-            
-            
-            
-            
-            
-            
         
         # ============ ADD THIS NOTIFICATION CODE ============
         # Format time for notification
@@ -3468,12 +3466,6 @@ async def admin_reject_withdrawal_endpoint(request):
             'success': False,
             'message': str(e)
         }, status=500)
-
-
-
-
-
-
 
 # ==================== ADD THESE MISSING ADMIN API ENDPOINTS ====================
 
