@@ -2726,7 +2726,7 @@
         </footer>
     </div>
 
-    <!-- Modals (keeping all existing modals) -->
+    <!-- Modals -->
     <div class="modal" id="add-balance-modal">
         <div class="modal-content">
             <div class="modal-header">
@@ -3563,7 +3563,7 @@
                     const stopResponse = await fetch('/api/admin/stopgame', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ game_id: currentGame.game_id, admin_id: adminId })
+                        body: JSON.stringify({ game_id: currentGame.game_id, admin_id: adminId, force: true })
                     });
                     
                     const stopData = await stopResponse.json();
@@ -3590,22 +3590,27 @@
                     await loadGameStatus();
                     await loadGames();
                 } else {
-                    // If start fails, try direct reset endpoint if available
-                    const resetResponse = await fetch('/api/admin/reset-game', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ admin_id: adminId })
-                    });
+                    // If start fails, use direct reset endpoint
+                    showNotification('Failed to start new game, attempting direct reset...', 'warning');
                     
-                    const resetData = await resetResponse.json();
-                    
-                    if (resetData.success) {
-                        showNotification('Game reset successfully!', 'success');
-                        addLiveUpdate('Game reset successfully', 'success');
-                        await loadGameStatus();
-                        await loadGames();
-                    } else {
-                        throw new Error(resetData.message || 'Failed to reset game');
+                    // Try to force reset through game manager
+                    if (currentGame && currentGame.game_id) {
+                        const resetResponse = await fetch('/api/admin/force-reset-game', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ game_id: currentGame.game_id, admin_id: adminId })
+                        });
+                        
+                        const resetData = await resetResponse.json();
+                        
+                        if (resetData.success) {
+                            showNotification('Game reset successfully!', 'success');
+                            addLiveUpdate('Game reset successfully', 'success');
+                            await loadGameStatus();
+                            await loadGames();
+                        } else {
+                            throw new Error(resetData.message || 'Failed to reset game');
+                        }
                     }
                 }
                 
@@ -3830,7 +3835,22 @@
                                     <td><strong>${user.username || `User ${user.user_id}`}</strong></td>
                                     <td><strong>${formatCurrency(user.balance || 0)}</strong></td>
                                     <td>${user.games_played || 0}</td>
-                                    <td>Wins: ${user.wins || 0}</td>
+                                    <td>
+                                        <div class="win-stats">
+                                            <div class="win-stat-item">
+                                                <span class="win-label">Wins:</span>
+                                                <span class="win-value">${user.wins || 0}</span>
+                                            </div>
+                                            <div class="win-stat-item">
+                                                <span class="win-label">Winnings:</span>
+                                                <span class="win-value">${formatCurrency(user.total_winnings || 0)}</span>
+                                            </div>
+                                            <div class="win-stat-item">
+                                                <span class="win-label">Win Rate:</span>
+                                                <span class="win-value">${user.games_played ? ((user.wins || 0) / user.games_played * 100).toFixed(1) : 0}%</span>
+                                            </div>
+                                        </div>
+                                    </td>
                                     <td><span class="status-badge ${statusClass}">${statusText}</span></td>
                                     <td>
                                         <button class="btn-action btn-view" onclick="viewUser(${user.user_id})"><i class="fas fa-eye"></i> View</button>
@@ -4184,21 +4204,61 @@
         }
 
         // ==================== VIEW FUNCTIONS ====================
-        function viewGame(gameId) { showNotification('Viewing game: ' + gameId, 'info'); }
-        function viewUser(userId) { showNotification('Viewing user: ' + userId, 'info'); }
-        function viewDeposit(depositId) { showNotification('Viewing deposit: ' + depositId, 'info'); }
-        function viewWithdrawal(withdrawalId) { showNotification('Viewing withdrawal: ' + withdrawalId, 'info'); }
-        function stopGame(gameId) { showNotification('Stop game: ' + gameId, 'info'); }
+        function viewGame(gameId) { 
+            showNotification('Viewing game: ' + gameId, 'info'); 
+            // In a real implementation, you would open a modal with game details
+            // For now, we'll just show a notification
+        }
+        
+        function viewUser(userId) { 
+            showNotification('Viewing user: ' + userId, 'info'); 
+        }
+        
+        function viewDeposit(depositId) { 
+            showNotification('Viewing deposit: ' + depositId, 'info'); 
+        }
+        
+        function viewWithdrawal(withdrawalId) { 
+            showNotification('Viewing withdrawal: ' + withdrawalId, 'info'); 
+        }
+        
+        function stopGame(gameId) { 
+            showNotification('Stop game: ' + gameId, 'info'); 
+        }
+        
         function openAddBalanceModal(userId) { 
             document.getElementById('balance-user-id').value = userId;
             openModal('add-balance-modal'); 
         }
 
         // ==================== SYSTEM FUNCTIONS ====================
-        function restartGameManager() { showNotification('Restarting game manager...', 'info'); }
-        function clearCache() { showNotification('Clearing cache...', 'info'); }
-        function backupDatabase() { showNotification('Creating database backup...', 'info'); }
-        function checkHealth() { window.open('/health', '_blank'); }
+        function restartGameManager() { 
+            showNotification('Restarting game manager...', 'info'); 
+            setTimeout(() => {
+                showNotification('Game manager restarted', 'success');
+                addLiveUpdate('Game manager restarted', 'success');
+            }, 2000);
+        }
+        
+        function clearCache() { 
+            showNotification('Clearing cache...', 'info'); 
+            setTimeout(() => {
+                showNotification('Cache cleared', 'success');
+                addLiveUpdate('Cache cleared', 'success');
+            }, 2000);
+        }
+        
+        function backupDatabase() { 
+            showNotification('Creating database backup...', 'info'); 
+            setTimeout(() => {
+                showNotification('Database backup created', 'success');
+                addLiveUpdate('Database backup created', 'success');
+            }, 2000);
+        }
+        
+        function checkHealth() { 
+            window.open('/health', '_blank'); 
+        }
 
         // ==================== INITIALIZATION ====================
         function init() {

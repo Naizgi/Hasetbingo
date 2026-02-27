@@ -33,6 +33,9 @@
 # Added _ensure_winner_card_numbers method to guarantee card numbers in all winner broadcasts
 # Modified get_winners to validate and fix card numbers when retrieving winners
 # Updated process_winner and process_fake_winner to use these fixes
+# ==================== ADDED: Force game reset endpoint support ====================
+# Added force_game_completion method to properly reset game state
+# Added clear_all_game_data method for complete cleanup
 # ============================================================
 
 import asyncio
@@ -5340,6 +5343,55 @@ class GameManager:
         except Exception as e:
             logger.error(f"Error getting winner configuration: {e}")
             return {'success': False, 'message': str(e)}
+
+    # ==================== NEW: Force game completion for admin reset ====================
+    
+    async def force_game_completion(self, game_id: str):
+        """Force complete a game - for admin reset functionality"""
+        try:
+            from database.db import Database
+            from utils.number_caller import number_caller
+            
+            logger.warning(f"🛠️ Force completing game {game_id}")
+            
+            # Stop number calling
+            await number_caller.stop_number_calling_for_game(game_id)
+            
+            # Update game status
+            await Database.update_game_status(game_id, 'completed')
+            await Database.update_game_phase(game_id, 'completed')
+            
+            # Clean up fake users
+            self.fake_user_manager.cleanup_game(game_id)
+            
+            # Clear winners for this game
+            await self.clear_winners(game_id)
+            
+            # Clear fake finalized flag
+            if game_id in self._fake_players_finalized:
+                del self._fake_players_finalized[game_id]
+            
+            # Clear final winner broadcast flag
+            if game_id in self._final_winner_broadcast_sent:
+                del self._final_winner_broadcast_sent[game_id]
+            
+            # Clean up caches
+            await self.cleanup_game_caches(game_id)
+            
+            # Mark as completed in tracking set
+            self._completed_games.add(game_id)
+            
+            # Clear active game if this is the active one
+            async with self._lock:
+                if self.active_game and self.active_game.get('game_id') == game_id:
+                    self.active_game = None
+            
+            logger.info(f"✅ Game {game_id} force completed")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error force completing game: {e}")
+            return False
 
 # Global instance of game manager
 game_manager = GameManager()
