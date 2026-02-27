@@ -3475,7 +3475,6 @@ async def admin_reject_withdrawal_endpoint(request):
 
 
 
-
 # ==================== ADD THESE MISSING ADMIN API ENDPOINTS ====================
 
 @routes.get('/api/admin/database-info')
@@ -4054,6 +4053,7 @@ async def admin_health_check(request):
             'error': str(e),
             'timestamp': datetime.now().isoformat()
         }, status=500)
+
 # ==================== DEBUG ENDPOINT ====================
 @routes.get('/api/debug/card/{user_id}/{game_id}')
 async def debug_user_card(request):
