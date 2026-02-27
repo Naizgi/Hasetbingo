@@ -1547,6 +1547,7 @@
             display: flex;
             gap: 8px;
             flex-wrap: wrap;
+            align-items: center;
         }
 
         .pagination-btn {
@@ -1596,6 +1597,46 @@
             display: flex;
             gap: 5px;
             flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .page-number-btn {
+            min-width: 36px;
+            height: 36px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: 1px solid #ddd;
+            background: white;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: var(--transition);
+            font-size: 14px;
+            padding: 0 8px;
+        }
+
+        .page-number-btn:hover {
+            background: var(--primary-color);
+            color: white;
+            border-color: var(--primary-color);
+        }
+
+        .page-number-btn.active {
+            background: var(--primary-color);
+            color: white;
+            border-color: var(--primary-color);
+            font-weight: bold;
+        }
+
+        .page-number-btn.ellipsis {
+            background: transparent;
+            border: none;
+            cursor: default;
+        }
+
+        .page-number-btn.ellipsis:hover {
+            background: transparent;
+            color: inherit;
         }
 
         .payment-tabs {
@@ -1730,6 +1771,7 @@
             .pagination-controls {
                 width: 100%;
                 justify-content: center;
+                flex-wrap: wrap;
             }
 
             .pagination-select {
@@ -1801,6 +1843,13 @@
                 padding: 6px 12px;
                 font-size: 12px;
                 min-width: 30px;
+            }
+
+            .page-number-btn {
+                min-width: 32px;
+                height: 32px;
+                font-size: 12px;
+                padding: 0 5px;
             }
 
             .stats-grid {
@@ -3336,27 +3385,122 @@
             }
         }
 
+        // ==================== PAGINATION HELPER FUNCTIONS ====================
+        function generatePageNumbers(currentPage, totalPages, maxDisplay = 5) {
+            const pages = [];
+            
+            if (totalPages <= maxDisplay) {
+                // Show all pages if total is less than max display
+                for (let i = 1; i <= totalPages; i++) {
+                    pages.push(i);
+                }
+            } else {
+                // Always show first page
+                pages.push(1);
+                
+                // Calculate start and end of middle section
+                let start = Math.max(2, currentPage - 1);
+                let end = Math.min(totalPages - 1, currentPage + 1);
+                
+                // Adjust if near the beginning
+                if (currentPage <= 3) {
+                    start = 2;
+                    end = Math.min(totalPages - 1, 4);
+                }
+                
+                // Adjust if near the end
+                if (currentPage >= totalPages - 2) {
+                    start = Math.max(2, totalPages - 3);
+                    end = totalPages - 1;
+                }
+                
+                // Add ellipsis if needed before middle section
+                if (start > 2) {
+                    pages.push('...');
+                }
+                
+                // Add middle pages
+                for (let i = start; i <= end; i++) {
+                    pages.push(i);
+                }
+                
+                // Add ellipsis if needed after middle section
+                if (end < totalPages - 1) {
+                    pages.push('...');
+                }
+                
+                // Always show last page
+                pages.push(totalPages);
+            }
+            
+            return pages;
+        }
+
+        function updatePaginationNumbers(paginationId, currentPage, totalPages, pageChangeCallback) {
+            const container = document.getElementById(paginationId + '-page-numbers');
+            if (!container) return;
+            
+            const pages = generatePageNumbers(currentPage, totalPages);
+            
+            container.innerHTML = '';
+            pages.forEach(page => {
+                const btn = document.createElement('button');
+                btn.className = 'page-number-btn' + (page === currentPage ? ' active' : '');
+                
+                if (page === '...') {
+                    btn.className += ' ellipsis';
+                    btn.textContent = '...';
+                    btn.disabled = true;
+                } else {
+                    btn.textContent = page;
+                    btn.onclick = () => pageChangeCallback(page);
+                }
+                
+                container.appendChild(btn);
+            });
+        }
+
         // ==================== DATABASE FUNCTIONS ====================
         async function checkDatabaseInfo() {
             try {
                 document.getElementById('db-status').innerHTML = '<span class="status-pending">Checking...</span>';
                 
-                const response = await fetch('/api/admin/database-info');
-                const data = await response.json();
+                const response = await fetch('/api/admin/database-info').catch(() => null);
+                
+                if (!response) {
+                    document.getElementById('db-status').innerHTML = '<span class="status-rejected">API Not Available</span>';
+                    document.getElementById('db-size').textContent = 'N/A';
+                    document.getElementById('db-modified').textContent = 'N/A';
+                    document.getElementById('db-records').innerHTML = '<div>API endpoint not found</div>';
+                    addLiveUpdate('Database info API not available', 'warning');
+                    return;
+                }
+                
+                let data;
+                try {
+                    data = await response.json();
+                } catch (jsonError) {
+                    document.getElementById('db-status').innerHTML = '<span class="status-rejected">Invalid Response</span>';
+                    document.getElementById('db-size').textContent = 'N/A';
+                    document.getElementById('db-modified').textContent = 'N/A';
+                    document.getElementById('db-records').innerHTML = '<div>Invalid JSON response</div>';
+                    addLiveUpdate('Database info: Invalid response', 'danger');
+                    return;
+                }
                 
                 if (data && data.success) {
                     document.getElementById('db-status').innerHTML = '<span class="status-active">Available</span>';
-                    document.getElementById('db-size').textContent = data.database.size_mb + ' MB';
-                    document.getElementById('db-modified').textContent = new Date(data.database.modified_time).toLocaleString();
+                    document.getElementById('db-size').textContent = data.database?.size_mb ? data.database.size_mb + ' MB' : 'N/A';
+                    document.getElementById('db-modified').textContent = data.database?.modified_time ? new Date(data.database.modified_time).toLocaleString() : 'N/A';
                     
-                    const records = data.database.record_counts;
+                    const records = data.database?.record_counts || {};
                     let recordsHtml = '';
                     for (const [table, count] of Object.entries(records)) {
                         recordsHtml += `<div>${table}: ${count}</div>`;
                     }
-                    document.getElementById('db-records').innerHTML = recordsHtml;
+                    document.getElementById('db-records').innerHTML = recordsHtml || '<div>No record counts</div>';
                     
-                    addLiveUpdate('Database info updated: ' + data.database.size_mb + ' MB', 'info');
+                    addLiveUpdate('Database info updated: ' + (data.database?.size_mb || '?') + ' MB', 'info');
                 } else {
                     document.getElementById('db-status').innerHTML = '<span class="status-rejected">Not Found</span>';
                 }
@@ -3377,7 +3521,11 @@
                 detailsEl.textContent = 'This may take a few seconds...';
                 
                 const url = compressed ? '/api/admin/download-database' : '/api/admin/download-database?compress=false';
-                const response = await fetch(url);
+                const response = await fetch(url).catch(() => null);
+                
+                if (!response) {
+                    throw new Error('Download API not available');
+                }
                 
                 if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
                 
@@ -3434,6 +3582,8 @@
                         const response = await fetch('/api/admin/restore-database', {
                             method: 'POST',
                             body: formData
+                        }).catch(() => {
+                            throw new Error('Restore API not available');
                         });
                         
                         if (!response.ok) {
@@ -3564,11 +3714,13 @@
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ game_id: currentGame.game_id, admin_id: adminId, force: true })
-                    });
+                    }).catch(() => null);
                     
-                    const stopData = await stopResponse.json();
-                    if (stopData.success) {
-                        addLiveUpdate('Game stopped successfully', 'success');
+                    if (stopResponse && stopResponse.ok) {
+                        const stopData = await stopResponse.json();
+                        if (stopData.success) {
+                            addLiveUpdate('Game stopped successfully', 'success');
+                        }
                     }
                 }
                 
@@ -3580,38 +3732,21 @@
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ admin_id: adminId, force: true })
-                });
+                }).catch(() => null);
                 
-                const startData = await startResponse.json();
-                
-                if (startData.success) {
-                    showNotification('Game reset and started successfully!', 'success');
-                    addLiveUpdate('Game force reset and started new round', 'success');
-                    await loadGameStatus();
-                    await loadGames();
-                } else {
-                    // If start fails, use direct reset endpoint
-                    showNotification('Failed to start new game, attempting direct reset...', 'warning');
+                if (startResponse && startResponse.ok) {
+                    const startData = await startResponse.json();
                     
-                    // Try to force reset through game manager
-                    if (currentGame && currentGame.game_id) {
-                        const resetResponse = await fetch('/api/admin/force-reset-game', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ game_id: currentGame.game_id, admin_id: adminId })
-                        });
-                        
-                        const resetData = await resetResponse.json();
-                        
-                        if (resetData.success) {
-                            showNotification('Game reset successfully!', 'success');
-                            addLiveUpdate('Game reset successfully', 'success');
-                            await loadGameStatus();
-                            await loadGames();
-                        } else {
-                            throw new Error(resetData.message || 'Failed to reset game');
-                        }
+                    if (startData.success) {
+                        showNotification('Game reset and started successfully!', 'success');
+                        addLiveUpdate('Game force reset and started new round', 'success');
+                        await loadGameStatus();
+                        await loadGames();
+                    } else {
+                        showNotification('Failed to start new game: ' + (startData.message || 'Unknown error'), 'warning');
                     }
+                } else {
+                    showNotification('Start game API not available', 'warning');
                 }
                 
             } catch (error) {
@@ -3627,19 +3762,32 @@
         async function loadStats() {
             try {
                 const response = await fetch('/api/admin/stats');
-                const data = await response.json();
+                let data;
+                try {
+                    data = await response.json();
+                } catch (jsonError) {
+                    console.warn('Error parsing stats JSON:', jsonError);
+                    return;
+                }
+                
                 if (data && data.stats) {
                     document.getElementById('total-users').textContent = data.stats.total_users || 0;
                     document.getElementById('active-games').textContent = data.stats.active_games || 0;
                     
                     try {
-                        const depositsRes = await fetch('/api/admin/payments?status=pending&limit=1');
-                        const depositsData = await depositsRes.json();
-                        const pendingDeposits = depositsData.pagination?.total || 0;
+                        const depositsRes = await fetch('/api/admin/payments?status=pending&limit=1').catch(() => null);
+                        let pendingDeposits = 0;
+                        if (depositsRes && depositsRes.ok) {
+                            const depositsData = await depositsRes.json();
+                            pendingDeposits = depositsData.pagination?.total || 0;
+                        }
                         
-                        const withdrawalsRes = await fetch('/api/admin/withdrawals?status=pending&limit=1');
-                        const withdrawalsData = await withdrawalsRes.json();
-                        const pendingWithdrawals = withdrawalsData.pagination?.total || 0;
+                        const withdrawalsRes = await fetch('/api/admin/withdrawals?status=pending&limit=1').catch(() => null);
+                        let pendingWithdrawals = 0;
+                        if (withdrawalsRes && withdrawalsRes.ok) {
+                            const withdrawalsData = await withdrawalsRes.json();
+                            pendingWithdrawals = withdrawalsData.pagination?.total || 0;
+                        }
                         
                         const totalPending = pendingDeposits + pendingWithdrawals;
                         document.getElementById('pending-payments').textContent = totalPending;
@@ -3649,9 +3797,13 @@
                     }
                     
                     try {
-                        const balanceRes = await fetch('/api/admin/totalbalance');
-                        const balanceData = await balanceRes.json();
-                        document.getElementById('total-balance').textContent = formatCurrency(balanceData.total_balance || 0);
+                        const balanceRes = await fetch('/api/admin/totalbalance').catch(() => null);
+                        if (balanceRes && balanceRes.ok) {
+                            const balanceData = await balanceRes.json();
+                            document.getElementById('total-balance').textContent = formatCurrency(balanceData.total_balance || 0);
+                        } else {
+                            document.getElementById('total-balance').textContent = formatCurrency(0);
+                        }
                     } catch (e) {
                         document.getElementById('total-balance').textContent = formatCurrency(0);
                     }
@@ -3668,8 +3820,19 @@
                 
                 tbody.innerHTML = '<tr><td colspan="6" class="loading">Loading commission data...</td></tr>';
                 
-                const response = await fetch('/api/admin/weeklycommission');
-                const data = await response.json();
+                const response = await fetch('/api/admin/weeklycommission').catch(() => null);
+                if (!response) {
+                    tbody.innerHTML = '<tr><td colspan="6" style="text-align: center;">Commission API not available</td></tr>';
+                    return;
+                }
+                
+                let data;
+                try {
+                    data = await response.json();
+                } catch (jsonError) {
+                    tbody.innerHTML = '<tr><td colspan="6" style="text-align: center;">Error parsing commission data</td></tr>';
+                    return;
+                }
                 
                 if (data && data.success) {
                     document.getElementById('this-week-commission').textContent = formatCurrency(data.this_week_commission || 0);
@@ -3701,14 +3864,21 @@
                     } else {
                         tbody.innerHTML = '<tr><td colspan="6" style="text-align: center;">No commission data available</td></tr>';
                     }
+                } else {
+                    tbody.innerHTML = '<tr><td colspan="6" style="text-align: center;">Failed to load commission data</td></tr>';
                 }
             } catch (error) {
                 console.error('Error loading weekly commission:', error);
+                const tbody = document.getElementById('weekly-commission-body');
+                if (tbody) {
+                    tbody.innerHTML = '<tr><td colspan="6" style="text-align: center;">Error loading commission data</td></tr>';
+                }
             }
         }
 
-        async function loadGames() {
+        async function loadGames(page = gamesPage) {
             try {
+                gamesPage = page;
                 const statusFilter = document.getElementById('game-status-filter').value;
                 const searchTerm = document.getElementById('game-search').value;
                 
@@ -3716,11 +3886,25 @@
                 if (statusFilter !== 'all') url += `&status=${statusFilter}`;
                 if (searchTerm) url += `&search=${encodeURIComponent(searchTerm)}`;
                 
-                const response = await fetch(url);
-                const data = await response.json();
+                const response = await fetch(url).catch(() => null);
                 
                 const tbody = document.getElementById('games-table-body');
                 if (!tbody) return;
+                
+                if (!response) {
+                    tbody.innerHTML = '<tr><td colspan="11" style="text-align: center;">Games API not available</td></tr>';
+                    document.getElementById('games-pagination').style.display = 'none';
+                    return;
+                }
+                
+                let data;
+                try {
+                    data = await response.json();
+                } catch (jsonError) {
+                    tbody.innerHTML = '<tr><td colspan="11" style="text-align: center;">Error parsing games data</td></tr>';
+                    document.getElementById('games-pagination').style.display = 'none';
+                    return;
+                }
                 
                 if (data && data.success) {
                     gamesTotal = data.pagination?.total || 0;
@@ -3769,11 +3953,16 @@
                             document.getElementById('games-prev-page').disabled = gamesPage === 1;
                             document.getElementById('games-next-page').disabled = gamesPage === gamesTotalPages || gamesTotalPages === 0;
                             document.getElementById('games-last-page').disabled = gamesPage === gamesTotalPages || gamesTotalPages === 0;
+                            
+                            // Update page numbers
+                            updatePaginationNumbers('games', gamesPage, gamesTotalPages, loadGames);
                         }
                     } else {
                         tbody.innerHTML = '<tr><td colspan="11" style="text-align: center;">No games found</td></tr>';
                         if (document.getElementById('games-pagination')) document.getElementById('games-pagination').style.display = 'none';
                     }
+                } else {
+                    tbody.innerHTML = '<tr><td colspan="11" style="text-align: center;">Failed to load games</td></tr>';
                 }
             } catch (error) {
                 console.error('Error loading games:', error);
@@ -3781,8 +3970,9 @@
             }
         }
 
-        async function loadUsers() {
+        async function loadUsers(page = usersPage) {
             try {
+                usersPage = page;
                 const statusFilter = document.getElementById('user-status-filter').value;
                 const searchTerm = document.getElementById('user-search').value;
                 
@@ -3790,11 +3980,25 @@
                 if (statusFilter !== 'all') url += `&status=${statusFilter}`;
                 if (searchTerm) url += `&search=${encodeURIComponent(searchTerm)}`;
                 
-                const response = await fetch(url);
-                const data = await response.json();
+                const response = await fetch(url).catch(() => null);
                 
                 const tbody = document.getElementById('users-table-body');
                 if (!tbody) return;
+                
+                if (!response) {
+                    tbody.innerHTML = '<tr><td colspan="8" style="text-align: center;">Users API not available</td></tr>';
+                    document.getElementById('users-pagination').style.display = 'none';
+                    return;
+                }
+                
+                let data;
+                try {
+                    data = await response.json();
+                } catch (jsonError) {
+                    tbody.innerHTML = '<tr><td colspan="8" style="text-align: center;">Error parsing users data</td></tr>';
+                    document.getElementById('users-pagination').style.display = 'none';
+                    return;
+                }
                 
                 if (data && data.success) {
                     usersTotal = data.pagination?.total || 0;
@@ -3870,11 +4074,16 @@
                             document.getElementById('users-prev-page').disabled = usersPage === 1;
                             document.getElementById('users-next-page').disabled = usersPage === usersTotalPages || usersTotalPages === 0;
                             document.getElementById('users-last-page').disabled = usersPage === usersTotalPages || usersTotalPages === 0;
+                            
+                            // Update page numbers
+                            updatePaginationNumbers('users', usersPage, usersTotalPages, loadUsers);
                         }
                     } else {
                         tbody.innerHTML = '<tr><td colspan="8" style="text-align: center;">No users found</td></tr>';
                         if (document.getElementById('users-pagination')) document.getElementById('users-pagination').style.display = 'none';
                     }
+                } else {
+                    tbody.innerHTML = '<tr><td colspan="8" style="text-align: center;">Failed to load users</td></tr>';
                 }
             } catch (error) {
                 console.error('Error loading users:', error);
@@ -3882,8 +4091,9 @@
             }
         }
 
-        async function loadDeposits() {
+        async function loadDeposits(page = depositsPage) {
             try {
+                depositsPage = page;
                 const statusFilter = document.getElementById('deposit-status-filter').value;
                 const searchTerm = document.getElementById('deposit-search').value;
                 
@@ -3891,11 +4101,25 @@
                 if (statusFilter !== 'all') url += `&status=${statusFilter}`;
                 if (searchTerm) url += `&search=${encodeURIComponent(searchTerm)}`;
                 
-                const response = await fetch(url);
-                const data = await response.json();
+                const response = await fetch(url).catch(() => null);
                 
                 const tbody = document.getElementById('deposits-table-body');
                 if (!tbody) return;
+                
+                if (!response) {
+                    tbody.innerHTML = '<tr><td colspan="8" style="text-align: center;">Deposits API not available</td></tr>';
+                    document.getElementById('deposits-pagination').style.display = 'none';
+                    return;
+                }
+                
+                let data;
+                try {
+                    data = await response.json();
+                } catch (jsonError) {
+                    tbody.innerHTML = '<tr><td colspan="8" style="text-align: center;">Error parsing deposits data</td></tr>';
+                    document.getElementById('deposits-pagination').style.display = 'none';
+                    return;
+                }
                 
                 if (data && data.success) {
                     depositsTotal = data.pagination?.total || 0;
@@ -3944,11 +4168,16 @@
                             document.getElementById('deposits-prev-page').disabled = depositsPage === 1;
                             document.getElementById('deposits-next-page').disabled = depositsPage === depositsTotalPages || depositsTotalPages === 0;
                             document.getElementById('deposits-last-page').disabled = depositsPage === depositsTotalPages || depositsTotalPages === 0;
+                            
+                            // Update page numbers
+                            updatePaginationNumbers('deposits', depositsPage, depositsTotalPages, loadDeposits);
                         }
                     } else {
                         tbody.innerHTML = '<tr><td colspan="8" style="text-align: center;">No deposits found</td></tr>';
                         if (document.getElementById('deposits-pagination')) document.getElementById('deposits-pagination').style.display = 'none';
                     }
+                } else {
+                    tbody.innerHTML = '<tr><td colspan="8" style="text-align: center;">Failed to load deposits</td></tr>';
                 }
             } catch (error) {
                 console.error('Error loading deposits:', error);
@@ -3956,8 +4185,9 @@
             }
         }
 
-        async function loadWithdrawals() {
+        async function loadWithdrawals(page = withdrawalsPage) {
             try {
+                withdrawalsPage = page;
                 const statusFilter = document.getElementById('withdrawal-status-filter').value;
                 const searchTerm = document.getElementById('withdrawal-search').value;
                 
@@ -3965,11 +4195,25 @@
                 if (statusFilter !== 'all') url += `&status=${statusFilter}`;
                 if (searchTerm) url += `&search=${encodeURIComponent(searchTerm)}`;
                 
-                const response = await fetch(url);
-                const data = await response.json();
+                const response = await fetch(url).catch(() => null);
                 
                 const tbody = document.getElementById('withdrawals-table-body');
                 if (!tbody) return;
+                
+                if (!response) {
+                    tbody.innerHTML = '<tr><td colspan="9" style="text-align: center;">Withdrawals API not available</td></tr>';
+                    document.getElementById('withdrawals-pagination').style.display = 'none';
+                    return;
+                }
+                
+                let data;
+                try {
+                    data = await response.json();
+                } catch (jsonError) {
+                    tbody.innerHTML = '<tr><td colspan="9" style="text-align: center;">Error parsing withdrawals data</td></tr>';
+                    document.getElementById('withdrawals-pagination').style.display = 'none';
+                    return;
+                }
                 
                 if (data && data.success) {
                     withdrawalsTotal = data.pagination?.total || 0;
@@ -4019,11 +4263,16 @@
                             document.getElementById('withdrawals-prev-page').disabled = withdrawalsPage === 1;
                             document.getElementById('withdrawals-next-page').disabled = withdrawalsPage === withdrawalsTotalPages || withdrawalsTotalPages === 0;
                             document.getElementById('withdrawals-last-page').disabled = withdrawalsPage === withdrawalsTotalPages || withdrawalsTotalPages === 0;
+                            
+                            // Update page numbers
+                            updatePaginationNumbers('withdrawals', withdrawalsPage, withdrawalsTotalPages, loadWithdrawals);
                         }
                     } else {
                         tbody.innerHTML = '<tr><td colspan="9" style="text-align: center;">No withdrawals found</td></tr>';
                         if (document.getElementById('withdrawals-pagination')) document.getElementById('withdrawals-pagination').style.display = 'none';
                     }
+                } else {
+                    tbody.innerHTML = '<tr><td colspan="9" style="text-align: center;">Failed to load withdrawals</td></tr>';
                 }
             } catch (error) {
                 console.error('Error loading withdrawals:', error);
@@ -4031,18 +4280,33 @@
             }
         }
 
-        async function loadTransactions() {
+        async function loadTransactions(page = transactionsPage) {
             try {
+                transactionsPage = page;
                 const searchTerm = document.getElementById('transaction-search').value;
                 
                 let url = `/api/admin/transactions?page=${transactionsPage}&limit=${transactionsPageSize}`;
                 if (searchTerm) url += `&search=${encodeURIComponent(searchTerm)}`;
                 
-                const response = await fetch(url);
-                const data = await response.json();
+                const response = await fetch(url).catch(() => null);
                 
                 const tbody = document.getElementById('transactions-table-body');
                 if (!tbody) return;
+                
+                if (!response) {
+                    tbody.innerHTML = '<tr><td colspan="6" style="text-align: center;">Transactions API not available</td></tr>';
+                    document.getElementById('transactions-pagination').style.display = 'none';
+                    return;
+                }
+                
+                let data;
+                try {
+                    data = await response.json();
+                } catch (jsonError) {
+                    tbody.innerHTML = '<tr><td colspan="6" style="text-align: center;">Error parsing transactions data</td></tr>';
+                    document.getElementById('transactions-pagination').style.display = 'none';
+                    return;
+                }
                 
                 if (data && data.success) {
                     transactionsTotal = data.pagination?.total || 0;
@@ -4077,11 +4341,16 @@
                             document.getElementById('transactions-prev-page').disabled = transactionsPage === 1;
                             document.getElementById('transactions-next-page').disabled = transactionsPage === transactionsTotalPages || transactionsTotalPages === 0;
                             document.getElementById('transactions-last-page').disabled = transactionsPage === transactionsTotalPages || transactionsTotalPages === 0;
+                            
+                            // Update page numbers
+                            updatePaginationNumbers('transactions', transactionsPage, transactionsTotalPages, loadTransactions);
                         }
                     } else {
                         tbody.innerHTML = '<tr><td colspan="6" style="text-align: center;">No transactions found</td></tr>';
                         if (document.getElementById('transactions-pagination')) document.getElementById('transactions-pagination').style.display = 'none';
                     }
+                } else {
+                    tbody.innerHTML = '<tr><td colspan="6" style="text-align: center;">Failed to load transactions</td></tr>';
                 }
             } catch (error) {
                 console.error('Error loading transactions:', error);
@@ -4091,8 +4360,20 @@
 
         async function loadGameStatus() {
             try {
-                const response = await fetch('/api/game/active');
-                const data = await response.json();
+                const response = await fetch('/api/game/active').catch(() => null);
+                if (!response) {
+                    document.getElementById('current-game-status').textContent = 'API Not Available';
+                    document.getElementById('current-game-info').textContent = 'Cannot connect to game API';
+                    document.getElementById('game-countdown').textContent = '--:--';
+                    return;
+                }
+                
+                let data;
+                try {
+                    data = await response.json();
+                } catch (jsonError) {
+                    return;
+                }
                 
                 if (data.success) {
                     currentGame = data;
@@ -4128,8 +4409,21 @@
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ payment_id: paymentId, admin_id: adminId })
-                });
-                const data = await response.json();
+                }).catch(() => null);
+                
+                if (!response) {
+                    showNotification('Approve API not available', 'danger');
+                    return;
+                }
+                
+                let data;
+                try {
+                    data = await response.json();
+                } catch (jsonError) {
+                    showNotification('Invalid response from server', 'danger');
+                    return;
+                }
+                
                 if (data.success) {
                     showNotification('Deposit approved!', 'success');
                     loadDeposits();
@@ -4149,8 +4443,21 @@
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ payment_id: paymentId, reason: reason, admin_id: adminId })
-                });
-                const data = await response.json();
+                }).catch(() => null);
+                
+                if (!response) {
+                    showNotification('Reject API not available', 'danger');
+                    return;
+                }
+                
+                let data;
+                try {
+                    data = await response.json();
+                } catch (jsonError) {
+                    showNotification('Invalid response from server', 'danger');
+                    return;
+                }
+                
                 if (data.success) {
                     showNotification('Deposit rejected!', 'success');
                     loadDeposits();
@@ -4169,8 +4476,21 @@
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ withdrawal_id: withdrawalId, admin_id: adminId })
-                });
-                const data = await response.json();
+                }).catch(() => null);
+                
+                if (!response) {
+                    showNotification('Approve API not available', 'danger');
+                    return;
+                }
+                
+                let data;
+                try {
+                    data = await response.json();
+                } catch (jsonError) {
+                    showNotification('Invalid response from server', 'danger');
+                    return;
+                }
+                
                 if (data.success) {
                     showNotification('Withdrawal approved!', 'success');
                     loadWithdrawals();
@@ -4190,8 +4510,21 @@
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ withdrawal_id: withdrawalId, reason: reason, admin_id: adminId })
-                });
-                const data = await response.json();
+                }).catch(() => null);
+                
+                if (!response) {
+                    showNotification('Reject API not available', 'danger');
+                    return;
+                }
+                
+                let data;
+                try {
+                    data = await response.json();
+                } catch (jsonError) {
+                    showNotification('Invalid response from server', 'danger');
+                    return;
+                }
+                
                 if (data.success) {
                     showNotification('Withdrawal rejected!', 'success');
                     loadWithdrawals();
@@ -4259,6 +4592,32 @@
         function checkHealth() { 
             window.open('/health', '_blank'); 
         }
+
+        // ==================== PAGINATION NAVIGATION FUNCTIONS ====================
+        function gamesFirstPage() { loadGames(1); }
+        function gamesPrevPage() { if (gamesPage > 1) loadGames(gamesPage - 1); }
+        function gamesNextPage() { if (gamesPage < gamesTotalPages) loadGames(gamesPage + 1); }
+        function gamesLastPage() { loadGames(gamesTotalPages); }
+        
+        function usersFirstPage() { loadUsers(1); }
+        function usersPrevPage() { if (usersPage > 1) loadUsers(usersPage - 1); }
+        function usersNextPage() { if (usersPage < usersTotalPages) loadUsers(usersPage + 1); }
+        function usersLastPage() { loadUsers(usersTotalPages); }
+        
+        function depositsFirstPage() { loadDeposits(1); }
+        function depositsPrevPage() { if (depositsPage > 1) loadDeposits(depositsPage - 1); }
+        function depositsNextPage() { if (depositsPage < depositsTotalPages) loadDeposits(depositsPage + 1); }
+        function depositsLastPage() { loadDeposits(depositsTotalPages); }
+        
+        function withdrawalsFirstPage() { loadWithdrawals(1); }
+        function withdrawalsPrevPage() { if (withdrawalsPage > 1) loadWithdrawals(withdrawalsPage - 1); }
+        function withdrawalsNextPage() { if (withdrawalsPage < withdrawalsTotalPages) loadWithdrawals(withdrawalsPage + 1); }
+        function withdrawalsLastPage() { loadWithdrawals(withdrawalsTotalPages); }
+        
+        function transactionsFirstPage() { loadTransactions(1); }
+        function transactionsPrevPage() { if (transactionsPage > 1) loadTransactions(transactionsPage - 1); }
+        function transactionsNextPage() { if (transactionsPage < transactionsTotalPages) loadTransactions(transactionsPage + 1); }
+        function transactionsLastPage() { loadTransactions(transactionsTotalPages); }
 
         // ==================== INITIALIZATION ====================
         function init() {
@@ -4374,6 +4733,119 @@
                 openModal('commission-details-modal');
             });
             
+            // Pagination buttons
+            document.getElementById('games-first-page')?.addEventListener('click', gamesFirstPage);
+            document.getElementById('games-prev-page')?.addEventListener('click', gamesPrevPage);
+            document.getElementById('games-next-page')?.addEventListener('click', gamesNextPage);
+            document.getElementById('games-last-page')?.addEventListener('click', gamesLastPage);
+            
+            document.getElementById('users-first-page')?.addEventListener('click', usersFirstPage);
+            document.getElementById('users-prev-page')?.addEventListener('click', usersPrevPage);
+            document.getElementById('users-next-page')?.addEventListener('click', usersNextPage);
+            document.getElementById('users-last-page')?.addEventListener('click', usersLastPage);
+            
+            document.getElementById('deposits-first-page')?.addEventListener('click', depositsFirstPage);
+            document.getElementById('deposits-prev-page')?.addEventListener('click', depositsPrevPage);
+            document.getElementById('deposits-next-page')?.addEventListener('click', depositsNextPage);
+            document.getElementById('deposits-last-page')?.addEventListener('click', depositsLastPage);
+            
+            document.getElementById('withdrawals-first-page')?.addEventListener('click', withdrawalsFirstPage);
+            document.getElementById('withdrawals-prev-page')?.addEventListener('click', withdrawalsPrevPage);
+            document.getElementById('withdrawals-next-page')?.addEventListener('click', withdrawalsNextPage);
+            document.getElementById('withdrawals-last-page')?.addEventListener('click', withdrawalsLastPage);
+            
+            document.getElementById('transactions-first-page')?.addEventListener('click', transactionsFirstPage);
+            document.getElementById('transactions-prev-page')?.addEventListener('click', transactionsPrevPage);
+            document.getElementById('transactions-next-page')?.addEventListener('click', transactionsNextPage);
+            document.getElementById('transactions-last-page')?.addEventListener('click', transactionsLastPage);
+            
+            // Page size changes
+            document.getElementById('games-page-size')?.addEventListener('change', (e) => {
+                gamesPageSize = parseInt(e.target.value);
+                gamesPage = 1;
+                loadGames();
+            });
+            
+            document.getElementById('users-page-size')?.addEventListener('change', (e) => {
+                usersPageSize = parseInt(e.target.value);
+                usersPage = 1;
+                loadUsers();
+            });
+            
+            document.getElementById('deposits-page-size')?.addEventListener('change', (e) => {
+                depositsPageSize = parseInt(e.target.value);
+                depositsPage = 1;
+                loadDeposits();
+            });
+            
+            document.getElementById('withdrawals-page-size')?.addEventListener('change', (e) => {
+                withdrawalsPageSize = parseInt(e.target.value);
+                withdrawalsPage = 1;
+                loadWithdrawals();
+            });
+            
+            document.getElementById('transactions-page-size')?.addEventListener('change', (e) => {
+                transactionsPageSize = parseInt(e.target.value);
+                transactionsPage = 1;
+                loadTransactions();
+            });
+            
+            // Filter changes
+            document.getElementById('game-status-filter')?.addEventListener('change', () => {
+                gamesPage = 1;
+                loadGames();
+            });
+            
+            document.getElementById('game-search')?.addEventListener('keyup', (e) => {
+                if (e.key === 'Enter') {
+                    gamesPage = 1;
+                    loadGames();
+                }
+            });
+            
+            document.getElementById('user-status-filter')?.addEventListener('change', () => {
+                usersPage = 1;
+                loadUsers();
+            });
+            
+            document.getElementById('user-search')?.addEventListener('keyup', (e) => {
+                if (e.key === 'Enter') {
+                    usersPage = 1;
+                    loadUsers();
+                }
+            });
+            
+            document.getElementById('deposit-status-filter')?.addEventListener('change', () => {
+                depositsPage = 1;
+                loadDeposits();
+            });
+            
+            document.getElementById('deposit-search')?.addEventListener('keyup', (e) => {
+                if (e.key === 'Enter') {
+                    depositsPage = 1;
+                    loadDeposits();
+                }
+            });
+            
+            document.getElementById('withdrawal-status-filter')?.addEventListener('change', () => {
+                withdrawalsPage = 1;
+                loadWithdrawals();
+            });
+            
+            document.getElementById('withdrawal-search')?.addEventListener('keyup', (e) => {
+                if (e.key === 'Enter') {
+                    withdrawalsPage = 1;
+                    loadWithdrawals();
+                }
+            });
+            
+            document.getElementById('transaction-search')?.addEventListener('keyup', (e) => {
+                if (e.key === 'Enter') {
+                    transactionsPage = 1;
+                    loadTransactions();
+                }
+            });
+            
             // Game controls
             document.getElementById('start-game-btn')?.addEventListener('click', async () => {
                 try {
@@ -4382,8 +4854,21 @@
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ admin_id: adminId })
-                    });
-                    const data = await response.json();
+                    }).catch(() => null);
+                    
+                    if (!response) {
+                        showNotification('Start game API not available', 'danger');
+                        return;
+                    }
+                    
+                    let data;
+                    try {
+                        data = await response.json();
+                    } catch (jsonError) {
+                        showNotification('Invalid response from server', 'danger');
+                        return;
+                    }
+                    
                     if (data.success) {
                         showNotification('Game started!', 'success');
                         addLiveUpdate('New game started');
@@ -4413,8 +4898,21 @@
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ game_id: currentGame.game_id, admin_id: adminId })
-                    });
-                    const data = await response.json();
+                    }).catch(() => null);
+                    
+                    if (!response) {
+                        showNotification('Stop game API not available', 'danger');
+                        return;
+                    }
+                    
+                    let data;
+                    try {
+                        data = await response.json();
+                    } catch (jsonError) {
+                        showNotification('Invalid response from server', 'danger');
+                        return;
+                    }
+                    
                     if (data.success) {
                         showNotification('Game stopped!', 'success');
                         addLiveUpdate('Game stopped');
@@ -4423,10 +4921,14 @@
                         
                         // Wait a moment and check if we can start a new game
                         setTimeout(async () => {
-                            const checkResponse = await fetch('/api/game/active');
-                            const checkData = await checkResponse.json();
-                            if (!checkData.success || !checkData.game_id) {
-                                showNotification('Game is ready to start a new round', 'info');
+                            const checkResponse = await fetch('/api/game/active').catch(() => null);
+                            if (checkResponse && checkResponse.ok) {
+                                try {
+                                    const checkData = await checkResponse.json();
+                                    if (!checkData.success || !checkData.game_id) {
+                                        showNotification('Game is ready to start a new round', 'info');
+                                    }
+                                } catch (e) {}
                             }
                         }, 2000);
                     } else {
@@ -4455,8 +4957,21 @@
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ game_id: currentGame.game_id, number: parseInt(number), admin_id: adminId })
-                    });
-                    const data = await response.json();
+                    }).catch(() => null);
+                    
+                    if (!response) {
+                        showNotification('Call number API not available', 'danger');
+                        return;
+                    }
+                    
+                    let data;
+                    try {
+                        data = await response.json();
+                    } catch (jsonError) {
+                        showNotification('Invalid response from server', 'danger');
+                        return;
+                    }
+                    
                     if (data.success) {
                         showNotification(`Number ${number} called!`, 'success');
                         addLiveUpdate(`Called number ${number}`);
