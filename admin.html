@@ -3456,16 +3456,36 @@
             try {
                 document.getElementById('db-status').innerHTML = '<span class="status-pending">Checking...</span>';
                 
-                // This endpoint doesn't exist in web_server.py, so show as not available
-                document.getElementById('db-status').innerHTML = '<span class="status-rejected">Not Available</span>';
-                document.getElementById('db-size').textContent = 'N/A';
-                document.getElementById('db-modified').textContent = 'N/A';
-                document.getElementById('db-records').innerHTML = '<div>Database info API not available</div>';
-                addLiveUpdate('Database info API not available', 'warning');
+                const response = await fetch('/api/admin/database-info');
+                if (!response.ok) {
+                    throw new Error(`HTTP error ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    document.getElementById('db-status').innerHTML = '<span class="status-active">Connected</span>';
+                    document.getElementById('db-size').textContent = data.database.size_mb.toFixed(2) + ' MB';
+                    document.getElementById('db-modified').textContent = new Date(data.database.modified_time).toLocaleString();
+                    
+                    let recordsHtml = '';
+                    for (const [table, count] of Object.entries(data.database.record_counts)) {
+                        recordsHtml += `<div>${table}: ${count}</div>`;
+                    }
+                    document.getElementById('db-records').innerHTML = recordsHtml;
+                    
+                    addLiveUpdate('Database info loaded successfully', 'success');
+                } else {
+                    throw new Error(data.message || 'Unknown error');
+                }
                 
             } catch (error) {
                 console.error('Error checking database info:', error);
                 document.getElementById('db-status').innerHTML = '<span class="status-rejected">Error</span>';
+                document.getElementById('db-size').textContent = 'N/A';
+                document.getElementById('db-modified').textContent = 'N/A';
+                document.getElementById('db-records').innerHTML = '<div>Error: ' + error.message + '</div>';
+                addLiveUpdate('Database info error: ' + error.message, 'warning');
             }
         }
 
@@ -3478,18 +3498,49 @@
                 statusEl.textContent = compressed ? 'Preparing compressed database...' : 'Preparing database...';
                 detailsEl.textContent = 'This may take a few seconds...';
                 
-                // These endpoints don't exist in web_server.py
-                statusEl.textContent = 'Download API not available';
-                detailsEl.textContent = 'This feature is not implemented on the server';
-                addLiveUpdate('Database download API not available', 'warning');
-                showNotification('Download API not available', 'warning');
+                const response = await fetch(`/api/admin/download-database?compress=${compressed}`);
                 
-                setTimeout(() => closeModal('download-progress-modal'), 2000);
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`HTTP error ${response.status}: ${errorText}`);
+                }
+                
+                // Get filename from Content-Disposition header or use default
+                const contentDisposition = response.headers.get('Content-Disposition');
+                let filename = compressed ? 'database_backup.db.gz' : 'database_backup.db';
+                if (contentDisposition) {
+                    const match = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+                    if (match && match[1]) {
+                        filename = match[1].replace(/['"]/g, '');
+                    }
+                }
+                
+                // Create download link
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+                
+                statusEl.textContent = '✅ Download complete!';
+                detailsEl.textContent = `File: ${filename}`;
+                addLiveUpdate('Database download completed', 'success');
+                showNotification('Database downloaded successfully!', 'success');
+                
+                setTimeout(() => closeModal('download-progress-modal'), 1500);
                 
             } catch (error) {
                 console.error('Error downloading database:', error);
-                closeModal('download-progress-modal');
+                document.getElementById('download-status').textContent = '❌ Download failed';
+                document.getElementById('download-details').textContent = error.message;
+                addLiveUpdate('Database download failed: ' + error.message, 'danger');
                 showNotification('Error downloading database: ' + error.message, 'danger');
+                
+                setTimeout(() => closeModal('download-progress-modal'), 3000);
             }
         }
 
@@ -3506,9 +3557,18 @@
                         formData.append('database', blob, file.name);
                         formData.append('admin_id', adminId);
                         
-                        // This endpoint doesn't exist in web_server.py
-                        reject(new Error('Restore API not available'));
-                        return;
+                        const response = await fetch('/api/admin/restore-database', {
+                            method: 'POST',
+                            body: formData
+                        });
+                        
+                        if (!response.ok) {
+                            const errorText = await response.text();
+                            throw new Error(`HTTP error ${response.status}: ${errorText}`);
+                        }
+                        
+                        const data = await response.json();
+                        resolve(data);
                         
                     } catch (error) {
                         reject(error);
@@ -3731,8 +3791,7 @@
                 
                 const response = await fetch('/api/admin/weeklycommission');
                 if (!response.ok) {
-                    tbody.innerHTML = '<tr><td colspan="6" style="text-align: center;">Commission API not available</td></tr>';
-                    return;
+                    throw new Error(`HTTP error ${response.status}`);
                 }
                 
                 const data = await response.json();
@@ -3768,13 +3827,13 @@
                         tbody.innerHTML = '<tr><td colspan="6" style="text-align: center;">No commission data available</td></tr>';
                     }
                 } else {
-                    tbody.innerHTML = '<tr><td colspan="6" style="text-align: center;">Failed to load commission data</td></tr>';
+                    throw new Error(data.message || 'Failed to load commission data');
                 }
             } catch (error) {
                 console.error('Error loading weekly commission:', error);
                 const tbody = document.getElementById('weekly-commission-body');
                 if (tbody) {
-                    tbody.innerHTML = '<tr><td colspan="6" style="text-align: center;">Error loading commission data</td></tr>';
+                    tbody.innerHTML = `<tr><td colspan="6" style="text-align: center;">Error loading commission data: ${error.message}</td></tr>`;
                 }
             }
         }
@@ -3789,14 +3848,21 @@
                 if (statusFilter !== 'all') url += `&status=${statusFilter}`;
                 if (searchTerm) url += `&search=${encodeURIComponent(searchTerm)}`;
                 
+                console.log('Fetching games from:', url);
+                
                 const response = await fetch(url);
+                console.log('Response status:', response.status);
+                
                 if (!response.ok) {
-                    document.getElementById('games-table-body').innerHTML = '<tr><td colspan="11" style="text-align: center;">Games API not available</td></tr>';
+                    const errorText = await response.text();
+                    console.error('Error response:', errorText);
+                    document.getElementById('games-table-body').innerHTML = `<tr><td colspan="11" style="text-align: center;">Games API Error: ${response.status} - ${errorText.substring(0, 100)}</td></tr>`;
                     document.getElementById('games-pagination').style.display = 'none';
                     return;
                 }
                 
                 const data = await response.json();
+                console.log('Response data:', data);
                 
                 const tbody = document.getElementById('games-table-body');
                 if (!tbody) return;
@@ -3856,11 +3922,11 @@
                         if (document.getElementById('games-pagination')) document.getElementById('games-pagination').style.display = 'none';
                     }
                 } else {
-                    tbody.innerHTML = '<tr><td colspan="11" style="text-align: center;">Failed to load games</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="11" style="text-align: center;">Failed to load games: ' + (data.message || 'Unknown error') + '</td></tr>';
                 }
             } catch (error) {
                 console.error('Error loading games:', error);
-                document.getElementById('games-table-body').innerHTML = '<tr><td colspan="11" style="text-align: center;">Error loading games</td></tr>';
+                document.getElementById('games-table-body').innerHTML = '<tr><td colspan="11" style="text-align: center;">Error loading games: ' + error.message + '</td></tr>';
             }
         }
 
@@ -3874,14 +3940,21 @@
                 if (statusFilter !== 'all') url += `&status=${statusFilter}`;
                 if (searchTerm) url += `&search=${encodeURIComponent(searchTerm)}`;
                 
+                console.log('Fetching users from:', url);
+                
                 const response = await fetch(url);
+                console.log('Response status:', response.status);
+                
                 if (!response.ok) {
-                    document.getElementById('users-table-body').innerHTML = '<tr><td colspan="8" style="text-align: center;">Users API not available</td></tr>';
+                    const errorText = await response.text();
+                    console.error('Error response:', errorText);
+                    document.getElementById('users-table-body').innerHTML = `<tr><td colspan="8" style="text-align: center;">Users API Error: ${response.status} - ${errorText.substring(0, 100)}</td></tr>`;
                     document.getElementById('users-pagination').style.display = 'none';
                     return;
                 }
                 
                 const data = await response.json();
+                console.log('Response data:', data);
                 
                 const tbody = document.getElementById('users-table-body');
                 if (!tbody) return;
@@ -3897,8 +3970,7 @@
                             
                             let statusClass = 'status-active';
                             let statusText = 'Active';
-                            
-                            if (user.status === 'suspended') {
+                                            if (user.status === 'suspended') {
                                 statusClass = 'status-suspended';
                                 statusText = 'Suspended';
                             } else if (user.status === 'deleted') {
@@ -3968,11 +4040,11 @@
                         if (document.getElementById('users-pagination')) document.getElementById('users-pagination').style.display = 'none';
                     }
                 } else {
-                    tbody.innerHTML = '<tr><td colspan="8" style="text-align: center;">Failed to load users</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="8" style="text-align: center;">Failed to load users: ' + (data.message || 'Unknown error') + '</td></tr>';
                 }
             } catch (error) {
                 console.error('Error loading users:', error);
-                document.getElementById('users-table-body').innerHTML = '<tr><td colspan="8" style="text-align: center;">Error loading users</td></tr>';
+                document.getElementById('users-table-body').innerHTML = '<tr><td colspan="8" style="text-align: center;">Error loading users: ' + error.message + '</td></tr>';
             }
         }
 
@@ -3986,14 +4058,21 @@
                 if (statusFilter !== 'all') url += `&status=${statusFilter}`;
                 if (searchTerm) url += `&search=${encodeURIComponent(searchTerm)}`;
                 
+                console.log('Fetching deposits from:', url);
+                
                 const response = await fetch(url);
+                console.log('Response status:', response.status);
+                
                 if (!response.ok) {
-                    document.getElementById('deposits-table-body').innerHTML = '<tr><td colspan="8" style="text-align: center;">Deposits API not available</td></tr>';
+                    const errorText = await response.text();
+                    console.error('Error response:', errorText);
+                    document.getElementById('deposits-table-body').innerHTML = `<tr><td colspan="8" style="text-align: center;">Deposits API Error: ${response.status} - ${errorText.substring(0, 100)}</td></tr>`;
                     document.getElementById('deposits-pagination').style.display = 'none';
                     return;
                 }
                 
                 const data = await response.json();
+                console.log('Response data:', data);
                 
                 const tbody = document.getElementById('deposits-table-body');
                 if (!tbody) return;
@@ -4053,11 +4132,11 @@
                         if (document.getElementById('deposits-pagination')) document.getElementById('deposits-pagination').style.display = 'none';
                     }
                 } else {
-                    tbody.innerHTML = '<tr><td colspan="8" style="text-align: center;">Failed to load deposits</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="8" style="text-align: center;">Failed to load deposits: ' + (data.message || 'Unknown error') + '</td></tr>';
                 }
             } catch (error) {
                 console.error('Error loading deposits:', error);
-                document.getElementById('deposits-table-body').innerHTML = '<tr><td colspan="8" style="text-align: center;">Error loading deposits</td></tr>';
+                document.getElementById('deposits-table-body').innerHTML = '<tr><td colspan="8" style="text-align: center;">Error loading deposits: ' + error.message + '</td></tr>';
             }
         }
 
@@ -4071,14 +4150,21 @@
                 if (statusFilter !== 'all') url += `&status=${statusFilter}`;
                 if (searchTerm) url += `&search=${encodeURIComponent(searchTerm)}`;
                 
+                console.log('Fetching withdrawals from:', url);
+                
                 const response = await fetch(url);
+                console.log('Response status:', response.status);
+                
                 if (!response.ok) {
-                    document.getElementById('withdrawals-table-body').innerHTML = '<tr><td colspan="9" style="text-align: center;">Withdrawals API not available</td></tr>';
+                    const errorText = await response.text();
+                    console.error('Error response:', errorText);
+                    document.getElementById('withdrawals-table-body').innerHTML = `<tr><td colspan="9" style="text-align: center;">Withdrawals API Error: ${response.status} - ${errorText.substring(0, 100)}</td></tr>`;
                     document.getElementById('withdrawals-pagination').style.display = 'none';
                     return;
                 }
                 
                 const data = await response.json();
+                console.log('Response data:', data);
                 
                 const tbody = document.getElementById('withdrawals-table-body');
                 if (!tbody) return;
@@ -4139,11 +4225,11 @@
                         if (document.getElementById('withdrawals-pagination')) document.getElementById('withdrawals-pagination').style.display = 'none';
                     }
                 } else {
-                    tbody.innerHTML = '<tr><td colspan="9" style="text-align: center;">Failed to load withdrawals</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="9" style="text-align: center;">Failed to load withdrawals: ' + (data.message || 'Unknown error') + '</td></tr>';
                 }
             } catch (error) {
                 console.error('Error loading withdrawals:', error);
-                document.getElementById('withdrawals-table-body').innerHTML = '<tr><td colspan="9" style="text-align: center;">Error loading withdrawals</td></tr>';
+                document.getElementById('withdrawals-table-body').innerHTML = '<tr><td colspan="9" style="text-align: center;">Error loading withdrawals: ' + error.message + '</td></tr>';
             }
         }
 
@@ -4155,14 +4241,21 @@
                 let url = `/api/admin/transactions?page=${transactionsPage}&limit=${transactionsPageSize}`;
                 if (searchTerm) url += `&search=${encodeURIComponent(searchTerm)}`;
                 
+                console.log('Fetching transactions from:', url);
+                
                 const response = await fetch(url);
+                console.log('Response status:', response.status);
+                
                 if (!response.ok) {
-                    document.getElementById('transactions-table-body').innerHTML = '<tr><td colspan="6" style="text-align: center;">Transactions API not available</td></tr>';
+                    const errorText = await response.text();
+                    console.error('Error response:', errorText);
+                    document.getElementById('transactions-table-body').innerHTML = `<tr><td colspan="6" style="text-align: center;">Transactions API Error: ${response.status} - ${errorText.substring(0, 100)}</td></tr>`;
                     document.getElementById('transactions-pagination').style.display = 'none';
                     return;
                 }
                 
                 const data = await response.json();
+                console.log('Response data:', data);
                 
                 const tbody = document.getElementById('transactions-table-body');
                 if (!tbody) return;
@@ -4208,11 +4301,11 @@
                         if (document.getElementById('transactions-pagination')) document.getElementById('transactions-pagination').style.display = 'none';
                     }
                 } else {
-                    tbody.innerHTML = '<tr><td colspan="6" style="text-align: center;">Failed to load transactions</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="6" style="text-align: center;">Failed to load transactions: ' + (data.message || 'Unknown error') + '</td></tr>';
                 }
             } catch (error) {
                 console.error('Error loading transactions:', error);
-                document.getElementById('transactions-table-body').innerHTML = '<tr><td colspan="6" style="text-align: center;">Error loading transactions</td></tr>';
+                document.getElementById('transactions-table-body').innerHTML = '<tr><td colspan="6" style="text-align: center;">Error loading transactions: ' + error.message + '</td></tr>';
             }
         }
 
@@ -4263,7 +4356,8 @@
                     body: JSON.stringify({ payment_id: paymentId, admin_id: adminId })
                 });
                 if (!response.ok) {
-                    throw new Error(`HTTP error ${response.status}`);
+                    const errorText = await response.text();
+                    throw new Error(`HTTP error ${response.status}: ${errorText}`);
                 }
                 const data = await response.json();
                 if (data.success) {
@@ -4287,7 +4381,8 @@
                     body: JSON.stringify({ payment_id: paymentId, reason: reason, admin_id: adminId })
                 });
                 if (!response.ok) {
-                    throw new Error(`HTTP error ${response.status}`);
+                    const errorText = await response.text();
+                    throw new Error(`HTTP error ${response.status}: ${errorText}`);
                 }
                 const data = await response.json();
                 if (data.success) {
@@ -4310,7 +4405,8 @@
                     body: JSON.stringify({ withdrawal_id: withdrawalId, admin_id: adminId })
                 });
                 if (!response.ok) {
-                    throw new Error(`HTTP error ${response.status}`);
+                    const errorText = await response.text();
+                    throw new Error(`HTTP error ${response.status}: ${errorText}`);
                 }
                 const data = await response.json();
                 if (data.success) {
@@ -4334,7 +4430,8 @@
                     body: JSON.stringify({ withdrawal_id: withdrawalId, reason: reason, admin_id: adminId })
                 });
                 if (!response.ok) {
-                    throw new Error(`HTTP error ${response.status}`);
+                    const errorText = await response.text();
+                    throw new Error(`HTTP error ${response.status}: ${errorText}`);
                 }
                 const data = await response.json();
                 if (data.success) {
