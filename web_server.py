@@ -3393,6 +3393,12 @@ async def admin_reject_withdrawal_endpoint(request):
             new_balance = user.get('balance', 0.00) if user else 0.00
         except:
             new_balance = 0.00
+            
+            
+            
+            
+            
+            
         
         # ============ ADD THIS NOTIFICATION CODE ============
         # Format time for notification
@@ -3464,6 +3470,590 @@ async def admin_reject_withdrawal_endpoint(request):
         }, status=500)
 
 
+
+
+
+
+
+
+# ==================== ADD THESE MISSING ADMIN API ENDPOINTS ====================
+
+@routes.get('/api/admin/database-info')
+async def admin_database_info(request):
+    """Get database information - size, last modified, record counts"""
+    try:
+        from database.db import Database
+        import os
+        import sqlite3
+        
+        # Get database file path
+        db_path = Database.db_path
+        
+        if not os.path.exists(db_path):
+            return web.json_response({
+                'success': False,
+                'message': 'Database file not found'
+            }, status=404)
+        
+        # Get file stats
+        file_stats = os.stat(db_path)
+        file_size_mb = file_stats.st_size / (1024 * 1024)
+        last_modified = datetime.fromtimestamp(file_stats.st_mtime)
+        
+        # Get record counts from all tables
+        record_counts = {}
+        with Database.get_cursor() as cursor:
+            # List of tables to check
+            tables = [
+                'users', 'games', 'transactions', 'payments', 
+                'withdrawal_requests', 'player_cards', 'called_numbers',
+                'commission_records', 'house_balance', 'admin_logs'
+            ]
+            
+            for table in tables:
+                try:
+                    cursor.execute(f"SELECT COUNT(*) FROM {table}")
+                    count = cursor.fetchone()[0]
+                    record_counts[table] = count
+                except sqlite3.OperationalError:
+                    # Table might not exist
+                    record_counts[table] = 0
+        
+        return web.json_response({
+            'success': True,
+            'database': {
+                'path': db_path,
+                'size_mb': round(file_size_mb, 2),
+                'modified_time': last_modified.isoformat(),
+                'record_counts': record_counts
+            },
+            'timestamp': datetime.now().isoformat()
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting database info: {e}")
+        return web.json_response({
+            'success': False,
+            'message': str(e)
+        }, status=500)
+
+
+@routes.get('/api/admin/download-database')
+async def admin_download_database(request):
+    """Download the database file - optionally compressed"""
+    try:
+        compress = request.query.get('compress', 'true').lower() == 'true'
+        
+        from database.db import Database
+        import os
+        import gzip
+        import shutil
+        from aiohttp.web import FileResponse
+        
+        db_path = Database.db_path
+        
+        if not os.path.exists(db_path):
+            return web.json_response({
+                'success': False,
+                'message': 'Database file not found'
+            }, status=404)
+        
+        if compress:
+            # Create compressed version
+            compressed_path = db_path + '.gz'
+            with open(db_path, 'rb') as f_in:
+                with gzip.open(compressed_path, 'wb') as f_out:
+                    shutil.copyfileobj(f_in, f_out)
+            
+            # Send compressed file
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            filename = f"habesha_bingo_backup_{timestamp}.db.gz"
+            
+            response = FileResponse(
+                compressed_path,
+                headers={
+                    'Content-Disposition': f'attachment; filename="{filename}"',
+                    'Content-Type': 'application/gzip'
+                }
+            )
+            
+            # Clean up compressed file after sending
+            async def cleanup():
+                try:
+                    os.unlink(compressed_path)
+                except:
+                    pass
+            
+            response.cleanup = cleanup
+            return response
+        else:
+            # Send uncompressed file
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            filename = f"habesha_bingo_backup_{timestamp}.db"
+            
+            return FileResponse(
+                db_path,
+                headers={
+                    'Content-Disposition': f'attachment; filename="{filename}"',
+                    'Content-Type': 'application/x-sqlite3'
+                }
+            )
+            
+    except Exception as e:
+        logger.error(f"Error downloading database: {e}")
+        return web.json_response({
+            'success': False,
+            'message': str(e)
+        }, status=500)
+
+
+@routes.post('/api/admin/restore-database')
+async def admin_restore_database(request):
+    """Restore database from uploaded file with safety checks"""
+    try:
+        reader = await request.multipart()
+        
+        # Get the file part
+        field = await reader.next()
+        if not field or field.name != 'database':
+            return web.json_response({
+                'success': False,
+                'message': 'No database file uploaded'
+            }, status=400)
+        
+        # Get admin_id
+        admin_id = None
+        while True:
+            part = await reader.next()
+            if part is None:
+                break
+            if part.name == 'admin_id':
+                admin_id = await part.text()
+        
+        filename = field.filename
+        if not filename:
+            return web.json_response({
+                'success': False,
+                'message': 'No filename provided'
+            }, status=400)
+        
+        # Validate file extension
+        valid_extensions = ['.db', '.db.gz', '.sqlite', '.sqlite3']
+        if not any(filename.lower().endswith(ext) for ext in valid_extensions):
+            return web.json_response({
+                'success': False,
+                'message': 'Invalid file type. Please upload a database file (.db, .db.gz, .sqlite)'
+            }, status=400)
+        
+        from database.db import Database
+        import os
+        import shutil
+        import gzip
+        import tempfile
+        from datetime import datetime
+        
+        db_path = Database.db_path
+        backup_path = db_path + f".backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        
+        # Create backup of current database
+        if os.path.exists(db_path):
+            shutil.copy2(db_path, backup_path)
+            logger.info(f"✅ Created database backup at {backup_path}")
+        
+        # Save uploaded file
+        temp_fd, temp_path = tempfile.mkstemp(suffix='.db')
+        os.close(temp_fd)
+        
+        size = 0
+        with open(temp_path, 'wb') as f:
+            while True:
+                chunk = await field.read_chunk()
+                if not chunk:
+                    break
+                size += len(chunk)
+                f.write(chunk)
+        
+        # Check file size (max 100MB)
+        if size > 100 * 1024 * 1024:
+            os.unlink(temp_path)
+            return web.json_response({
+                'success': False,
+                'message': 'File too large. Maximum size is 100MB'
+            }, status=400)
+        
+        # If uploaded file is gzipped, decompress it
+        if filename.lower().endswith('.gz'):
+            decompressed_path = temp_path + '.decompressed'
+            try:
+                with gzip.open(temp_path, 'rb') as f_in:
+                    with open(decompressed_path, 'wb') as f_out:
+                        shutil.copyfileobj(f_in, f_out)
+                os.unlink(temp_path)
+                temp_path = decompressed_path
+            except Exception as e:
+                os.unlink(temp_path)
+                if os.path.exists(decompressed_path):
+                    os.unlink(decompressed_path)
+                return web.json_response({
+                    'success': False,
+                    'message': f'Failed to decompress file: {str(e)}'
+                }, status=400)
+        
+        # Validate that it's a valid SQLite database
+        try:
+            import sqlite3
+            conn = sqlite3.connect(temp_path)
+            cursor = conn.cursor()
+            # Check if it has expected tables
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+            tables = [row[0] for row in cursor.fetchall()]
+            conn.close()
+            
+            # Basic validation - should have at least users table
+            if 'users' not in tables:
+                raise ValueError("Invalid database: missing 'users' table")
+                
+        except Exception as e:
+            os.unlink(temp_path)
+            return web.json_response({
+                'success': False,
+                'message': f'Invalid database file: {str(e)}'
+            }, status=400)
+        
+        # Stop any running games before restore
+        try:
+            from utils.game_manager import game_manager
+            from utils.number_caller import number_caller
+            
+            # Stop number calling
+            active_game = await game_manager.get_active_round_game()
+            if active_game:
+                await number_caller.stop_number_calling_for_game(active_game.get('game_id'))
+                logger.info("Stopped number calling for restore")
+        except Exception as e:
+            logger.warning(f"Error stopping game for restore: {e}")
+        
+        # Replace the database
+        try:
+            # Close any open connections
+            if hasattr(Database, 'close_all'):
+                await Database.close_all()
+            
+            # Replace the database file
+            shutil.move(temp_path, db_path)
+            logger.info(f"✅ Database restored from uploaded file")
+            
+            # Record admin transaction
+            await Database.record_admin_transaction(
+                admin_id=admin_id or 'system',
+                action='restore_database',
+                target_type='system',
+                target_id='database',
+                details={
+                    'filename': filename,
+                    'size_bytes': size,
+                    'backup_created': os.path.exists(backup_path)
+                }
+            )
+            
+            # Schedule bot restart
+            import asyncio
+            
+            async def restart_bot():
+                await asyncio.sleep(2)
+                logger.info("🔄 Bot restarting after database restore")
+                # Signal bot to restart
+                if 'bot_instance' in globals() and bot_instance:
+                    try:
+                        await bot_instance.stop()
+                    except:
+                        pass
+                # Exit process to trigger restart by supervisor/docker
+                os._exit(1)
+            
+            asyncio.create_task(restart_bot())
+            
+            return web.json_response({
+                'success': True,
+                'message': 'Database restored successfully. Bot is restarting...',
+                'backup_path': backup_path if os.path.exists(backup_path) else None
+            })
+            
+        except Exception as e:
+            logger.error(f"Error during database restore: {e}")
+            # Restore from backup if possible
+            if os.path.exists(backup_path):
+                shutil.copy2(backup_path, db_path)
+                logger.info(f"✅ Restored from backup after failed restore")
+            
+            if os.path.exists(temp_path):
+                os.unlink(temp_path)
+            
+            return web.json_response({
+                'success': False,
+                'message': f'Failed to restore database: {str(e)}'
+            }, status=500)
+            
+    except Exception as e:
+        logger.error(f"Error in restore database: {e}")
+        return web.json_response({
+            'success': False,
+            'message': str(e)
+        }, status=500)
+
+
+@routes.post('/api/admin/force-reset-game')
+async def admin_force_reset_game(request):
+    """Admin: Force reset the current game - complete reset"""
+    try:
+        data = await request.json()
+        admin_id = data.get('admin_id', 'system')
+        game_id = data.get('game_id')
+        
+        from database.db import Database
+        from utils.game_manager import game_manager
+        from utils.number_caller import number_caller
+        
+        logger.info(f"🔄 Admin {admin_id} initiating force game reset for {game_id or 'current game'}")
+        
+        # If no game_id provided, get current active game
+        if not game_id:
+            active_game = await game_manager.get_active_round_game()
+            if active_game:
+                game_id = active_game.get('game_id')
+        
+        if game_id:
+            # Stop number calling
+            await number_caller.stop_number_calling_for_game(game_id)
+            logger.info(f"Stopped number calling for game {game_id}")
+            
+            # Update game status to completed
+            await Database.update_game_status(game_id, 'completed')
+            
+            # Clear any fake players for this game
+            if hasattr(game_manager, 'fake_user_manager'):
+                if game_id in game_manager.fake_user_manager.game_fake_cards:
+                    del game_manager.fake_user_manager.game_fake_cards[game_id]
+                    logger.info(f"Cleared fake cards for game {game_id}")
+            
+            # Clear any pending winners
+            if hasattr(game_manager, '_winners'):
+                if game_id in game_manager._winners:
+                    del game_manager._winners[game_id]
+            
+            logger.info(f"Reset game {game_id}")
+        else:
+            logger.info("No active game to reset")
+        
+        # Start a new game immediately
+        result = await game_manager.start_new_round_game()
+        
+        if result.get('success'):
+            new_game = await game_manager.get_active_round_game()
+            new_game_id = new_game.get('game_id') if new_game else None
+            
+            # Broadcast to all connected clients
+            await websocket_server.broadcast_with_retry({
+                'type': 'game_reset',
+                'message': 'Game was force reset by admin',
+                'new_game_id': new_game_id,
+                'timestamp': datetime.now().isoformat()
+            })
+            
+            # Record admin transaction
+            await Database.record_admin_transaction(
+                admin_id=admin_id,
+                action='force_reset_game',
+                target_type='game',
+                target_id=game_id or 'none',
+                details={
+                    'new_game_id': new_game_id
+                }
+            )
+            
+            return web.json_response({
+                'success': True,
+                'message': 'Game reset successfully and new game started',
+                'new_game_id': new_game_id
+            })
+        else:
+            return web.json_response({
+                'success': False,
+                'message': result.get('message', 'Failed to start new game after reset')
+            }, status=500)
+        
+    except Exception as e:
+        logger.error(f"Error force resetting game: {e}", exc_info=True)
+        return web.json_response({
+            'success': False,
+            'message': str(e)
+        }, status=500)
+
+
+@routes.get('/api/admin/commission-details')
+async def admin_commission_details(request):
+    """Get detailed commission breakdown by game"""
+    try:
+        from database.db import Database
+        
+        # Get page and limit parameters
+        page = int(request.query.get('page', 1))
+        limit = int(request.query.get('limit', 20))
+        offset = (page - 1) * limit
+        
+        with Database.get_cursor() as cursor:
+            cursor.execute("""
+                SELECT 
+                    cr.game_id,
+                    g.round_number,
+                    cr.recorded_at as game_date,
+                    cr.real_players_count as real_players,
+                    cr.commission_amount as commission,
+                    cr.status as commission_status,
+                    g.total_cards_sold,
+                    g.prize_pool
+                FROM commission_records cr
+                LEFT JOIN games g ON cr.game_id = g.game_id
+                ORDER BY cr.recorded_at DESC
+                LIMIT ? OFFSET ?
+            """, (limit, offset))
+            
+            rows = cursor.fetchall()
+            commission_games = []
+            
+            for row in rows:
+                game_data = {
+                    'game_id': row[0],
+                    'round_number': row[1],
+                    'game_date': row[2],
+                    'real_players': row[3] or 0,
+                    'commission': float(row[4] or 0),
+                    'commission_status': row[5],
+                    'total_cards_sold': row[6] or 0,
+                    'prize_pool': float(row[7] or 0)
+                }
+                commission_games.append(game_data)
+            
+            # Get total count
+            cursor.execute("SELECT COUNT(*) as total FROM commission_records")
+            total_row = cursor.fetchone()
+            total = total_row[0] if total_row else 0
+            
+            # Get daily summary
+            cursor.execute("""
+                SELECT 
+                    date(recorded_at) as day,
+                    COUNT(*) as games_count,
+                    SUM(real_players_count) as total_players,
+                    SUM(commission_amount) as total_commission
+                FROM commission_records
+                GROUP BY date(recorded_at)
+                ORDER BY day DESC
+                LIMIT 30
+            """)
+            daily_rows = cursor.fetchall()
+            daily_data = []
+            for row in daily_rows:
+                daily_data.append({
+                    'date': row[0],
+                    'games_count': row[1] or 0,
+                    'total_players': row[2] or 0,
+                    'total_commission': float(row[3] or 0)
+                })
+            
+            # Get monthly summary
+            cursor.execute("""
+                SELECT 
+                    strftime('%Y-%m', recorded_at) as month,
+                    COUNT(*) as games_count,
+                    SUM(real_players_count) as total_players,
+                    SUM(commission_amount) as total_commission
+                FROM commission_records
+                GROUP BY strftime('%Y-%m', recorded_at)
+                ORDER BY month DESC
+                LIMIT 12
+            """)
+            monthly_rows = cursor.fetchall()
+            monthly_data = []
+            for row in monthly_rows:
+                monthly_data.append({
+                    'month': row[0],
+                    'games_count': row[1] or 0,
+                    'total_players': row[2] or 0,
+                    'total_commission': float(row[3] or 0)
+                })
+            
+            return web.json_response({
+                'success': True,
+                'games': commission_games,
+                'daily': daily_data,
+                'monthly': monthly_data,
+                'pagination': {
+                    'page': page,
+                    'limit': limit,
+                    'total': total,
+                    'pages': (total + limit - 1) // limit if total > 0 else 0
+                },
+                'calculation_method': 'real_players × 2 (from commission_records table)',
+                'timestamp': datetime.now().isoformat()
+            })
+            
+    except Exception as e:
+        logger.error(f"Error getting commission details: {e}")
+        return web.json_response({
+            'success': False,
+            'message': str(e)
+        }, status=500)
+
+
+@routes.get('/api/admin/health')
+async def admin_health_check(request):
+    """Admin health check endpoint with detailed status"""
+    try:
+        from database.db import Database
+        from utils.game_manager import game_manager
+        
+        # Check database connection
+        db_status = "ok"
+        db_error = None
+        try:
+            with Database.get_cursor() as cursor:
+                cursor.execute("SELECT 1")
+                cursor.fetchone()
+        except Exception as e:
+            db_status = "error"
+            db_error = str(e)
+        
+        # Get system status
+        system_status = await game_manager.get_system_status() if hasattr(game_manager, 'get_system_status') else {}
+        
+        # Get websocket status
+        ws_status = {
+            'connections': len(websocket_server.connections),
+            'authenticated_users': len(websocket_server.user_connections)
+        }
+        
+        return web.json_response({
+            'success': True,
+            'status': 'healthy' if db_status == 'ok' else 'degraded',
+            'timestamp': datetime.now().isoformat(),
+            'database': {
+                'status': db_status,
+                'error': db_error
+            },
+            'websocket': ws_status,
+            'game_manager': system_status,
+            'version': '1.0.0'
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in health check: {e}")
+        return web.json_response({
+            'success': False,
+            'status': 'unhealthy',
+            'error': str(e),
+            'timestamp': datetime.now().isoformat()
+        }, status=500)
 # ==================== DEBUG ENDPOINT ====================
 @routes.get('/api/debug/card/{user_id}/{game_id}')
 async def debug_user_card(request):

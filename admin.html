@@ -49,6 +49,7 @@
             margin: 0 auto;
         }
 
+        /* ==================== FLOATING NAVIGATION MENU FOR MOBILE ==================== */
         .floating-nav {
             position: fixed;
             bottom: 0;
@@ -3389,46 +3390,37 @@
             const pages = [];
             
             if (totalPages <= maxDisplay) {
-                // Show all pages if total is less than max display
                 for (let i = 1; i <= totalPages; i++) {
                     pages.push(i);
                 }
             } else {
-                // Always show first page
                 pages.push(1);
                 
-                // Calculate start and end of middle section
                 let start = Math.max(2, currentPage - 1);
                 let end = Math.min(totalPages - 1, currentPage + 1);
                 
-                // Adjust if near the beginning
                 if (currentPage <= 3) {
                     start = 2;
                     end = Math.min(totalPages - 1, 4);
                 }
                 
-                // Adjust if near the end
                 if (currentPage >= totalPages - 2) {
                     start = Math.max(2, totalPages - 3);
                     end = totalPages - 1;
                 }
                 
-                // Add ellipsis if needed before middle section
                 if (start > 2) {
                     pages.push('...');
                 }
                 
-                // Add middle pages
                 for (let i = start; i <= end; i++) {
                     pages.push(i);
                 }
                 
-                // Add ellipsis if needed after middle section
                 if (end < totalPages - 1) {
                     pages.push('...');
                 }
                 
-                // Always show last page
                 pages.push(totalPages);
             }
             
@@ -3464,43 +3456,16 @@
             try {
                 document.getElementById('db-status').innerHTML = '<span class="status-pending">Checking...</span>';
                 
-                const response = await fetch('/api/admin/database-info').catch(() => null);
+                // This endpoint doesn't exist in web_server.py, so show as not available
+                document.getElementById('db-status').innerHTML = '<span class="status-rejected">Not Available</span>';
+                document.getElementById('db-size').textContent = 'N/A';
+                document.getElementById('db-modified').textContent = 'N/A';
+                document.getElementById('db-records').innerHTML = '<div>Database info API not available</div>';
+                addLiveUpdate('Database info API not available', 'warning');
                 
-                if (!response || !response.ok) {
-                    // API endpoint doesn't exist - show as not available
-                    document.getElementById('db-status').innerHTML = '<span class="status-rejected">API Not Available</span>';
-                    document.getElementById('db-size').textContent = 'N/A';
-                    document.getElementById('db-modified').textContent = 'N/A';
-                    document.getElementById('db-records').innerHTML = '<div>Database info API not found</div>';
-                    addLiveUpdate('Database info API not available (404)', 'warning');
-                    return;
-                }
-                
-                const data = await response.json();
-                
-                if (data && data.success) {
-                    document.getElementById('db-status').innerHTML = '<span class="status-active">Available</span>';
-                    document.getElementById('db-size').textContent = data.database?.size_mb ? data.database.size_mb + ' MB' : 'N/A';
-                    document.getElementById('db-modified').textContent = data.database?.modified_time ? new Date(data.database.modified_time).toLocaleString() : 'N/A';
-                    
-                    const records = data.database?.record_counts || {};
-                    let recordsHtml = '';
-                    for (const [table, count] of Object.entries(records)) {
-                        recordsHtml += `<div>${table}: ${count}</div>`;
-                    }
-                    document.getElementById('db-records').innerHTML = recordsHtml || '<div>No record counts</div>';
-                    
-                    addLiveUpdate('Database info updated: ' + (data.database?.size_mb || '?') + ' MB', 'info');
-                } else {
-                    document.getElementById('db-status').innerHTML = '<span class="status-rejected">Not Found</span>';
-                }
             } catch (error) {
                 console.error('Error checking database info:', error);
                 document.getElementById('db-status').innerHTML = '<span class="status-rejected">Error</span>';
-                document.getElementById('db-size').textContent = 'N/A';
-                document.getElementById('db-modified').textContent = 'N/A';
-                document.getElementById('db-records').innerHTML = '<div>Error loading database info</div>';
-                showNotification('Database info API not available', 'warning');
             }
         }
 
@@ -3513,50 +3478,14 @@
                 statusEl.textContent = compressed ? 'Preparing compressed database...' : 'Preparing database...';
                 detailsEl.textContent = 'This may take a few seconds...';
                 
-                const url = compressed ? '/api/admin/download-database' : '/api/admin/download-database?compress=false';
-                const response = await fetch(url).catch(() => null);
-                
-                if (!response || !response.ok) {
-                    // API endpoint doesn't exist
-                    statusEl.textContent = 'Download API not available';
-                    detailsEl.textContent = 'This feature is not implemented on the server';
-                    addLiveUpdate('Database download API not available', 'warning');
-                    showNotification('Download API not available', 'warning');
-                    
-                    setTimeout(() => closeModal('download-progress-modal'), 2000);
-                    return;
-                }
-                
-                const contentDisposition = response.headers.get('Content-Disposition');
-                let filename = compressed ? 'habesha_bingo_backup.db.gz' : 'habesha_bingo_backup.db';
-                if (contentDisposition) {
-                    const filenameMatch = contentDisposition.match(/filename="(.+)"/);
-                    if (filenameMatch) filename = filenameMatch[1];
-                }
-                
-                statusEl.textContent = 'Downloading file...';
-                const blob = await response.blob();
-                const size = (blob.size / (1024 * 1024)).toFixed(2);
-                detailsEl.textContent = `Size: ${size} MB`;
-                
-                const url_blob = window.URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url_blob;
-                a.download = filename;
-                document.body.appendChild(a);
-                a.click();
-                
-                setTimeout(() => {
-                    window.URL.revokeObjectURL(url_blob);
-                    document.body.removeChild(a);
-                }, 100);
-                
-                statusEl.textContent = 'Download complete!';
-                detailsEl.textContent = `File saved as: ${filename} (${size} MB)`;
-                addLiveUpdate(`Database downloaded: ${filename} (${size} MB)`, 'success');
-                showNotification('Database download complete!', 'success');
+                // These endpoints don't exist in web_server.py
+                statusEl.textContent = 'Download API not available';
+                detailsEl.textContent = 'This feature is not implemented on the server';
+                addLiveUpdate('Database download API not available', 'warning');
+                showNotification('Download API not available', 'warning');
                 
                 setTimeout(() => closeModal('download-progress-modal'), 2000);
+                
             } catch (error) {
                 console.error('Error downloading database:', error);
                 closeModal('download-progress-modal');
@@ -3577,30 +3506,10 @@
                         formData.append('database', blob, file.name);
                         formData.append('admin_id', adminId);
                         
-                        const response = await fetch('/api/admin/restore-database', {
-                            method: 'POST',
-                            body: formData
-                        }).catch(() => {
-                            // API doesn't exist
-                            reject(new Error('Restore API not available'));
-                            return null;
-                        });
+                        // This endpoint doesn't exist in web_server.py
+                        reject(new Error('Restore API not available'));
+                        return;
                         
-                        if (!response) return;
-                        
-                        if (!response.ok) {
-                            const errorText = await response.text();
-                            try {
-                                const errorJson = JSON.parse(errorText);
-                                reject(new Error(errorJson.message || `HTTP error ${response.status}`));
-                            } catch {
-                                reject(new Error(`HTTP error ${response.status}: ${errorText}`));
-                            }
-                            return;
-                        }
-                        
-                        const result = await response.json();
-                        resolve(result);
                     } catch (error) {
                         reject(error);
                     }
@@ -3715,7 +3624,7 @@
                     const stopResponse = await fetch('/api/admin/stopgame', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ game_id: currentGame.game_id, admin_id: adminId, force: true })
+                        body: JSON.stringify({ game_id: currentGame.game_id, admin_id: adminId })
                     });
                     
                     if (stopResponse.ok) {
@@ -3731,10 +3640,8 @@
                     }
                 }
                 
-                // Wait a moment
                 await new Promise(resolve => setTimeout(resolve, 1000));
                 
-                // Start a new game
                 const startResponse = await fetch('/api/admin/startgame', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -3770,6 +3677,10 @@
         async function loadStats() {
             try {
                 const response = await fetch('/api/admin/stats');
+                if (!response.ok) {
+                    console.warn('Stats API returned', response.status);
+                    return;
+                }
                 const data = await response.json();
                 
                 if (data && data.stats) {
@@ -3778,24 +3689,30 @@
                     
                     try {
                         const depositsRes = await fetch('/api/admin/payments?status=pending&limit=1');
-                        const depositsData = await depositsRes.json();
-                        const pendingDeposits = depositsData.pagination?.total || 0;
-                        
-                        const withdrawalsRes = await fetch('/api/admin/withdrawals?status=pending&limit=1');
-                        const withdrawalsData = await withdrawalsRes.json();
-                        const pendingWithdrawals = withdrawalsData.pagination?.total || 0;
-                        
-                        const totalPending = pendingDeposits + pendingWithdrawals;
-                        document.getElementById('pending-payments').textContent = totalPending;
-                        document.getElementById('payment-change').textContent = totalPending;
+                        if (depositsRes.ok) {
+                            const depositsData = await depositsRes.json();
+                            const pendingDeposits = depositsData.pagination?.total || 0;
+                            
+                            const withdrawalsRes = await fetch('/api/admin/withdrawals?status=pending&limit=1');
+                            if (withdrawalsRes.ok) {
+                                const withdrawalsData = await withdrawalsRes.json();
+                                const pendingWithdrawals = withdrawalsData.pagination?.total || 0;
+                                
+                                const totalPending = pendingDeposits + pendingWithdrawals;
+                                document.getElementById('pending-payments').textContent = totalPending;
+                                document.getElementById('payment-change').textContent = totalPending;
+                            }
+                        }
                     } catch (e) {
                         console.warn('Could not load pending counts:', e);
                     }
                     
                     try {
                         const balanceRes = await fetch('/api/admin/totalbalance');
-                        const balanceData = await balanceRes.json();
-                        document.getElementById('total-balance').textContent = formatCurrency(balanceData.total_balance || 0);
+                        if (balanceRes.ok) {
+                            const balanceData = await balanceRes.json();
+                            document.getElementById('total-balance').textContent = formatCurrency(balanceData.total_balance || 0);
+                        }
                     } catch (e) {
                         console.warn('Could not load total balance:', e);
                     }
@@ -3813,6 +3730,11 @@
                 tbody.innerHTML = '<tr><td colspan="6" class="loading">Loading commission data...</td></tr>';
                 
                 const response = await fetch('/api/admin/weeklycommission');
+                if (!response.ok) {
+                    tbody.innerHTML = '<tr><td colspan="6" style="text-align: center;">Commission API not available</td></tr>';
+                    return;
+                }
+                
                 const data = await response.json();
                 
                 if (data && data.success) {
@@ -3868,6 +3790,12 @@
                 if (searchTerm) url += `&search=${encodeURIComponent(searchTerm)}`;
                 
                 const response = await fetch(url);
+                if (!response.ok) {
+                    document.getElementById('games-table-body').innerHTML = '<tr><td colspan="11" style="text-align: center;">Games API not available</td></tr>';
+                    document.getElementById('games-pagination').style.display = 'none';
+                    return;
+                }
+                
                 const data = await response.json();
                 
                 const tbody = document.getElementById('games-table-body');
@@ -3921,7 +3849,6 @@
                             document.getElementById('games-next-page').disabled = gamesPage === gamesTotalPages || gamesTotalPages === 0;
                             document.getElementById('games-last-page').disabled = gamesPage === gamesTotalPages || gamesTotalPages === 0;
                             
-                            // Update page numbers
                             updatePaginationNumbers('games', gamesPage, gamesTotalPages, loadGames);
                         }
                     } else {
@@ -3948,6 +3875,12 @@
                 if (searchTerm) url += `&search=${encodeURIComponent(searchTerm)}`;
                 
                 const response = await fetch(url);
+                if (!response.ok) {
+                    document.getElementById('users-table-body').innerHTML = '<tr><td colspan="8" style="text-align: center;">Users API not available</td></tr>';
+                    document.getElementById('users-pagination').style.display = 'none';
+                    return;
+                }
+                
                 const data = await response.json();
                 
                 const tbody = document.getElementById('users-table-body');
@@ -4028,7 +3961,6 @@
                             document.getElementById('users-next-page').disabled = usersPage === usersTotalPages || usersTotalPages === 0;
                             document.getElementById('users-last-page').disabled = usersPage === usersTotalPages || usersTotalPages === 0;
                             
-                            // Update page numbers
                             updatePaginationNumbers('users', usersPage, usersTotalPages, loadUsers);
                         }
                     } else {
@@ -4055,6 +3987,12 @@
                 if (searchTerm) url += `&search=${encodeURIComponent(searchTerm)}`;
                 
                 const response = await fetch(url);
+                if (!response.ok) {
+                    document.getElementById('deposits-table-body').innerHTML = '<tr><td colspan="8" style="text-align: center;">Deposits API not available</td></tr>';
+                    document.getElementById('deposits-pagination').style.display = 'none';
+                    return;
+                }
+                
                 const data = await response.json();
                 
                 const tbody = document.getElementById('deposits-table-body');
@@ -4108,7 +4046,6 @@
                             document.getElementById('deposits-next-page').disabled = depositsPage === depositsTotalPages || depositsTotalPages === 0;
                             document.getElementById('deposits-last-page').disabled = depositsPage === depositsTotalPages || depositsTotalPages === 0;
                             
-                            // Update page numbers
                             updatePaginationNumbers('deposits', depositsPage, depositsTotalPages, loadDeposits);
                         }
                     } else {
@@ -4135,6 +4072,12 @@
                 if (searchTerm) url += `&search=${encodeURIComponent(searchTerm)}`;
                 
                 const response = await fetch(url);
+                if (!response.ok) {
+                    document.getElementById('withdrawals-table-body').innerHTML = '<tr><td colspan="9" style="text-align: center;">Withdrawals API not available</td></tr>';
+                    document.getElementById('withdrawals-pagination').style.display = 'none';
+                    return;
+                }
+                
                 const data = await response.json();
                 
                 const tbody = document.getElementById('withdrawals-table-body');
@@ -4189,7 +4132,6 @@
                             document.getElementById('withdrawals-next-page').disabled = withdrawalsPage === withdrawalsTotalPages || withdrawalsTotalPages === 0;
                             document.getElementById('withdrawals-last-page').disabled = withdrawalsPage === withdrawalsTotalPages || withdrawalsTotalPages === 0;
                             
-                            // Update page numbers
                             updatePaginationNumbers('withdrawals', withdrawalsPage, withdrawalsTotalPages, loadWithdrawals);
                         }
                     } else {
@@ -4214,6 +4156,12 @@
                 if (searchTerm) url += `&search=${encodeURIComponent(searchTerm)}`;
                 
                 const response = await fetch(url);
+                if (!response.ok) {
+                    document.getElementById('transactions-table-body').innerHTML = '<tr><td colspan="6" style="text-align: center;">Transactions API not available</td></tr>';
+                    document.getElementById('transactions-pagination').style.display = 'none';
+                    return;
+                }
+                
                 const data = await response.json();
                 
                 const tbody = document.getElementById('transactions-table-body');
@@ -4253,7 +4201,6 @@
                             document.getElementById('transactions-next-page').disabled = transactionsPage === transactionsTotalPages || transactionsTotalPages === 0;
                             document.getElementById('transactions-last-page').disabled = transactionsPage === transactionsTotalPages || transactionsTotalPages === 0;
                             
-                            // Update page numbers
                             updatePaginationNumbers('transactions', transactionsPage, transactionsTotalPages, loadTransactions);
                         }
                     } else {
@@ -4272,6 +4219,13 @@
         async function loadGameStatus() {
             try {
                 const response = await fetch('/api/game/active');
+                if (!response.ok) {
+                    document.getElementById('current-game-status').textContent = 'API Not Available';
+                    document.getElementById('current-game-info').textContent = 'Cannot connect to game API';
+                    document.getElementById('game-countdown').textContent = '--:--';
+                    return;
+                }
+                
                 const data = await response.json();
                 
                 if (data.success) {
@@ -4284,13 +4238,12 @@
                     document.getElementById('stop-game-btn').disabled = !data.game_id || data.status === 'completed' || data.status === 'winner_display';
                     document.getElementById('call-number-btn').disabled = !data.game_id || data.status !== 'active';
                     
-                    // If game is stuck in winner_display for too long, enable force reset
                     if (data.game_id && data.status === 'winner_display') {
                         const createdTime = data.created_at ? new Date(data.created_at) : new Date();
                         const now = new Date();
                         const minutesPassed = (now - createdTime) / (1000 * 60);
                         
-                        if (minutesPassed > 10) { // If game has been in winner_display for more than 10 minutes
+                        if (minutesPassed > 10) {
                             showNotification('⚠️ Game appears to be stuck in winner_display. Use Force Reset if needed.', 'warning');
                         }
                     }
@@ -4309,6 +4262,9 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ payment_id: paymentId, admin_id: adminId })
                 });
+                if (!response.ok) {
+                    throw new Error(`HTTP error ${response.status}`);
+                }
                 const data = await response.json();
                 if (data.success) {
                     showNotification('Deposit approved!', 'success');
@@ -4330,6 +4286,9 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ payment_id: paymentId, reason: reason, admin_id: adminId })
                 });
+                if (!response.ok) {
+                    throw new Error(`HTTP error ${response.status}`);
+                }
                 const data = await response.json();
                 if (data.success) {
                     showNotification('Deposit rejected!', 'success');
@@ -4350,6 +4309,9 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ withdrawal_id: withdrawalId, admin_id: adminId })
                 });
+                if (!response.ok) {
+                    throw new Error(`HTTP error ${response.status}`);
+                }
                 const data = await response.json();
                 if (data.success) {
                     showNotification('Withdrawal approved!', 'success');
@@ -4371,6 +4333,9 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ withdrawal_id: withdrawalId, reason: reason, admin_id: adminId })
                 });
+                if (!response.ok) {
+                    throw new Error(`HTTP error ${response.status}`);
+                }
                 const data = await response.json();
                 if (data.success) {
                     showNotification('Withdrawal rejected!', 'success');
@@ -4487,7 +4452,6 @@
         function init() {
             document.getElementById('admin-name').textContent = adminId;
             
-            // Time update
             function updateTime() {
                 document.getElementById('current-time').textContent = new Date().toLocaleTimeString();
                 document.getElementById('last-update').textContent = `Last updated: ${new Date().toLocaleTimeString()}`;
@@ -4495,7 +4459,6 @@
             updateTime();
             setInterval(updateTime, 1000);
             
-            // Load initial data
             loadStats();
             loadWeeklyCommission();
             loadGames();
@@ -4505,7 +4468,6 @@
             loadTransactions();
             loadGameStatus();
             
-            // Tab switching
             document.querySelectorAll('.tab-btn').forEach(btn => {
                 btn.addEventListener('click', function() {
                     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
@@ -4524,7 +4486,6 @@
                 });
             });
             
-            // Payment tabs
             document.querySelectorAll('.payment-tab-btn').forEach(btn => {
                 btn.addEventListener('click', function() {
                     document.querySelectorAll('.payment-tab-btn').forEach(b => b.classList.remove('active'));
@@ -4543,7 +4504,6 @@
                 });
             });
             
-            // Floating nav
             document.querySelectorAll('.floating-nav-item').forEach(item => {
                 item.addEventListener('click', function() {
                     document.querySelectorAll('.floating-nav-item').forEach(n => n.classList.remove('active'));
@@ -4552,41 +4512,34 @@
                 });
             });
             
-            // Quick actions
             document.getElementById('quick-add-balance')?.addEventListener('click', () => openModal('add-balance-modal'));
             document.getElementById('quick-download-db')?.addEventListener('click', () => downloadDatabase(true));
             document.getElementById('clear-updates')?.addEventListener('click', () => {
                 document.getElementById('live-updates-list').innerHTML = '';
             });
             
-            // Database buttons
             document.getElementById('check-db-info')?.addEventListener('click', checkDatabaseInfo);
             document.getElementById('download-db')?.addEventListener('click', () => downloadDatabase(true));
             document.getElementById('download-db-uncompressed')?.addEventListener('click', () => downloadDatabase(false));
             document.getElementById('restore-db-btn')?.addEventListener('click', () => openModal('restore-upload-modal'));
             
-            // Restore submit
             document.getElementById('submit-restore')?.addEventListener('click', handleRestore);
             
-            // Force reset game buttons
             document.getElementById('force-reset-game-btn')?.addEventListener('click', () => openModal('reset-game-modal'));
             document.getElementById('confirm-reset-game')?.addEventListener('click', forceResetGame);
             
-            // Modal close buttons
             document.querySelectorAll('.modal-close, .btn-secondary[data-modal]').forEach(btn => {
                 btn.addEventListener('click', function() {
                     closeModal(this.dataset.modal || this.closest('.modal')?.id);
                 });
             });
             
-            // Modal background click
             document.querySelectorAll('.modal').forEach(modal => {
                 modal.addEventListener('click', function(e) {
                     if (e.target === this) closeModal(this.id);
                 });
             });
             
-            // Refresh buttons
             document.getElementById('refresh-games')?.addEventListener('click', loadGames);
             document.getElementById('refresh-users')?.addEventListener('click', loadUsers);
             document.getElementById('refresh-deposits')?.addEventListener('click', loadDeposits);
@@ -4597,7 +4550,6 @@
                 openModal('commission-details-modal');
             });
             
-            // Pagination buttons
             document.getElementById('games-first-page')?.addEventListener('click', gamesFirstPage);
             document.getElementById('games-prev-page')?.addEventListener('click', gamesPrevPage);
             document.getElementById('games-next-page')?.addEventListener('click', gamesNextPage);
@@ -4623,7 +4575,6 @@
             document.getElementById('transactions-next-page')?.addEventListener('click', transactionsNextPage);
             document.getElementById('transactions-last-page')?.addEventListener('click', transactionsLastPage);
             
-            // Page size changes
             document.getElementById('games-page-size')?.addEventListener('change', (e) => {
                 gamesPageSize = parseInt(e.target.value);
                 gamesPage = 1;
@@ -4654,7 +4605,6 @@
                 loadTransactions();
             });
             
-            // Filter changes
             document.getElementById('game-status-filter')?.addEventListener('change', () => {
                 gamesPage = 1;
                 loadGames();
@@ -4710,7 +4660,6 @@
                 }
             });
             
-            // Game controls
             document.getElementById('start-game-btn')?.addEventListener('click', async () => {
                 try {
                     showNotification('Starting new game...', 'info');
@@ -4769,12 +4718,13 @@
                         await loadGameStatus();
                         await loadGames();
                         
-                        // Wait a moment and check if we can start a new game
                         setTimeout(async () => {
                             const checkResponse = await fetch('/api/game/active');
-                            const checkData = await checkResponse.json();
-                            if (!checkData.success || !checkData.game_id) {
-                                showNotification('Game is ready to start a new round', 'info');
+                            if (checkResponse.ok) {
+                                const checkData = await checkResponse.json();
+                                if (!checkData.success || !checkData.game_id) {
+                                    showNotification('Game is ready to start a new round', 'info');
+                                }
                             }
                         }, 2000);
                     } else {
@@ -4825,7 +4775,6 @@
                 }
             });
             
-            // Add Balance Submit
             document.getElementById('submit-add-balance')?.addEventListener('click', async () => {
                 const userId = document.getElementById('balance-user-id').value;
                 const amount = document.getElementById('balance-amount').value;
@@ -4866,7 +4815,6 @@
                 }
             });
             
-            // Send Notification Submit
             document.getElementById('submit-notification')?.addEventListener('click', async () => {
                 const title = document.getElementById('notification-title').value;
                 const message = document.getElementById('notification-message').value;
@@ -4905,7 +4853,6 @@
                 }
             });
             
-            // Auto refresh
             setInterval(() => {
                 const activeTab = document.querySelector('.tab-pane.active')?.id;
                 if (activeTab === 'games-tab') loadGames();
@@ -4923,14 +4870,12 @@
             showNotification('Admin panel loaded!', 'success');
         }
 
-        // Start when DOM is ready
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', init);
         } else {
             init();
         }
 
-        // CSS animations
         const style = document.createElement('style');
         style.textContent = `
             @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
