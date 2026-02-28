@@ -4059,8 +4059,10 @@
                                     </td>
                                     <td><span class="status-badge ${statusClass}">${statusText}</span></td>
                                     <td>
-                                        <button class="btn-action btn-view" onclick="viewUser(${user.user_id})"><i class="fas fa-eye"></i> View</button>
+                                        <button class="btn-action btn-view" onclick="openViewUserModal(${user.user_id})"><i class="fas fa-eye"></i> View</button>
                                         <button class="btn-action btn-approve" onclick="openAddBalanceModal(${user.user_id})"><i class="fas fa-plus"></i> Add</button>
+                                        <button class="btn-action btn-suspend" onclick="suspendUser(${user.user_id})"><i class="fas fa-ban"></i> Suspend</button>
+                                        <button class="btn-action btn-delete" onclick="deleteUser(${user.user_id})"><i class="fas fa-trash"></i> Delete</button>
                                     </td>
                                 </tr>
                             `;
@@ -4148,7 +4150,7 @@
                                     <td><span class="status-badge ${statusClass}">${statusText}</span></td>
                                     <td>${deposit.created_at ? new Date(deposit.created_at).toLocaleString() : 'N/A'}</td>
                                     <td>
-                                        <button class="btn-action btn-view" onclick="viewDeposit(${deposit.id})"><i class="fas fa-eye"></i> View</button>
+                                        <button class="btn-action btn-view" onclick="openViewDepositModal(${deposit.id})"><i class="fas fa-eye"></i> View</button>
                                         ${deposit.status === 'pending' ? `
                                             <button class="btn-action btn-approve" onclick="approveDeposit(${deposit.id})"><i class="fas fa-check"></i> Approve</button>
                                             <button class="btn-action btn-reject" onclick="rejectDeposit(${deposit.id})"><i class="fas fa-times"></i> Reject</button>
@@ -4241,7 +4243,7 @@
                                     <td><span class="status-badge ${statusClass}">${statusText}</span></td>
                                     <td>${withdrawal.requested_at ? new Date(withdrawal.requested_at).toLocaleString() : 'N/A'}</td>
                                     <td>
-                                        <button class="btn-action btn-view" onclick="viewWithdrawal(${withdrawal.id})"><i class="fas fa-eye"></i> View</button>
+                                        <button class="btn-action btn-view" onclick="openViewWithdrawalModal(${withdrawal.id})"><i class="fas fa-eye"></i> View</button>
                                         ${withdrawal.status === 'pending' ? `
                                             <button class="btn-action btn-approve" onclick="approveWithdrawal(${withdrawal.id})"><i class="fas fa-check"></i> Approve</button>
                                             <button class="btn-action btn-reject" onclick="rejectWithdrawal(${withdrawal.id})"><i class="fas fa-times"></i> Reject</button>
@@ -4390,6 +4392,405 @@
             }
         }
 
+        // ==================== VIEW FUNCTIONS - POPUP MODALS ====================
+        async function openViewGameModal(gameId) {
+            try {
+                showNotification(`Loading game ${gameId} details...`, 'info');
+                
+                const response = await fetch(`/api/admin/gamedetails/${gameId}`);
+                if (!response.ok) {
+                    throw new Error(`HTTP error ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    const game = data.game;
+                    
+                    let html = `
+                        <div class="detail-row">
+                            <span class="detail-label">Game ID:</span>
+                            <span class="detail-value">${game.game_id}</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="detail-label">Round:</span>
+                            <span class="detail-value">${game.round_number || 1}</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="detail-label">Status:</span>
+                            <span class="detail-value"><span class="status-badge ${game.status === 'active' ? 'status-active' : game.status === 'completed' ? 'status-completed' : 'status-pending'}">${game.status}</span></span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="detail-label">Players:</span>
+                            <span class="detail-value">${game.player_count || 0}</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="detail-label">Cards Sold:</span>
+                            <span class="detail-value">${game.cards_sold || 0}</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="detail-label">Prize Pool:</span>
+                            <span class="detail-value">${formatCurrency(game.prize_pool || 0)}</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="detail-label">Commission:</span>
+                            <span class="detail-value">${formatCurrency(game.commission || 0)}</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="detail-label">Called Numbers:</span>
+                            <span class="detail-value">${game.called_numbers ? game.called_numbers.length : 0} / 75</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="detail-label">Winner:</span>
+                            <span class="detail-value">${game.winner_id ? `User ${game.winner_id} (${game.winner_username || 'N/A'})` : 'No winner'}</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="detail-label">Created:</span>
+                            <span class="detail-value">${new Date(game.created_at).toLocaleString()}</span>
+                        </div>
+                    `;
+                    
+                    // Add called numbers if available
+                    if (game.called_numbers && game.called_numbers.length > 0) {
+                        html += `
+                            <div class="detail-row" style="flex-direction: column; align-items: flex-start;">
+                                <span class="detail-label">Called Numbers:</span>
+                                <div style="display: flex; flex-wrap: wrap; gap: 5px; margin-top: 10px;">
+                                    ${game.called_numbers.map(num => `<span class="called-number">${num}</span>`).join('')}
+                                </div>
+                            </div>
+                        `;
+                    }
+                    
+                    document.getElementById('game-details-content').innerHTML = html;
+                    openModal('game-details-modal');
+                    
+                } else {
+                    showNotification('Failed to load game details', 'danger');
+                }
+            } catch (error) {
+                console.error('Error loading game details:', error);
+                showNotification('Error loading game details: ' + error.message, 'danger');
+            }
+        }
+
+        async function openViewUserModal(userId) {
+            try {
+                showNotification(`Loading user ${userId} details...`, 'info');
+                
+                const response = await fetch(`/api/admin/user/${userId}`);
+                if (!response.ok) {
+                    throw new Error(`HTTP error ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    const user = data.user;
+                    
+                    let html = `
+                        <div class="detail-row">
+                            <span class="detail-label">User ID:</span>
+                            <span class="detail-value">${user.user_id}</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="detail-label">Username:</span>
+                            <span class="detail-value">${user.username || 'N/A'}</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="detail-label">Full Name:</span>
+                            <span class="detail-value">${user.full_name || 'N/A'}</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="detail-label">Balance:</span>
+                            <span class="detail-value">${formatCurrency(user.balance || 0)}</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="detail-label">Status:</span>
+                            <span class="detail-value"><span class="status-badge ${user.status === 'active' ? 'status-active' : user.status === 'suspended' ? 'status-suspended' : 'status-pending'}">${user.status || 'active'}</span></span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="detail-label">Games Played:</span>
+                            <span class="detail-value">${user.total_games_played || 0}</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="detail-label">Cards Purchased:</span>
+                            <span class="detail-value">${user.total_cards_purchased || 0}</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="detail-label">Total Wins:</span>
+                            <span class="detail-value">${user.total_wins || 0}</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="detail-label">Total Winnings:</span>
+                            <span class="detail-value">${formatCurrency(user.total_winnings || 0)}</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="detail-label">Joined:</span>
+                            <span class="detail-value">${new Date(user.created_at).toLocaleString()}</span>
+                        </div>
+                    `;
+                    
+                    // Add recent transactions if available
+                    if (user.recent_transactions && user.recent_transactions.length > 0) {
+                        html += '<h4 style="margin-top: 20px; margin-bottom: 10px;">Recent Transactions</h4>';
+                        html += '<table style="width: 100%; font-size: 12px;">';
+                        html += '<thead><tr><th>Type</th><th>Amount</th><th>Date</th></tr></thead><tbody>';
+                        
+                        user.recent_transactions.slice(0, 5).forEach(tx => {
+                            html += `
+                                <tr>
+                                    <td>${tx.transaction_type}</td>
+                                    <td class="${tx.amount > 0 ? 'change-positive' : 'change-negative'}">${tx.amount > 0 ? '+' : ''}${formatCurrency(tx.amount)}</td>
+                                    <td>${new Date(tx.created_at).toLocaleDateString()}</td>
+                                </tr>
+                            `;
+                        });
+                        
+                        html += '</tbody></table>';
+                    }
+                    
+                    document.getElementById('user-details-content').innerHTML = html;
+                    
+                    // Add action buttons
+                    const actionSection = document.getElementById('user-details-modal').querySelector('.modal-body .form-actions');
+                    if (actionSection) {
+                        // Remove existing buttons except Close
+                        while (actionSection.children.length > 1) {
+                            actionSection.removeChild(actionSection.children[0]);
+                        }
+                        
+                        // Add action buttons before Close
+                        const addBalanceBtn = document.createElement('button');
+                        addBalanceBtn.className = 'btn btn-success';
+                        addBalanceBtn.innerHTML = '<i class="fas fa-plus"></i> Add Balance';
+                        addBalanceBtn.onclick = () => {
+                            closeModal('user-details-modal');
+                            openAddBalanceModal(user.user_id);
+                        };
+                        
+                        const suspendBtn = document.createElement('button');
+                        suspendBtn.className = 'btn btn-warning';
+                        suspendBtn.innerHTML = '<i class="fas fa-ban"></i> Suspend';
+                        suspendBtn.onclick = () => {
+                            closeModal('user-details-modal');
+                            suspendUser(user.user_id);
+                        };
+                        
+                        const deleteBtn = document.createElement('button');
+                        deleteBtn.className = 'btn btn-danger';
+                        deleteBtn.innerHTML = '<i class="fas fa-trash"></i> Delete';
+                        deleteBtn.onclick = () => {
+                            closeModal('user-details-modal');
+                            deleteUser(user.user_id);
+                        };
+                        
+                        actionSection.insertBefore(addBalanceBtn, actionSection.firstChild);
+                        actionSection.insertBefore(suspendBtn, actionSection.firstChild);
+                        actionSection.insertBefore(deleteBtn, actionSection.firstChild);
+                    }
+                    
+                    openModal('user-details-modal');
+                    
+                } else {
+                    showNotification('Failed to load user details', 'danger');
+                }
+            } catch (error) {
+                console.error('Error loading user details:', error);
+                showNotification('Error loading user details: ' + error.message, 'danger');
+            }
+        }
+
+        async function openViewDepositModal(depositId) {
+            try {
+                showNotification(`Loading deposit ${depositId} details...`, 'info');
+                
+                const response = await fetch(`/api/admin/payment/${depositId}`);
+                if (!response.ok) {
+                    throw new Error(`HTTP error ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    const payment = data.payment;
+                    
+                    let html = `
+                        <div class="detail-row">
+                            <span class="detail-label">Payment ID:</span>
+                            <span class="detail-value">${payment.id}</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="detail-label">User:</span>
+                            <span class="detail-value">${payment.username || `User ${payment.user_id}`}</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="detail-label">Full Name:</span>
+                            <span class="detail-value">${payment.full_name || 'N/A'}</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="detail-label">Amount:</span>
+                            <span class="detail-value">${formatCurrency(payment.amount)}</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="detail-label">Method:</span>
+                            <span class="detail-value">${payment.payment_method || 'N/A'}</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="detail-label">Status:</span>
+                            <span class="detail-value"><span class="status-badge ${payment.status === 'approved' ? 'status-approved' : payment.status === 'rejected' ? 'status-rejected' : 'status-pending'}">${payment.status}</span></span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="detail-label">Transaction ID:</span>
+                            <span class="detail-value">${payment.transaction_id || 'N/A'}</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="detail-label">Date:</span>
+                            <span class="detail-value">${new Date(payment.created_at).toLocaleString()}</span>
+                        </div>
+                    `;
+                    
+                    if (payment.processed_at) {
+                        html += `
+                            <div class="detail-row">
+                                <span class="detail-label">Processed:</span>
+                                <span class="detail-value">${new Date(payment.processed_at).toLocaleString()}</span>
+                            </div>
+                            <div class="detail-row">
+                                <span class="detail-label">Processed By:</span>
+                                <span class="detail-value">${payment.processed_by || 'N/A'}</span>
+                            </div>
+                        `;
+                    }
+                    
+                    if (payment.admin_notes) {
+                        html += `
+                            <div class="detail-row">
+                                <span class="detail-label">Admin Notes:</span>
+                                <span class="detail-value">${payment.admin_notes}</span>
+                            </div>
+                        `;
+                    }
+                    
+                    document.getElementById('deposit-details-content').innerHTML = html;
+                    
+                    // Add action buttons for pending deposits
+                    const actionSection = document.getElementById('deposit-action-section');
+                    if (actionSection && payment.status === 'pending') {
+                        actionSection.innerHTML = `
+                            <button class="btn btn-success" onclick="approveDeposit(${payment.id})"><i class="fas fa-check"></i> Approve</button>
+                            <button class="btn btn-danger" onclick="rejectDeposit(${payment.id})"><i class="fas fa-times"></i> Reject</button>
+                        `;
+                    } else if (actionSection) {
+                        actionSection.innerHTML = '';
+                    }
+                    
+                    openModal('deposit-details-modal');
+                    
+                } else {
+                    showNotification('Failed to load deposit details', 'danger');
+                }
+            } catch (error) {
+                console.error('Error loading deposit details:', error);
+                showNotification('Error loading deposit details: ' + error.message, 'danger');
+            }
+        }
+
+        async function openViewWithdrawalModal(withdrawalId) {
+            try {
+                showNotification(`Loading withdrawal ${withdrawalId} details...`, 'info');
+                
+                const response = await fetch(`/api/admin/withdrawal/${withdrawalId}`);
+                if (!response.ok) {
+                    throw new Error(`HTTP error ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    const withdrawal = data.withdrawal;
+                    
+                    let html = `
+                        <div class="detail-row">
+                            <span class="detail-label">Withdrawal ID:</span>
+                            <span class="detail-value">${withdrawal.id}</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="detail-label">User:</span>
+                            <span class="detail-value">${withdrawal.username || `User ${withdrawal.user_id}`}</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="detail-label">Full Name:</span>
+                            <span class="detail-value">${withdrawal.full_name || 'N/A'}</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="detail-label">Amount:</span>
+                            <span class="detail-value">${formatCurrency(withdrawal.amount)}</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="detail-label">Method:</span>
+                            <span class="detail-value">${withdrawal.method || withdrawal.payment_method || 'N/A'}</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="detail-label">Phone:</span>
+                            <span class="detail-value">${withdrawal.phone_number || 'N/A'}</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="detail-label">Status:</span>
+                            <span class="detail-value"><span class="status-badge ${withdrawal.status === 'approved' ? 'status-approved' : withdrawal.status === 'rejected' ? 'status-rejected' : 'status-pending'}">${withdrawal.status}</span></span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="detail-label">Requested:</span>
+                            <span class="detail-value">${new Date(withdrawal.requested_at || withdrawal.created_at).toLocaleString()}</span>
+                        </div>
+                    `;
+                    
+                    if (withdrawal.processed_at) {
+                        html += `
+                            <div class="detail-row">
+                                <span class="detail-label">Processed:</span>
+                                <span class="detail-value">${new Date(withdrawal.processed_at).toLocaleString()}</span>
+                            </div>
+                            <div class="detail-row">
+                                <span class="detail-label">Processed By:</span>
+                                <span class="detail-value">${withdrawal.processed_by || 'N/A'}</span>
+                            </div>
+                        `;
+                    }
+                    
+                    if (withdrawal.admin_notes) {
+                        html += `
+                            <div class="detail-row">
+                                <span class="detail-label">Admin Notes:</span>
+                                <span class="detail-value">${withdrawal.admin_notes}</span>
+                            </div>
+                        `;
+                    }
+                    
+                    document.getElementById('withdrawal-details-content').innerHTML = html;
+                    
+                    // Add action buttons for pending withdrawals
+                    const actionSection = document.getElementById('withdrawal-action-section');
+                    if (actionSection && withdrawal.status === 'pending') {
+                        actionSection.innerHTML = `
+                            <button class="btn btn-success" onclick="approveWithdrawal(${withdrawal.id})"><i class="fas fa-check"></i> Approve</button>
+                            <button class="btn btn-danger" onclick="rejectWithdrawal(${withdrawal.id})"><i class="fas fa-times"></i> Reject</button>
+                        `;
+                    } else if (actionSection) {
+                        actionSection.innerHTML = '';
+                    }
+                    
+                    openModal('withdrawal-details-modal');
+                    
+                } else {
+                    showNotification('Failed to load withdrawal details', 'danger');
+                }
+            } catch (error) {
+                console.error('Error loading withdrawal details:', error);
+                showNotification('Error loading withdrawal details: ' + error.message, 'danger');
+            }
+        }
+
         // ==================== ACTION FUNCTIONS ====================
         async function approveDeposit(paymentId) {
             if (!confirm('Approve this deposit?')) return;
@@ -4406,6 +4807,7 @@
                 const data = await response.json();
                 if (data.success) {
                     showNotification('Deposit approved!', 'success');
+                    closeModal('deposit-details-modal');
                     loadDeposits();
                 } else {
                     showNotification('Failed to approve deposit: ' + (data.message || 'Unknown error'), 'danger');
@@ -4431,6 +4833,7 @@
                 const data = await response.json();
                 if (data.success) {
                     showNotification('Deposit rejected!', 'success');
+                    closeModal('deposit-details-modal');
                     loadDeposits();
                 } else {
                     showNotification('Failed to reject deposit: ' + (data.message || 'Unknown error'), 'danger');
@@ -4455,6 +4858,7 @@
                 const data = await response.json();
                 if (data.success) {
                     showNotification('Withdrawal approved!', 'success');
+                    closeModal('withdrawal-details-modal');
                     loadWithdrawals();
                 } else {
                     showNotification('Failed to approve withdrawal: ' + (data.message || 'Unknown error'), 'danger');
@@ -4480,6 +4884,7 @@
                 const data = await response.json();
                 if (data.success) {
                     showNotification('Withdrawal rejected!', 'success');
+                    closeModal('withdrawal-details-modal');
                     loadWithdrawals();
                 } else {
                     showNotification('Failed to reject withdrawal: ' + (data.message || 'Unknown error'), 'danger');
@@ -4489,21 +4894,72 @@
             }
         }
 
-        // ==================== VIEW FUNCTIONS ====================
+        async function suspendUser(userId) {
+            const reason = prompt('Enter reason for suspension:');
+            if (!reason) return;
+            
+            if (!confirm(`Suspend user ${userId}?`)) return;
+            
+            try {
+                const response = await fetch('/api/admin/suspenduser', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ user_id: userId, reason: reason, admin_id: adminId })
+                });
+                
+                const data = await response.json();
+                if (data.success) {
+                    showNotification(`User ${userId} suspended`, 'success');
+                    closeModal('user-details-modal');
+                    loadUsers();
+                } else {
+                    showNotification('Failed to suspend user: ' + (data.message || 'Unknown error'), 'danger');
+                }
+            } catch (error) {
+                showNotification('Error suspending user: ' + error.message, 'danger');
+            }
+        }
+
+        async function deleteUser(userId) {
+            const reason = prompt('Enter reason for deletion (this is permanent!):');
+            if (!reason) return;
+            
+            if (!confirm(`⚠️ PERMANENT ACTION: Delete user ${userId}? This cannot be undone!`)) return;
+            
+            try {
+                const response = await fetch('/api/admin/deleteuser', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ user_id: userId, reason: reason, admin_id: adminId })
+                });
+                
+                const data = await response.json();
+                if (data.success) {
+                    showNotification(`User ${userId} deleted`, 'success');
+                    closeModal('user-details-modal');
+                    loadUsers();
+                } else {
+                    showNotification('Failed to delete user: ' + (data.message || 'Unknown error'), 'danger');
+                }
+            } catch (error) {
+                showNotification('Error deleting user: ' + error.message, 'danger');
+            }
+        }
+
         function viewGame(gameId) { 
-            window.open(`/api/admin/gamedetails/${gameId}`, '_blank');
+            openViewGameModal(gameId);
         }
         
         function viewUser(userId) { 
-            window.open(`/api/admin/user/${userId}`, '_blank');
+            openViewUserModal(userId);
         }
         
         function viewDeposit(depositId) { 
-            window.open(`/api/admin/payment/${depositId}`, '_blank');
+            openViewDepositModal(depositId);
         }
         
         function viewWithdrawal(withdrawalId) { 
-            window.open(`/api/admin/withdrawal/${withdrawalId}`, '_blank');
+            openViewWithdrawalModal(withdrawalId);
         }
         
         function stopGame(gameId) { 

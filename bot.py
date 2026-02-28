@@ -2065,20 +2065,23 @@ async def main():
         
         await message.answer(welcome_message, parse_mode=ParseMode.MARKDOWN)
 
+    # ==================== FIXED DEPOSIT SECTION WITH 3 ATTEMPTS ====================
+
     @dp.message_handler(Command("deposit"))
     async def cmd_deposit_enhanced(message: types.Message, state: FSMContext):
+        """Start deposit process with 3 attempts limit"""
         user_id = message.from_user.id
         
-        # Create keyboard with Cancel button - ONLY TELEBIRR OPTION (CBE BIRR REMOVED)
+        # Create keyboard with Cancel button - ONLY TELEBIRR OPTION
         keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True, selective=True)
         keyboard.add("ቴሌ ብር")
         keyboard.add("Cancel")
         
         await message.answer(
-            f"💵 *የገንዘብ ክፍያ ሂደት*\n\n"
-            f"💳 እባክዎ የክፍያ ዘዴዎን ይምረጡ፡\n"
-            f"ገንዘብ ለማስገባት ቴሌብር ብቻ ይጠቀሙ።\n\n"
-            f"❌ *ለማቋረጥ*: 'Cancel' ቁልፉን ይጫኑ",
+            "💵 *የገንዘብ ክፍያ ሂደት*\n\n"
+            "💳 እባክዎ የክፍያ ዘዴዎን ይምረጡ፡\n"
+            "ገንዘብ ለማስገባት ቴሌብር ብቻ ይጠቀሙ።\n\n"
+            "❌ *ለማቋረጥ*: 'Cancel' ቁልፉን ይጫኑ",
             reply_markup=keyboard,
             parse_mode=ParseMode.MARKDOWN
         )
@@ -2087,9 +2090,10 @@ async def main():
 
     @dp.message_handler(state=DepositStates.waiting_for_payment_method)
     async def process_deposit_method_enhanced(message: types.Message, state: FSMContext):
+        """Handle payment method selection"""
         user_id = message.from_user.id
         
-        # Check for Cancel at payment method selection
+        # Check for Cancel
         if message.text and message.text.strip() == 'Cancel':
             await state.finish()
             await message.answer("❌ የገንዘብ ክፍያ ሂደት ተቋርጧል።", reply_markup=types.ReplyKeyboardRemove())
@@ -2097,6 +2101,7 @@ async def main():
         
         payment_method = message.text
         valid_methods = ["ቴሌ ብር"]  # ONLY TELEBIRR
+        
         if payment_method not in valid_methods:
             # Re-show keyboard with Cancel
             keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True, selective=True)
@@ -2111,29 +2116,33 @@ async def main():
             )
             return
         
+        # Create payment request
         payment_id = await create_payment_request(user_id, 0.00, payment_method, None)
         
         if not payment_id:
             await state.finish()
-            await message.answer("❌ የፒሜንት ጥያቄ ለመፍጠር አልተቻለም። እባክዎ እንደገና ይሞክሩ።")
+            await message.answer("❌ የፒሜንት ጥያቄ ለመፍጠር አልተቻለም። እባክዎ እንደገና ይሞክሩ።", reply_markup=types.ReplyKeyboardRemove())
             return
         
-        await state.update_data(payment_method=payment_method, payment_id=payment_id)
+        # Store payment info in state
+        await state.update_data(
+            payment_id=payment_id,
+            payment_method=payment_method,
+            verification_attempts=0
+        )
         
         masked_admin_phone = enhanced_payment_validator.mask_phone_number(PAYMENT_PHONE_NUMBER) if enhanced_payment_validator else PAYMENT_PHONE_NUMBER
         
-        if payment_method == "ቴሌ ብር":
-            instructions = f"💳 *የቴሌብር ክፍያ መመሪያዎች*\n\n"
-            instructions += f"🏦 ዘዴ: {payment_method}\n"
-            instructions += f"📋 የፒሜንት መታወቂያ: {payment_id}\n\n"
-            instructions += f"1️⃣ ቴሌብር አፕዎን ይክፈቱ\n"
-            instructions += f"2️⃣ የሚፈልጉትን መጠን ወደዚህ ይላኩ፡\n"
-            instructions += f"   📱 ስልክ:+251989929742\n"
-            instructions += f"   👤 ስም:Nebiyu \n\n"
-            instructions += f"3️⃣ ከላኩ በኋላ፣ የማረጋገጫ መልእክት ይደርስዎታል\n"
-            instructions += f"4️⃣ አጠቃላይ የግብይት መልእክቱን *COPY* ያድርጉ\n"
-            instructions += f"5️⃣ እዚህ በቻት ውስጥ *PASTE* ያድርጉት\n\n"
-        
+        instructions = f"💳 *የቴሌብር ክፍያ መመሪያዎች*\n\n"
+        instructions += f"🏦 ዘዴ: {payment_method}\n"
+        instructions += f"📋 የፒሜንት መታወቂያ: {payment_id}\n\n"
+        instructions += f"1️⃣ ቴሌብር አፕዎን ይክፈቱ\n"
+        instructions += f"2️⃣ የሚፈልጉትን መጠን ወደዚህ ይላኩ፡\n"
+        instructions += f"   📱 ስልክ: +251989929742\n"
+        instructions += f"   👤 ስም: Nebiyu Asefa\n\n"
+        instructions += f"3️⃣ ከላኩ በኋላ፣ የማረጋገጫ መልእክት ይደርስዎታል\n"
+        instructions += f"4️⃣ አጠቃላይ የግብይት መልእክቱን *COPY* ያድርጉ\n"
+        instructions += f"5️⃣ እዚህ በቻት ውስጥ *PASTE* ያድርጉት\n\n"
         instructions += f"🔍 *ማስታወሻ:* ስርዓታችን በራስ-ሰር የግብይት መረጃዎን ያረጋግጣል!\n\n"
         instructions += f"እባክዎ የግብይት መልእክቱን ከታች ይጣበቁ፡\n"
         instructions += f"(❌ *ለማቋረጥ*: 'Cancel' ቁልፉን ይጫኑ)"
@@ -2144,6 +2153,7 @@ async def main():
         # Show keyboard with Cancel for transaction proof
         cancel_keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True, selective=True)
         cancel_keyboard.add("Cancel")
+        
         await message.answer(
             "📋 እባክዎ የግብይት ማረጋገጫዎን መልእክት ከላይ እንደተገለጸው ይላኩ።\n\n"
             "❌ *ለማቋረጥ*: 'Cancel' ቁልፉን ይጫኑ",
@@ -2154,54 +2164,132 @@ async def main():
 
     @dp.message_handler(state=DepositStates.waiting_for_transaction_proof)
     async def process_payment_sms_enhanced(message: types.Message, state: FSMContext):
+        """Process SMS with 3 attempts limit"""
         user_id = message.from_user.id
         
-        # Check for Cancel at transaction proof step
+        # Check for Cancel
         if message.text and message.text.strip() == 'Cancel':
             await state.finish()
             await message.answer("❌ የገንዘብ ክፍያ ሂደት ተቋርጧል።", reply_markup=types.ReplyKeyboardRemove())
             return
         
+        # Get state data
         data = await state.get_data()
         payment_id = data.get('payment_id')
-        payment_method = data.get('payment_method')
+        attempts = data.get('verification_attempts', 0)
         
         if not payment_id:
             await state.finish()
-            await message.answer("❌ የፒሜንት መረጃ አልተገኘም። እንደገና ይሞክሩ።")
+            await message.answer("❌ የፒሜንት መረጃ አልተገኘም። እንደገና ይሞክሩ።", reply_markup=types.ReplyKeyboardRemove())
             return
         
+        # Validate SMS text
         if not message.text or message.text.strip() == "" or message.text.strip() == "WITHDRAW" or message.text.startswith('/'):
+            attempts += 1
+            await state.update_data(verification_attempts=attempts)
+            
+            if attempts >= 3:
+                # Reject after 3 failed attempts
+                from database.db import Database
+                with Database.get_cursor() as cursor:
+                    cursor.execute("""
+                        UPDATE payments 
+                        SET status = 'rejected',
+                            processed_at = ?,
+                            processed_by = 0,
+                            admin_notes = ?
+                        WHERE id = ?
+                    """, (
+                        datetime.now(),
+                        f"Auto-rejected: 3 failed attempts - invalid SMS format",
+                        payment_id
+                    ))
+                
+                await state.finish()
+                
+                await message.answer(
+                    "🚨 *3 ጊዜ ሙከራ አልተሳካም!*\n\n"
+                    "❌ የገንዘብ ክፍያ ጥያቄዎ ተቋርጧል።\n\n"
+                    "📞 እባክዎ ድጋፍ ያግኙ: /support\n\n"
+                    "💳 አዲስ ክፍያ ለመጠየቅ: /deposit",
+                    reply_markup=types.ReplyKeyboardRemove(),
+                    parse_mode=ParseMode.MARKDOWN
+                )
+                return
+            
             # Show keyboard with Cancel again
             cancel_keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True, selective=True)
             cancel_keyboard.add("Cancel")
             
             await message.answer(
-                "❌ *ልክ ያልሆነ የክፍያ ማረጋገጫ!*\n\n"
-                "⚠️ እባክዎ እውነተኛ የቴሌብር ማረጋገጫ SMS ይላኩ።\n\n"
-                "❌ *ለማቋረጥ*: 'Cancel' ቁልፉን ይጫኑ",
-                reply_markup=cancel_keyboard
+                f"❌ *ልክ ያልሆነ የክፍያ ማረጋገጫ!*\n\n"
+                f"⚠️ እባክዎ እውነተኛ የቴሌብር ማረጋገጫ SMS ይላኩ።\n"
+                f"🔁 *ሙከራ {attempts}/3*\n\n"
+                f"❌ *ለማቋረጥ*: 'Cancel' ቁልፉን ይጫኑ",
+                reply_markup=cancel_keyboard,
+                parse_mode=ParseMode.MARKDOWN
             )
             return
         
-        if payment_method == "ቴሌ ብር":
-            await process_telebirr_transaction_enhanced(user_id, payment_id, message, state)
-        else:
-            await state.finish()
-            await message.answer("❌ ያልተሰራ የክፍያ ዘዴ።")
+        # Process Telebirr transaction
+        await process_telebirr_transaction_enhanced(user_id, payment_id, message, state, attempts)
 
-    async def process_telebirr_transaction_enhanced(user_id: int, payment_id: int, message: types.Message, state: FSMContext):
+    async def process_telebirr_transaction_enhanced(user_id: int, payment_id: int, message: types.Message, state: FSMContext, attempts: int):
+        """Verify Telebirr transaction with 3 attempts limit"""
+        
+        # Extract transaction ID from SMS
         tx_id = enhanced_payment_validator.telebirr_scraper.extract_transaction_id(message.text)
         
+        # -------- TRANSACTION ID NOT FOUND --------
         if not tx_id:
-            await state.finish()
+            attempts += 1
+            await state.update_data(verification_attempts=attempts)
+            
+            if attempts >= 3:
+                # Reject after 3 failed attempts
+                from database.db import Database
+                with Database.get_cursor() as cursor:
+                    cursor.execute("""
+                        UPDATE payments 
+                        SET status = 'rejected',
+                            processed_at = ?,
+                            processed_by = 0,
+                            admin_notes = ?
+                        WHERE id = ?
+                    """, (
+                        datetime.now(),
+                        f"Auto-rejected: 3 failed attempts - could not extract transaction ID",
+                        payment_id
+                    ))
+                
+                await state.finish()
+                
+                await message.answer(
+                    "🚨 *3 ጊዜ ሙከራ አልተሳካም!*\n\n"
+                    "❌ የግብይት መታወቂያ ማግኘት አልተቻለም።\n"
+                    "የገንዘብ ክፍያ ጥያቄዎ ተቋርጧል።\n\n"
+                    "📞 እባክዎ ድጋፍ ያግኙ: /support\n"
+                    "💳 አዲስ ክፍያ ለመጠየቅ: /deposit",
+                    reply_markup=types.ReplyKeyboardRemove(),
+                    parse_mode=ParseMode.MARKDOWN
+                )
+                return
+            
+            # Show keyboard with Cancel again
+            cancel_keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True, selective=True)
+            cancel_keyboard.add("Cancel")
+            
             await message.answer(
-                "❌ *የግብይት መታወቂያ ማግኘት አልተቻለም!*\n\n"
-                "⚠️ እባክዎ እውነተኛ የቴሌብር ማረጋገጫ SMS ይላኩ።\n",
-                reply_markup=types.ReplyKeyboardRemove()
+                f"❌ *የግብይት መታወቂያ ማግኘት አልተቻለም!*\n\n"
+                f"⚠️ እባክዎ እውነተኛ የቴሌብር ማረጋገጫ SMS ይላኩ።\n"
+                f"🔁 *ሙከራ {attempts}/3*\n\n"
+                f"❌ *ለማቋረጥ*: 'Cancel' ቁልፉን ይጫኑ",
+                reply_markup=cancel_keyboard,
+                parse_mode=ParseMode.MARKDOWN
             )
             return
         
+        # -------- CHECK API KEY --------
         if not TELEBIRR_API_KEY:
             await state.finish()
             from database.db import Database
@@ -2224,21 +2312,25 @@ async def main():
             )
             return
         
-        # Remove keyboard during processing
+        # -------- PROCESS VERIFICATION --------
+        # Send processing message
         await message.answer(
             "🔍 *የቴሌብር ግብይት ማረጋገጫ በመስራት ላይ...*\n\n"
             f"📋 የፒሜንት መታወቂያ: {payment_id}\n"
             f"🔢 የግብይት መታወቂያ: {tx_id}\n\n"
             "⏳ እባክዎን ይጠበቁ፣ ይህ ጥቂት ሰከንዶች ሊወስድ ይችላል...",
-            reply_markup=types.ReplyKeyboardRemove()
+            parse_mode=ParseMode.MARKDOWN
         )
         
+        # Verify transaction
         verified, amount, errors = await enhanced_payment_validator.verify_telebirr_transaction(message.text)
         
+        # Get API result if available
         api_result = None
         if verified and enhanced_payment_validator.telebirr_client:
             api_result = await enhanced_payment_validator.telebirr_client.verify_transaction(tx_id)
         
+        # Update payment record with amount
         from database.db import Database
         with Database.get_cursor() as cursor:
             cursor.execute("""
@@ -2249,43 +2341,71 @@ async def main():
                 WHERE id = ?
             """, (amount if amount else 0.00, message.text[:500], f"Telebirr API: {'Success' if verified else 'Failed'}", payment_id))
         
+        # -------- VERIFICATION FAILED --------
         if not verified:
-            await state.finish()
+            attempts += 1
+            await state.update_data(verification_attempts=attempts)
             
-            with Database.get_cursor() as cursor:
-                cursor.execute("""
-                    UPDATE payments 
-                    SET status = 'rejected',
-                        processed_at = ?,
-                        processed_by = 0,
-                        admin_notes = ?
-                    WHERE id = ?
-                """, (
-                    datetime.now(),
-                    f"Auto-rejected: {', '.join(errors[:2]) if errors else 'Verification failed'}",
-                    payment_id
-                ))
+            if attempts >= 3:
+                # Reject after 3 failed attempts
+                with Database.get_cursor() as cursor:
+                    cursor.execute("""
+                        UPDATE payments 
+                        SET status = 'rejected',
+                            processed_at = ?,
+                            processed_by = 0,
+                            admin_notes = ?
+                        WHERE id = ?
+                    """, (
+                        datetime.now(),
+                        f"Auto-rejected: 3 failed verification attempts: {', '.join(errors[:2]) if errors else 'Verification failed'}",
+                        payment_id
+                    ))
+                
+                await state.finish()
+                
+                error_list = "\n".join([f"• {err}" for err in errors[:3]]) if errors else "• Verification failed"
+                
+                await message.answer(
+                    f"🚨 *3 ጊዜ ሙከራ አልተሳካም!*\n\n"
+                    f"❌ የቴሌብር ክፍያ ማረጋገጫ አልተሳካም።\n\n"
+                    f"📝 *ምክንያቶች:*\n{error_list}\n\n"
+                    f"📞 እባክዎ ድጋፍ ያግኙ: /support\n"
+                    f"💳 አዲስ ክፍያ ለመጠየቅ: /deposit",
+                    reply_markup=types.ReplyKeyboardRemove(),
+                    parse_mode=ParseMode.MARKDOWN
+                )
+                return
             
-            error_message = "🚨 *የቴሌብር ክፍያ ጥያቄ ተቋርጧል!*\n\n"
-            error_message += "❌ የቴሌብር SMS ማረጋገጫዎ ተቀባይነት አላገኘም።\n\n"
+            # Show keyboard with Cancel again
+            cancel_keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True, selective=True)
+            cancel_keyboard.add("Cancel")
+            
+            error_message = f"❌ *ማረጋገጫ አልተሳካም!*\n\n"
             
             if errors:
                 error_message += f"📝 *ምክንያቶች:*\n"
-                for error in errors[:3]:
+                for error in errors[:2]:
                     error_message += f"• {error}\n"
                 error_message += "\n"
             
-            error_message += "🔄 *እባክዎ፡*\n"
-            error_message += "1. እውነተኛ የቴሌብር ማረጋገጫ SMS ይላኩ\n"
-            error_message += "2. አዲስ የገንዘብ ክፍያ ጥያቄ ይጀምሩ\n\n"
-            error_message += "🔒 *ማስታወሻ:* ብዙ የተቀቡ ጥያቄዎች ሂሳብዎን ሊያገዱ ይችላሉ!"
+            error_message += f"🔁 *ሙከራ {attempts}/3*\n\n"
+            error_message += f"❌ *ለማቋረጥ*: 'Cancel' ቁልፉን ይጫኑ"
             
-            await message.answer(error_message, parse_mode=ParseMode.MARKDOWN, reply_markup=types.ReplyKeyboardRemove())
+            await message.answer(
+                error_message,
+                reply_markup=cancel_keyboard,
+                parse_mode=ParseMode.MARKDOWN
+            )
             return
         
+        # -------- VERIFICATION SUCCESSFUL --------
+        # Auto-approve the deposit
         success = await auto_approve_deposit(
             user_id, payment_id, amount, tx_id, message.text, api_result, "Telebirr"
         )
+        
+        await state.finish()
         
         if success:
             await message.answer(
@@ -2310,6 +2430,8 @@ async def main():
             )
         
         await state.finish()
+
+    # ==================== REST OF THE COMMANDS (KEEP EXISTING CODE) ====================
 
     @dp.message_handler(Command("withdraw"))
     async def cmd_withdraw_enhanced(message: types.Message, state: FSMContext):
@@ -3654,7 +3776,7 @@ async def main():
     print(f"    /start        - Start bot and see menu")
     print(f"    /play         - Launch Round-Based Bingo")
     print(f"    /balance      - Check your balance (birr)")
-    print(f"    /deposit      - Enhanced deposit with SMS verification")
+    print(f"    /deposit      - Enhanced deposit with SMS verification (3 attempts)")
     print(f"    /withdraw     - Withdraw money from your account")
     print(f"    /history      - View your game history")
     print(f"    /instructions - Game rules and instructions")

@@ -3739,11 +3739,11 @@ async def admin_restore_database(request):
                 'message': 'Uploaded file is empty'
             }, status=400)
 
-        if size > 100 * 1024 * 1024:
+        if size > 10000 * 1024 * 1024:
             os.unlink(temp_path)
             return web.json_response({
                 'success': False,
-                'message': 'File too large (max 100MB)'
+                'message': 'File too large (max 10000MB)'
             }, status=400)
 
         # =============================
