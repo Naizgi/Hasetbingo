@@ -3682,7 +3682,7 @@ async def admin_download_database(request):
         
 @routes.post('/api/admin/restore-database')
 async def admin_restore_database(request):
-    """Restore database from .db, .gz, or .zip safely"""
+    """Restore database from .db, .gz, or .zip safely - FIXED WAL/SHM ISSUES"""
     try:
         reader = await request.multipart()
 
@@ -3710,6 +3710,7 @@ async def admin_restore_database(request):
         backup_path = f"{db_path}.backup_{timestamp}"
         if os.path.exists(db_path):
             shutil.copy2(db_path, backup_path)
+            logger.info(f"✅ Created pre-restore backup at {backup_path}")
 
         # Save uploaded file
         temp_fd, temp_path = tempfile.mkstemp()
@@ -3746,10 +3747,12 @@ async def admin_restore_database(request):
 
         if zipfile.is_zipfile(temp_path):
             compression_type = 'zip'
+            logger.info("📦 Detected ZIP archive")
         else:
             with open(temp_path, 'rb') as f:
                 if f.read(2) == b'\x1f\x8b':
                     compression_type = 'gzip'
+                    logger.info("🔒 Detected GZIP compressed file")
 
         # =============================
         # HANDLE ZIP
@@ -3767,6 +3770,7 @@ async def admin_restore_database(request):
                     if not db_files:
                         raise ValueError("ZIP does not contain a valid database file")
 
+                    logger.info(f"📦 Found database file in ZIP: {db_files[0]}")
                     zipf.extract(db_files[0], extract_dir)
 
                     final_db_path = os.path.join(
@@ -3777,6 +3781,7 @@ async def admin_restore_database(request):
                 os.unlink(temp_path)
 
             except Exception as e:
+                logger.error(f"❌ ZIP extraction failed: {e}")
                 os.unlink(temp_path)
                 shutil.rmtree(extract_dir, ignore_errors=True)
                 return web.json_response({
@@ -3796,8 +3801,10 @@ async def admin_restore_database(request):
 
                 os.unlink(temp_path)
                 final_db_path = decompressed_path
+                logger.info("🔓 GZIP decompression complete")
 
             except Exception as e:
+                logger.error(f"❌ GZIP decompression failed: {e}")
                 os.unlink(temp_path)
                 return web.json_response({
                     'success': False,
@@ -3808,6 +3815,7 @@ async def admin_restore_database(request):
         # VALIDATE SQLITE DATABASE
         # =============================
         try:
+            logger.info("🔍 Validating database file...")
             conn = sqlite3.connect(final_db_path)
             cursor = conn.cursor()
 
@@ -3819,49 +3827,128 @@ async def admin_restore_database(request):
                 if table not in tables:
                     raise ValueError(f"Missing required table: {table}")
 
+            # Get record counts for logging
+            cursor.execute("SELECT COUNT(*) FROM users")
+            user_count = cursor.fetchone()[0]
+            
+            cursor.execute("SELECT COUNT(*) FROM games")
+            game_count = cursor.fetchone()[0]
+            
+            cursor.execute("SELECT COUNT(*) FROM transactions")
+            transaction_count = cursor.fetchone()[0]
+            
             conn.close()
+            
+            logger.info(f"✅ Database validation passed - Users: {user_count}, Games: {game_count}, Transactions: {transaction_count}")
 
         except Exception as e:
+            logger.error(f"❌ Database validation failed: {e}")
             if os.path.exists(final_db_path):
                 os.unlink(final_db_path)
-
-            shutil.copy2(backup_path, db_path)
-
+            
+            # Restore from backup
+            if os.path.exists(backup_path):
+                shutil.copy2(backup_path, db_path)
+                logger.info("📦 Restored from backup after validation failure")
+            
             return web.json_response({
                 'success': False,
                 'message': f'Invalid database: {str(e)}'
             }, status=400)
 
         # =============================
-        # REPLACE DATABASE
+        # FIX 1: CLOSE ALL CONNECTIONS
+        # =============================
+        logger.info("🔌 Closing database connections...")
+        if hasattr(Database, 'close_connection'):
+            await Database.close_connection()
+        
+        # Force close any lingering connections
+        if hasattr(Database, '_connection'):
+            Database._connection = None
+        if hasattr(Database, '_db'):
+            Database._db = None
+        
+        await asyncio.sleep(1)
+
+        # =============================
+        # FIX 2: REMOVE WAL AND SHM FILES
+        # =============================
+        wal_path = db_path + "-wal"
+        shm_path = db_path + "-shm"
+        
+        for extra_file in [wal_path, shm_path]:
+            if os.path.exists(extra_file):
+                try:
+                    os.remove(extra_file)
+                    logger.info(f"🧹 Removed leftover file: {extra_file}")
+                except Exception as e:
+                    logger.warning(f"⚠️ Could not remove {extra_file}: {e}")
+
+        # =============================
+        # FIX 3: REPLACE DATABASE
         # =============================
         try:
-            if hasattr(Database, 'close_connection'):
-                await Database.close_connection()
-
-            await asyncio.sleep(1)
-
+            logger.info(f"💾 Replacing database file...")
             shutil.move(final_db_path, db_path)
-
+            logger.info(f"✅ Database file replaced successfully")
+            
+            # =============================
+            # FIX 4: REINITIALIZE DATABASE
+            # =============================
+            if hasattr(Database, 'initialize'):
+                try:
+                    await Database.initialize()
+                    logger.info("🔄 Database reinitialized after restore")
+                except Exception as e:
+                    logger.error(f"❌ Failed to reinitialize database: {e}")
+                    # Try direct connection test
+                    try:
+                        test_conn = sqlite3.connect(db_path)
+                        test_conn.execute("SELECT 1")
+                        test_conn.close()
+                        logger.info("✅ Database connection verified via direct test")
+                    except Exception as e2:
+                        logger.error(f"❌ Database verification failed: {e2}")
+            
+            # =============================
+            # FIX 5: CLEAN UP EXTRACTION DIR
+            # =============================
+            if compression_type == 'zip' and 'extract_dir' in locals():
+                shutil.rmtree(extract_dir, ignore_errors=True)
+            
+            # Return success with details
             return web.json_response({
                 'success': True,
-                'message': 'Database restored successfully'
+                'message': 'Database restored successfully',
+                'backup_path': backup_path if os.path.exists(backup_path) else None,
+                'stats': {
+                    'users': user_count,
+                    'games': game_count,
+                    'transactions': transaction_count
+                },
+                'compression_type': compression_type or 'none'
             })
 
         except Exception as e:
-            shutil.copy2(backup_path, db_path)
-
+            logger.error(f"❌ Error during database replace: {e}")
+            
+            # Restore from backup
+            if os.path.exists(backup_path):
+                shutil.copy2(backup_path, db_path)
+                logger.info("📦 Restored from backup after replace failure")
+            
             return web.json_response({
                 'success': False,
                 'message': f'Restore failed: {str(e)}'
             }, status=500)
 
     except Exception as e:
+        logger.error(f"❌ Error in restore database endpoint: {e}", exc_info=True)
         return web.json_response({
             'success': False,
             'message': str(e)
         }, status=500)
-
 
 # Also update the frontend to support ZIP format
 
