@@ -2635,11 +2635,14 @@
                                     <button class="btn btn-info" id="check-db-info">
                                         <i class="fas fa-info-circle"></i> Check Database
                                     </button>
-                                    <button class="btn btn-success" id="download-db">
-                                        <i class="fas fa-download"></i> Download (Compressed)
+                                    <button class="btn btn-success" id="download-db-gz">
+                                        <i class="fas fa-file-archive"></i> Download (GZIP)
                                     </button>
-                                    <button class="btn btn-primary" id="download-db-uncompressed">
-                                        <i class="fas fa-file-archive"></i> Download (Uncompressed)
+                                    <button class="btn btn-primary" id="download-db-zip">
+                                        <i class="fas fa-file-zipper"></i> Download (ZIP)
+                                    </button>
+                                    <button class="btn btn-secondary" id="download-db-uncompressed">
+                                        <i class="fas fa-database"></i> Download (Uncompressed)
                                     </button>
                                     <button class="btn btn-warning" id="restore-db-btn">
                                         <i class="fas fa-undo-alt"></i> Restore Database
@@ -2648,6 +2651,7 @@
                                 <div class="payment-message" style="background: #fff3cd; border-left-color: #856404;">
                                     <p><strong>⚠️ Restore Warning:</strong> Restoring will replace the current database. 
                                     The system will automatically backup the current database and restart after restore.</p>
+                                    <p><strong>Supported formats:</strong> .db, .db.gz, .db.zip, .sqlite, .sqlite3</p>
                                 </div>
                             </div>
                         </div>
@@ -3194,7 +3198,7 @@
                     <p id="restore-status">Preparing safe restore...</p>
                     <p id="restore-details" style="font-size: 12px; color: #666; margin-top: 10px;"></p>
                     <div id="restore-steps" style="text-align: left; margin-top: 20px; background: #f8f9fa; padding: 15px; border-radius: 5px;">
-                        <p>⏳ Step 1/6: Validating file...</p>
+                        <p>⏳ Step 1/7: Validating file...</p>
                     </div>
                 </div>
             </div>
@@ -3221,12 +3225,13 @@
                 </div>
                 
                 <div class="form-group">
-                    <label for="restore-file">Select Database File (.db or .db.gz)</label>
-                    <input type="file" id="restore-file" accept=".db,.db.gz,.sqlite,.sqlite3" style="padding: 10px; border: 1px solid #ddd; border-radius: 5px; width: 100%;">
+                    <label for="restore-file">Select Database File (.db, .db.gz, .db.zip, .sqlite, .sqlite3)</label>
+                    <input type="file" id="restore-file" accept=".db,.db.gz,.db.zip,.sqlite,.sqlite3,.gz,.zip" style="padding: 10px; border: 1px solid #ddd; border-radius: 5px; width: 100%;">
                 </div>
                 
                 <div class="payment-message" style="background: #e9f7fe; border-left-color: var(--info-color); margin-top: 15px;">
-                    <p><strong>📋 Supported formats:</strong> .db, .db.gz, .sqlite, .sqlite3 (max 100MB)</p>
+                    <p><strong>📋 Supported formats:</strong> .db, .db.gz, .db.zip, .sqlite, .sqlite3 (max 100MB)</p>
+                    <p>ZIP archives containing a .db file are automatically extracted.</p>
                 </div>
                 
                 <div class="form-actions">
@@ -3489,29 +3494,43 @@
             }
         }
 
-        async function downloadDatabase(compressed = true) {
+        async function downloadDatabase(compressed = true, format = 'gz') {
             try {
                 openModal('download-progress-modal');
                 const statusEl = document.getElementById('download-status');
                 const detailsEl = document.getElementById('download-details');
                 
-                statusEl.textContent = compressed ? 'Preparing compressed database...' : 'Preparing database...';
+                statusEl.textContent = compressed ? 
+                    (format === 'zip' ? 'Preparing ZIP compressed database...' : 'Preparing GZIP compressed database...') : 
+                    'Preparing database...';
                 detailsEl.textContent = 'This may take a few seconds...';
                 
-                const response = await fetch(`/api/admin/download-database?compress=${compressed}`);
+                const response = await fetch(`/api/admin/download-database?compress=${compressed}&format=${format}`);
                 
                 if (!response.ok) {
                     const errorText = await response.text();
                     throw new Error(`HTTP error ${response.status}: ${errorText}`);
                 }
                 
-                // Get filename from Content-Disposition header or use default
+                // Get filename from Content-Disposition header or use default with correct extension
                 const contentDisposition = response.headers.get('Content-Disposition');
-                let filename = compressed ? 'database_backup.db.gz' : 'database_backup.db';
+                let filename = '';
+                
                 if (contentDisposition) {
                     const match = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
                     if (match && match[1]) {
                         filename = match[1].replace(/['"]/g, '');
+                    }
+                }
+                
+                if (!filename) {
+                    const timestamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..+/, '').replace('T', '_');
+                    if (!compressed) {
+                        filename = `habesha_bingo_backup_${timestamp}.db`;
+                    } else if (format === 'zip') {
+                        filename = `habesha_bingo_backup_${timestamp}.zip`;
+                    } else {
+                        filename = `habesha_bingo_backup_${timestamp}.db.gz`;
                     }
                 }
                 
@@ -3527,8 +3546,8 @@
                 document.body.removeChild(a);
                 
                 statusEl.textContent = '✅ Download complete!';
-                detailsEl.textContent = `File: ${filename}`;
-                addLiveUpdate('Database download completed', 'success');
+                detailsEl.textContent = `File: ${filename} (${(blob.size / (1024 * 1024)).toFixed(2)} MB)`;
+                addLiveUpdate(`Database downloaded (${format === 'zip' ? 'ZIP' : format === 'gz' ? 'GZIP' : 'uncompressed'})`, 'success');
                 showNotification('Database downloaded successfully!', 'success');
                 
                 setTimeout(() => closeModal('download-progress-modal'), 1500);
@@ -3556,6 +3575,11 @@
                         const formData = new FormData();
                         formData.append('database', blob, file.name);
                         formData.append('admin_id', adminId);
+                        
+                        // Detect if file is compressed
+                        const fileNameLower = file.name.toLowerCase();
+                        const isCompressed = fileNameLower.endsWith('.gz') || fileNameLower.endsWith('.zip') || fileNameLower.endsWith('.db.gz') || fileNameLower.endsWith('.db.zip');
+                        formData.append('compressed', isCompressed ? 'true' : 'false');
                         
                         const response = await fetch('/api/admin/restore-database', {
                             method: 'POST',
@@ -3589,6 +3613,8 @@
             
             const steps = [
                 'Validating file...',
+                'Checking compression format...',
+                'Extracting if needed...',
                 'Creating backup...',
                 'Shutting down bot...',
                 'Restoring database...',
@@ -3618,15 +3644,19 @@
                 return;
             }
             
-            const validExtensions = ['.db', '.db.gz', '.sqlite', '.sqlite3'];
+            // Check for valid file extensions - including .zip and .db.zip
             const fileNameLower = file.name.toLowerCase();
-            
-            const isValid = validExtensions.some(ext => 
-                fileNameLower.endsWith(ext)
-            );
+            const isValid = fileNameLower.endsWith('.db') || 
+                           fileNameLower.endsWith('.sqlite') || 
+                           fileNameLower.endsWith('.sqlite3') ||
+                           fileNameLower.endsWith('.db.gz') ||
+                           fileNameLower.endsWith('.gz') ||
+                           fileNameLower.endsWith('.zip') ||
+                           fileNameLower.endsWith('.db.zip') ||
+                           (fileNameLower.includes('.db') && (fileNameLower.endsWith('.gz') || fileNameLower.endsWith('.zip')));
             
             if (!isValid) {
-                showNotification('Invalid file type. Please upload a database file (.db, .db.gz, .sqlite)', 'danger');
+                showNotification('Invalid file type. Please upload a database file (.db, .db.gz, .db.zip, .sqlite, .sqlite3)', 'danger');
                 return;
             }
             
@@ -3645,12 +3675,26 @@
                 detailsEl.textContent = `File: ${file.name} (${(file.size / (1024 * 1024)).toFixed(2)} MB)`;
                 updateRestoreStep(0, 'Validating file...');
                 
+                // Check compression type
+                if (file.name.toLowerCase().endsWith('.zip') || file.name.toLowerCase().endsWith('.db.zip')) {
+                    updateRestoreStep(1, 'Detected ZIP archive format...');
+                    updateRestoreStep(2, 'Will extract database from ZIP...');
+                    addLiveUpdate('Restoring from ZIP archive', 'info');
+                } else if (file.name.toLowerCase().endsWith('.gz') || file.name.toLowerCase().endsWith('.db.gz')) {
+                    updateRestoreStep(1, 'Detected GZIP compressed file...');
+                    updateRestoreStep(2, 'Decompressing GZIP file...');
+                    addLiveUpdate('Restoring from GZIP compressed file', 'info');
+                } else {
+                    updateRestoreStep(1, 'Detected uncompressed database file...');
+                    updateRestoreStep(2, 'No extraction needed...');
+                }
+                
                 const result = await restoreDatabase(file);
                 
                 if (result.success) {
                     statusEl.textContent = '✅ Restore successful!';
                     detailsEl.textContent = result.message || 'Bot is restarting...';
-                    updateRestoreStep(6, 'Complete');
+                    updateRestoreStep(7, 'Complete');
                     
                     addLiveUpdate('Database restored successfully. Bot restarting...', 'success');
                     showNotification('Database restored! Bot restarting...', 'success');
@@ -3970,7 +4014,7 @@
                             
                             let statusClass = 'status-active';
                             let statusText = 'Active';
-                                            if (user.status === 'suspended') {
+                            if (user.status === 'suspended') {
                                 statusClass = 'status-suspended';
                                 statusText = 'Suspended';
                             } else if (user.status === 'deleted') {
@@ -4610,13 +4654,14 @@
             });
             
             document.getElementById('quick-add-balance')?.addEventListener('click', () => openModal('add-balance-modal'));
-            document.getElementById('quick-download-db')?.addEventListener('click', () => downloadDatabase(true));
+            document.getElementById('quick-download-db')?.addEventListener('click', () => downloadDatabase(true, 'gz'));
             document.getElementById('clear-updates')?.addEventListener('click', () => {
                 document.getElementById('live-updates-list').innerHTML = '';
             });
             
             document.getElementById('check-db-info')?.addEventListener('click', checkDatabaseInfo);
-            document.getElementById('download-db')?.addEventListener('click', () => downloadDatabase(true));
+            document.getElementById('download-db-gz')?.addEventListener('click', () => downloadDatabase(true, 'gz'));
+            document.getElementById('download-db-zip')?.addEventListener('click', () => downloadDatabase(true, 'zip'));
             document.getElementById('download-db-uncompressed')?.addEventListener('click', () => downloadDatabase(false));
             document.getElementById('restore-db-btn')?.addEventListener('click', () => openModal('restore-upload-modal'));
             
