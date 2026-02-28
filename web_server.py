@@ -3682,7 +3682,10 @@ async def admin_download_database(request):
         
 @routes.post('/api/admin/restore-database')
 async def admin_restore_database(request):
-    """Restore database from .db, .gz, or .zip safely - FIXED WAL/SHM ISSUES"""
+    """
+    Restore database from .db, .gz, or .zip safely.
+    Includes WAL cleanup and forced application restart.
+    """
     try:
         reader = await request.multipart()
 
@@ -3700,19 +3703,23 @@ async def admin_restore_database(request):
         import zipfile
         import tempfile
         import sqlite3
-        from datetime import datetime
         import asyncio
+        from datetime import datetime
 
         db_path = Database._db_path
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
 
-        # Backup current DB
+        # =============================
+        # CREATE BACKUP
+        # =============================
         backup_path = f"{db_path}.backup_{timestamp}"
         if os.path.exists(db_path):
             shutil.copy2(db_path, backup_path)
             logger.info(f"✅ Created pre-restore backup at {backup_path}")
 
-        # Save uploaded file
+        # =============================
+        # SAVE UPLOADED FILE
+        # =============================
         temp_fd, temp_path = tempfile.mkstemp()
         os.close(temp_fd)
 
@@ -3857,22 +3864,22 @@ async def admin_restore_database(request):
             }, status=400)
 
         # =============================
-        # FIX 1: CLOSE ALL CONNECTIONS
+        # CLOSE ALL DATABASE CONNECTIONS
         # =============================
         logger.info("🔌 Closing database connections...")
         if hasattr(Database, 'close_connection'):
             await Database.close_connection()
-        
+
         # Force close any lingering connections
         if hasattr(Database, '_connection'):
             Database._connection = None
         if hasattr(Database, '_db'):
             Database._db = None
-        
+
         await asyncio.sleep(1)
 
         # =============================
-        # FIX 2: REMOVE WAL AND SHM FILES
+        # REMOVE WAL & SHM FILES
         # =============================
         wal_path = db_path + "-wal"
         shm_path = db_path + "-shm"
@@ -3886,41 +3893,24 @@ async def admin_restore_database(request):
                     logger.warning(f"⚠️ Could not remove {extra_file}: {e}")
 
         # =============================
-        # FIX 3: REPLACE DATABASE
+        # REPLACE DATABASE FILE
         # =============================
         try:
             logger.info(f"💾 Replacing database file...")
             shutil.move(final_db_path, db_path)
             logger.info(f"✅ Database file replaced successfully")
             
-            # =============================
-            # FIX 4: REINITIALIZE DATABASE
-            # =============================
-            if hasattr(Database, 'initialize'):
-                try:
-                    await Database.initialize()
-                    logger.info("🔄 Database reinitialized after restore")
-                except Exception as e:
-                    logger.error(f"❌ Failed to reinitialize database: {e}")
-                    # Try direct connection test
-                    try:
-                        test_conn = sqlite3.connect(db_path)
-                        test_conn.execute("SELECT 1")
-                        test_conn.close()
-                        logger.info("✅ Database connection verified via direct test")
-                    except Exception as e2:
-                        logger.error(f"❌ Database verification failed: {e2}")
-            
-            # =============================
-            # FIX 5: CLEAN UP EXTRACTION DIR
-            # =============================
+            # Clean up extraction directory if it exists
             if compression_type == 'zip' and 'extract_dir' in locals():
                 shutil.rmtree(extract_dir, ignore_errors=True)
-            
-            # Return success with details
-            return web.json_response({
+
+            # =============================
+            # SUCCESS RESPONSE + RESTART
+            # =============================
+            response = web.json_response({
                 'success': True,
-                'message': 'Database restored successfully',
+                'message': 'Database restored successfully. Server restarting...',
+                'restart_in': 2,
                 'backup_path': backup_path if os.path.exists(backup_path) else None,
                 'stats': {
                     'users': user_count,
@@ -3929,6 +3919,17 @@ async def admin_restore_database(request):
                 },
                 'compression_type': compression_type or 'none'
             })
+
+            # Schedule server restart
+            async def restart_server():
+                await asyncio.sleep(2)  # Give time for response to be sent
+                logger.info("🔄 Force restarting server after database restore...")
+                os._exit(1)  # Force exit - Docker/Railway will restart
+
+            asyncio.create_task(restart_server())
+            logger.info("⏰ Server restart scheduled in 2 seconds")
+
+            return response
 
         except Exception as e:
             logger.error(f"❌ Error during database replace: {e}")
@@ -3949,7 +3950,6 @@ async def admin_restore_database(request):
             'success': False,
             'message': str(e)
         }, status=500)
-
 # Also update the frontend to support ZIP format
 
 @routes.post('/api/admin/force-reset-game')
