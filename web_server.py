@@ -3565,11 +3565,11 @@ async def admin_database_info(request):
 
 @routes.get('/api/admin/download-database')
 async def admin_download_database(request):
-    """Download the database file - optionally compressed"""
+    """Download database file with optional ZIP or GZIP compression"""
     try:
         compress = request.query.get('compress', 'true').lower() == 'true'
-        compression_format = request.query.get('format', 'gz').lower()  # 'gz' or 'zip'
-        
+        compression_format = request.query.get('format', 'zip').lower()  # default zip
+
         from database.db import Database
         import os
         import gzip
@@ -3578,163 +3578,121 @@ async def admin_download_database(request):
         import tempfile
         from aiohttp.web import FileResponse
         from datetime import datetime
-        
+
         db_path = Database._db_path
-        
+
         if not os.path.exists(db_path):
             return web.json_response({
                 'success': False,
                 'message': 'Database file not found'
             }, status=404)
-        
+
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        
-        if compress:
-            if compression_format == 'zip':
-                # Create ZIP compressed version
-                temp_dir = tempfile.mkdtemp()
-                zip_filename = f"habesha_bingo_backup_{timestamp}.zip"
-                zip_path = os.path.join(temp_dir, zip_filename)
-                
-                with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-                    # Add database file to zip with a descriptive name
-                    arcname = f"habesha_bingo_backup_{timestamp}.db"
-                    zipf.write(db_path, arcname=arcname)
-                
-                file_size = os.path.getsize(zip_path)
-                logger.info(f"📦 Created ZIP compressed database backup: {file_size} bytes")
-                
-                response = FileResponse(
-                    zip_path,
-                    headers={
-                        'Content-Disposition': f'attachment; filename="{zip_filename}"',
-                        'Content-Type': 'application/zip',
-                        'Content-Length': str(file_size)
-                    }
+
+        # =============================
+        # ZIP COMPRESSION (DEFAULT)
+        # =============================
+        if compress and compression_format == 'zip':
+            temp_dir = tempfile.mkdtemp()
+            zip_filename = f"habesha_bingo_backup_{timestamp}.zip"
+            zip_path = os.path.join(temp_dir, zip_filename)
+
+            with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                zipf.write(
+                    db_path,
+                    arcname=f"habesha_bingo_backup_{timestamp}.db"
                 )
-                
-                # Clean up temporary directory after sending
-                async def cleanup():
-                    try:
-                        if os.path.exists(zip_path):
-                            os.unlink(zip_path)
-                        if os.path.exists(temp_dir):
-                            os.rmdir(temp_dir)
-                        logger.info(f"🧹 Cleaned up temporary ZIP files")
-                    except Exception as e:
-                        logger.warning(f"Failed to clean up ZIP files: {e}")
-                
-                response.cleanup = cleanup
-                return response
-                
-            else:  # gz format (default)
-                # Create GZIP compressed version
-                compressed_path = db_path + f'.{timestamp}.gz'
-                with open(db_path, 'rb') as f_in:
-                    with gzip.open(compressed_path, 'wb', compresslevel=9) as f_out:
-                        shutil.copyfileobj(f_in, f_out)
-                
-                file_size = os.path.getsize(compressed_path)
-                logger.info(f"📦 Created GZIP compressed database backup: {file_size} bytes")
-                
-                filename = f"habesha_bingo_backup_{timestamp}.db.gz"
-                
-                response = FileResponse(
-                    compressed_path,
-                    headers={
-                        'Content-Disposition': f'attachment; filename="{filename}"',
-                        'Content-Type': 'application/gzip',
-                        'Content-Length': str(file_size)
-                    }
-                )
-                
-                # Clean up compressed file after sending
-                async def cleanup():
-                    try:
-                        if os.path.exists(compressed_path):
-                            os.unlink(compressed_path)
-                        logger.info(f"🧹 Cleaned up temporary GZIP file: {compressed_path}")
-                    except Exception as e:
-                        logger.warning(f"Failed to clean up GZIP file: {e}")
-                
-                response.cleanup = cleanup
-                return response
-        else:
-            # Send uncompressed file
-            filename = f"habesha_bingo_backup_{timestamp}.db"
-            file_size = os.path.getsize(db_path)
-            
-            logger.info(f"📄 Sending uncompressed database backup: {file_size} bytes")
-            
-            return FileResponse(
-                db_path,
+
+            file_size = os.path.getsize(zip_path)
+
+            response = FileResponse(
+                zip_path,
                 headers={
-                    'Content-Disposition': f'attachment; filename="{filename}"',
-                    'Content-Type': 'application/x-sqlite3',
+                    'Content-Disposition': f'attachment; filename="{zip_filename}"',
+                    'Content-Type': 'application/zip',
                     'Content-Length': str(file_size)
                 }
             )
-            
+
+            async def cleanup():
+                try:
+                    shutil.rmtree(temp_dir, ignore_errors=True)
+                except:
+                    pass
+
+            response.cleanup = cleanup
+            return response
+
+        # =============================
+        # GZIP COMPRESSION
+        # =============================
+        if compress and compression_format == 'gz':
+            temp_dir = tempfile.mkdtemp()
+            gz_path = os.path.join(
+                temp_dir,
+                f"habesha_bingo_backup_{timestamp}.db.gz"
+            )
+
+            with open(db_path, 'rb') as f_in:
+                with gzip.open(gz_path, 'wb', compresslevel=9) as f_out:
+                    shutil.copyfileobj(f_in, f_out)
+
+            file_size = os.path.getsize(gz_path)
+
+            response = FileResponse(
+                gz_path,
+                headers={
+                    'Content-Disposition': f'attachment; filename="{os.path.basename(gz_path)}"',
+                    'Content-Type': 'application/gzip',
+                    'Content-Length': str(file_size)
+                }
+            )
+
+            async def cleanup():
+                try:
+                    shutil.rmtree(temp_dir, ignore_errors=True)
+                except:
+                    pass
+
+            response.cleanup = cleanup
+            return response
+
+        # =============================
+        # RAW DATABASE
+        # =============================
+        file_size = os.path.getsize(db_path)
+        filename = f"habesha_bingo_backup_{timestamp}.db"
+
+        return FileResponse(
+            db_path,
+            headers={
+                'Content-Disposition': f'attachment; filename="{filename}"',
+                'Content-Type': 'application/x-sqlite3',
+                'Content-Length': str(file_size)
+            }
+        )
+
     except Exception as e:
-        logger.error(f"❌ Error downloading database: {e}")
         return web.json_response({
             'success': False,
             'message': str(e)
         }, status=500)
-
-
+        
+        
+        
 @routes.post('/api/admin/restore-database')
 async def admin_restore_database(request):
-    """Restore database from uploaded file with safety checks"""
+    """Restore database from .db, .gz, or .zip safely"""
     try:
         reader = await request.multipart()
-        
-        # Parse multipart data
+
         field = await reader.next()
         if not field or field.name != 'database':
             return web.json_response({
                 'success': False,
                 'message': 'No database file uploaded'
             }, status=400)
-        
-        # Get other fields
-        admin_id = 'system'
-        is_compressed = False  # Legacy parameter
-        
-        while True:
-            part = await reader.next()
-            if part is None:
-                break
-            
-            if part.name == 'admin_id':
-                admin_id = await part.text()
-            elif part.name == 'compressed':
-                compressed_val = await part.text()
-                is_compressed = compressed_val.lower() == 'true'
-        
-        filename = field.filename
-        if not filename:
-            return web.json_response({
-                'success': False,
-                'message': 'No filename provided'
-            }, status=400)
-        
-        # Validate file extension - now including .zip
-        filename_lower = filename.lower()
-        valid_extensions = ['.db', '.db.gz', '.sqlite', '.sqlite3', '.zip', '.db.zip']
-        
-        is_valid = any(
-            filename_lower.endswith(ext) or 
-            (ext == '.zip' and (filename_lower.endswith('.zip') or filename_lower.endswith('.db.zip')))
-            for ext in valid_extensions
-        )
-        
-        if not is_valid:
-            return web.json_response({
-                'success': False,
-                'message': 'Invalid file type. Please upload a database file (.db, .db.gz, .db.zip, .sqlite, .sqlite3)'
-            }, status=400)
-        
+
         from database.db import Database
         import os
         import shutil
@@ -3743,21 +3701,20 @@ async def admin_restore_database(request):
         import tempfile
         import sqlite3
         from datetime import datetime
-        
+        import asyncio
+
         db_path = Database._db_path
-        backup_dir = os.path.dirname(db_path)
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        backup_path = os.path.join(backup_dir, f"pre_restore_backup_{timestamp}.db")
-        
-        # Create backup of current database
+
+        # Backup current DB
+        backup_path = f"{db_path}.backup_{timestamp}"
         if os.path.exists(db_path):
             shutil.copy2(db_path, backup_path)
-            logger.info(f"✅ Created pre-restore database backup at {backup_path}")
-        
-        # Save uploaded file to temp location
-        temp_fd, temp_path = tempfile.mkstemp(suffix='.upload')
+
+        # Save uploaded file
+        temp_fd, temp_path = tempfile.mkstemp()
         os.close(temp_fd)
-        
+
         size = 0
         with open(temp_path, 'wb') as f:
             while True:
@@ -3766,265 +3723,140 @@ async def admin_restore_database(request):
                     break
                 size += len(chunk)
                 f.write(chunk)
-        
-        logger.info(f"📥 Received uploaded file: {filename}, size: {size} bytes")
-        
-        # Check file size (max 100MB)
+
+        if size == 0:
+            os.unlink(temp_path)
+            return web.json_response({
+                'success': False,
+                'message': 'Uploaded file is empty'
+            }, status=400)
+
         if size > 100 * 1024 * 1024:
             os.unlink(temp_path)
             return web.json_response({
                 'success': False,
-                'message': 'File too large. Maximum size is 100MB'
+                'message': 'File too large (max 100MB)'
             }, status=400)
-        
-        # Determine compression type and decompress if needed
-        final_db_path = temp_path
+
+        # =============================
+        # DETECT COMPRESSION BY SIGNATURE
+        # =============================
         compression_type = None
-        
-        # Check for ZIP compression
-        if filename_lower.endswith('.zip') or filename_lower.endswith('.db.zip'):
+        final_db_path = temp_path
+
+        if zipfile.is_zipfile(temp_path):
             compression_type = 'zip'
-        # Check for GZIP compression
-        elif filename_lower.endswith('.gz') or filename_lower.endswith('.db.gz'):
-            compression_type = 'gzip'
-        
+        else:
+            with open(temp_path, 'rb') as f:
+                if f.read(2) == b'\x1f\x8b':
+                    compression_type = 'gzip'
+
+        # =============================
+        # HANDLE ZIP
+        # =============================
         if compression_type == 'zip':
-            # Handle ZIP file
             try:
-                logger.info(f"📦 Detected ZIP archive, extracting...")
-                
-                # Create temp directory for extraction
                 extract_dir = tempfile.mkdtemp()
-                
+
                 with zipfile.ZipFile(temp_path, 'r') as zipf:
-                    # List contents for logging
-                    file_list = zipf.namelist()
-                    logger.info(f"ZIP contents: {file_list}")
-                    
-                    # Find first .db file in the archive
-                    db_files = [f for f in file_list if f.endswith('.db') or f.endswith('.sqlite') or f.endswith('.sqlite3')]
-                    
+                    db_files = [
+                        f for f in zipf.namelist()
+                        if f.endswith(('.db', '.sqlite', '.sqlite3'))
+                    ]
+
                     if not db_files:
-                        raise ValueError("No database file found in ZIP archive")
-                    
-                    # Extract the first database file
-                    db_filename = db_files[0]
-                    extracted_path = os.path.join(extract_dir, os.path.basename(db_filename))
-                    
-                    with zipf.open(db_filename) as source, open(extracted_path, 'wb') as target:
-                        shutil.copyfileobj(source, target)
-                    
-                    logger.info(f"✅ Extracted {db_filename} from ZIP")
-                    
-                    # Clean up temp file
-                    os.unlink(temp_path)
-                    final_db_path = extracted_path
-                    
+                        raise ValueError("ZIP does not contain a valid database file")
+
+                    zipf.extract(db_files[0], extract_dir)
+
+                    final_db_path = os.path.join(
+                        extract_dir,
+                        os.path.basename(db_files[0])
+                    )
+
+                os.unlink(temp_path)
+
             except Exception as e:
-                logger.error(f"❌ Failed to extract ZIP file: {e}")
-                if os.path.exists(temp_path):
-                    os.unlink(temp_path)
-                if 'extract_dir' in locals() and os.path.exists(extract_dir):
-                    shutil.rmtree(extract_dir)
+                os.unlink(temp_path)
+                shutil.rmtree(extract_dir, ignore_errors=True)
                 return web.json_response({
                     'success': False,
-                    'message': f'Failed to extract ZIP file: {str(e)}'
+                    'message': f'Invalid ZIP file: {str(e)}'
                 }, status=400)
-                
+
+        # =============================
+        # HANDLE GZIP
+        # =============================
         elif compression_type == 'gzip':
-            # Handle GZIP file
             try:
-                logger.info(f"🔓 Decompressing GZIP file...")
                 decompressed_path = temp_path + '.db'
-                
                 with gzip.open(temp_path, 'rb') as f_in:
                     with open(decompressed_path, 'wb') as f_out:
                         shutil.copyfileobj(f_in, f_out)
-                
-                # Verify decompression worked
-                if os.path.getsize(decompressed_path) == 0:
-                    raise ValueError("Decompressed file is empty")
-                
+
                 os.unlink(temp_path)
                 final_db_path = decompressed_path
-                logger.info(f"✅ GZIP decompression complete: {os.path.getsize(final_db_path)} bytes")
-                
+
             except Exception as e:
-                logger.error(f"❌ Failed to decompress GZIP file: {e}")
-                if os.path.exists(temp_path):
-                    os.unlink(temp_path)
-                if os.path.exists(decompressed_path):
-                    os.unlink(decompressed_path)
+                os.unlink(temp_path)
                 return web.json_response({
                     'success': False,
-                    'message': f'Failed to decompress GZIP file: {str(e)}'
+                    'message': f'Invalid GZIP file: {str(e)}'
                 }, status=400)
-        
-        # Validate that it's a valid SQLite database
+
+        # =============================
+        # VALIDATE SQLITE DATABASE
+        # =============================
         try:
-            logger.info(f"🔍 Validating database file...")
-            
-            # Try to open as SQLite database
             conn = sqlite3.connect(final_db_path)
             cursor = conn.cursor()
-            
-            # Check if it has expected tables
+
             cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
             tables = [row[0] for row in cursor.fetchall()]
-            
-            # Check for required tables
+
             required_tables = ['users', 'games', 'transactions']
-            missing_tables = [t for t in required_tables if t not in tables]
-            
-            if missing_tables:
-                conn.close()
-                raise ValueError(f"Invalid database: missing tables: {', '.join(missing_tables)}")
-            
-            # Check users table structure
-            cursor.execute("PRAGMA table_info(users)")
-            columns = [col[1] for col in cursor.fetchall()]
-            required_columns = ['user_id', 'username', 'balance']
-            missing_columns = [c for c in required_columns if c not in columns]
-            
-            if missing_columns:
-                conn.close()
-                raise ValueError(f"Invalid users table: missing columns: {', '.join(missing_columns)}")
-            
-            # Get record counts for logging
-            cursor.execute("SELECT COUNT(*) FROM users")
-            user_count = cursor.fetchone()[0]
-            
-            cursor.execute("SELECT COUNT(*) FROM games")
-            game_count = cursor.fetchone()[0]
-            
-            cursor.execute("SELECT COUNT(*) FROM transactions")
-            transaction_count = cursor.fetchone()[0]
-            
+            for table in required_tables:
+                if table not in tables:
+                    raise ValueError(f"Missing required table: {table}")
+
             conn.close()
-            
-            logger.info(f"✅ Database validation passed - Users: {user_count}, Games: {game_count}, Transactions: {transaction_count}")
-            
+
         except Exception as e:
-            logger.error(f"❌ Database validation failed: {e}")
             if os.path.exists(final_db_path):
                 os.unlink(final_db_path)
-            if os.path.exists(backup_path):
-                logger.info(f"📦 Restoring from backup...")
-                shutil.copy2(backup_path, db_path)
+
+            shutil.copy2(backup_path, db_path)
+
             return web.json_response({
                 'success': False,
-                'message': f'Invalid database file: {str(e)}'
+                'message': f'Invalid database: {str(e)}'
             }, status=400)
-        
-        # Stop any running games before restore
+
+        # =============================
+        # REPLACE DATABASE
+        # =============================
         try:
-            from utils.game_manager import game_manager
-            from utils.number_caller import number_caller
-            
-            logger.info("🛑 Stopping game systems for restore...")
-            active_game = await game_manager.get_active_round_game()
-            if active_game:
-                await number_caller.stop_number_calling_for_game(active_game.get('game_id'))
-                logger.info("✅ Stopped number calling")
-        except Exception as e:
-            logger.warning(f"⚠️ Error stopping game for restore: {e}")
-        
-        # Replace the database
-        try:
-            # Close any open connections
-            logger.info("🔌 Closing database connections...")
             if hasattr(Database, 'close_connection'):
                 await Database.close_connection()
-            
-            # Wait a moment for connections to close
-            import asyncio
+
             await asyncio.sleep(1)
-            
-            # Replace the database file
-            logger.info(f"💾 Restoring database from uploaded file...")
+
             shutil.move(final_db_path, db_path)
-            logger.info(f"✅ Database restored successfully")
-            
-            # Clean up extraction directory if it exists
-            if compression_type == 'zip' and 'extract_dir' in locals():
-                shutil.rmtree(extract_dir, ignore_errors=True)
-            
-            # Record admin transaction
-            try:
-                await Database.record_admin_transaction(
-                    admin_id=admin_id or 'system',
-                    action='restore_database',
-                    target_type='system',
-                    target_id='database',
-                    details={
-                        'filename': filename,
-                        'size_bytes': size,
-                        'user_count': user_count,
-                        'game_count': game_count,
-                        'transaction_count': transaction_count,
-                        'backup_created': os.path.exists(backup_path),
-                        'compression_type': compression_type or 'none'
-                    }
-                )
-                logger.info(f"📝 Recorded admin restore transaction")
-            except Exception as e:
-                logger.warning(f"⚠️ Could not record admin transaction: {e}")
-            
-            # Schedule bot restart
-            import asyncio
-            
-            async def restart_bot():
-                await asyncio.sleep(2)
-                logger.info("🔄 Bot restarting after database restore")
-                
-                # Get bot instance from app
-                bot = request.app.get('bot_instance')
-                if bot:
-                    try:
-                        await bot.stop()
-                    except:
-                        pass
-                
-                # Exit process to trigger restart by supervisor/docker
-                os._exit(1)
-            
-            asyncio.create_task(restart_bot())
-            logger.info("⏰ Scheduled bot restart in 2 seconds")
-            
+
             return web.json_response({
                 'success': True,
-                'message': 'Database restored successfully. Bot is restarting...',
-                'backup_path': backup_path if os.path.exists(backup_path) else None,
-                'stats': {
-                    'users': user_count,
-                    'games': game_count,
-                    'transactions': transaction_count
-                },
-                'compression_type': compression_type or 'none'
+                'message': 'Database restored successfully'
             })
-            
+
         except Exception as e:
-            logger.error(f"❌ Error during database restore: {e}")
-            
-            # Restore from backup if possible
-            if os.path.exists(backup_path):
-                logger.info(f"📦 Restoring from backup after failed restore...")
-                shutil.copy2(backup_path, db_path)
-                logger.info(f"✅ Restored from backup")
-            
-            # Cleanup temp files
-            if os.path.exists(final_db_path):
-                os.unlink(final_db_path)
-            if compression_type == 'zip' and 'extract_dir' in locals():
-                shutil.rmtree(extract_dir, ignore_errors=True)
-            
+            shutil.copy2(backup_path, db_path)
+
             return web.json_response({
                 'success': False,
-                'message': f'Failed to restore database: {str(e)}'
+                'message': f'Restore failed: {str(e)}'
             }, status=500)
-            
+
     except Exception as e:
-        logger.error(f"❌ Error in restore database endpoint: {e}")
         return web.json_response({
             'success': False,
             'message': str(e)
