@@ -948,6 +948,303 @@ class EnhancedPaymentValidator:
         except Exception as e:
             logger.error(f"CBE Birr verification error: {e}", exc_info=True)
             return False, None, [f"Verification error: {str(e)}"]
+        
+        
+        
+        
+        
+        # ==================== ENHANCED CBE BIRR SCRAPER WITH AMHARIC & OROMIFA SUPPORT ====================
+
+class CbeBirrScraper:
+    """SMS scraper for CBE Birr receipts - Enhanced with Amharic & Oromifa support"""
+    
+    def extract_receipt_number(self, sms_text: str):
+        """Extract receipt/transaction number from SMS"""
+        if not sms_text or sms_text == "WITHDRAW":
+            return None
+            
+        sms_text = sms_text.replace('\n', ' ').replace('\r', ' ')
+        sms_text = ' '.join(sms_text.split())
+        
+        # Receipt number patterns (mostly alphanumeric)
+        patterns = [
+            # English patterns
+            r'Txn\s*ID\s*([A-Z0-9]{10,15})',
+            r'Receipt\s*(?:No|Number|#)?[:\s]*([A-Z0-9]{8,15})',
+            r'receipt\s*(?:No|Number|#)?[:\s]*([A-Z0-9]{8,15})',
+            r'Ref\s*(?:No|Number|#)?[:\s]*([A-Z0-9]{8,15})',
+            r'Transaction\s*(?:ID|No)?[:\s]*([A-Z0-9]{8,15})',
+            r'(\b[A-Z0-9]{10,15}\b)',
+            
+            # Amharic patterns
+            r'የግብይት\s*ቁጥር\s*([A-Z0-9]{8,15})',
+            r'ደረሳኝ\s*(?:ቁጥር)?[:\s]*([A-Z0-9]{8,15})',
+            r'ማጣቀሻ\s*(?:ቁጥር)?[:\s]*([A-Z0-9]{8,15})',
+            r'የክፍያ\s*ማረጋገጫ\s*([A-Z0-9]{8,15})',
+            
+            # Oromifa patterns
+            r'Lakkoofsa\s*Tiraanzaakshinii\s*([A-Z0-9]{8,15})',
+            r'lakkoofsa\s*[:\s]*([A-Z0-9]{8,15})',
+            r'ref\s*[:\s]*([A-Z0-9]{8,15})',
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, sms_text, re.IGNORECASE)
+            if match:
+                receipt_no = match.group(1).strip().upper()
+                if self.validate_receipt_number(receipt_no):
+                    return receipt_no
+        
+        return None
+    
+    def validate_receipt_number(self, receipt_no: str):
+        if not receipt_no or len(receipt_no) < 8:
+            return False
+        if not re.match(r'^[A-Z0-9]+$', receipt_no):
+            return False
+        return True
+    
+    def extract_phone_number(self, sms_text: str):
+        """Extract phone number from SMS with multilingual support"""
+        if not sms_text or sms_text == "WITHDRAW":
+            return None
+            
+        sms_text = sms_text.replace('\n', ' ').replace('\r', ' ')
+        sms_text = ' '.join(sms_text.split())
+        
+        # Phone patterns with language support
+        phone_patterns = [
+            # Standard patterns
+            r'PH=(\d{12})',
+            r'Phone\s*(?:No|Number)?[:\s]*(\+?251\d{9})',
+            r'phone\s*(?:No|Number)?[:\s]*(\+?251\d{9})',
+            r'(\+251\d{9})',
+            r'(09\d{8})',
+            r'(251\d{9})',
+            
+            # Amharic patterns
+            r'ስልክ\s*(?:ቁጥር)?[:\s]*(\+?251\d{9}|09\d{8})',
+            r'ስ.ቁ\s*[:\s]*(\+?251\d{9}|09\d{8})',
+            r'ተንቀሳቃሽ\s*ስልክ\s*[:\s]*(\+?251\d{9}|09\d{8})',
+            
+            # Oromifa patterns
+            r'bilbilaa\s*(?:lakkoofsa)?[:\s]*(\+?251\d{9}|09\d{8})',
+            r'lakkoofsa\s*bilbilaa\s*[:\s]*(\+?251\d{9}|09\d{8})',
+            r'mobayilii\s*[:\s]*(\+?251\d{9}|09\d{8})',
+        ]
+        
+        for pattern in phone_patterns:
+            match = re.search(pattern, sms_text, re.IGNORECASE)
+            if match:
+                phone = match.group(1).strip()
+                return self._format_phone_number(phone)
+        
+        logger.warning(f"No valid phone number found in SMS: {sms_text[:100]}...")
+        return None
+    
+    def extract_amount(self, sms_text: str):
+        """Extract amount with multilingual support"""
+        if not sms_text or sms_text == "WITHDRAW":
+            return None
+            
+        sms_text = sms_text.replace('\n', ' ').replace('\r', ' ')
+        sms_text = ' '.join(sms_text.split())
+        
+        # Multilingual amount patterns
+        amount_patterns = [
+            # English patterns
+            r'sent\s*([\d,]+\.?\d*)\s*Br',
+            r'Amount\s*[:\s]*([\d,]+\.?\d*)',
+            r'amount\s*[:\s]*([\d,]+\.?\d*)',
+            r'ETB\s*([\d,]+\.?\d*)',
+            r'([\d,]+\.\d{2})\s*(?:ETB|BIRR|Br)',
+            r'([\d,]+)\s*(?:ETB|BIRR|Br)',
+            
+            # Amharic patterns
+            r'ተልኳል\s*([\d,]+\.?\d*)\s*ብር',
+            r'ተልክዋል\s*([\d,]+\.?\d*)\s*ብር',
+            r'መጠን\s*[:\s]*([\d,]+\.?\d*)',
+            r'([\d,]+\.?\d{2})\s*ብር',
+            r'([\d,]+)\s*ብር',
+            
+            # Oromifa patterns
+            r'ergame\s*([\d,]+\.?\d*)\s*(?:Qarshii|Birrii)',
+            r'ergamte\s*([\d,]+\.?\d*)\s*(?:Qarshii|Birrii)',
+            r'hangam\s*[:\s]*([\d,]+\.?\d*)',
+            r'maallaqa\s*[:\s]*([\d,]+\.?\d*)',
+            r'([\d,]+\.?\d{2})\s*(?:Qarshii|Birrii)',
+            r'Qarshii\s*([\d,]+\.?\d*)',
+            r'Birrii\s*([\d,]+\.?\d*)',
+        ]
+        
+        for pattern in amount_patterns:
+            matches = re.findall(pattern, sms_text, re.IGNORECASE)
+            if matches:
+                for match in matches:
+                    if isinstance(match, tuple):
+                        match = match[0]
+                    try:
+                        amount_str = str(match).replace(',', '')
+                        amount_float = float(amount_str)
+                        # Validate reasonable amount (between 1 and 100,000)
+                        if 1 <= amount_float <= 100000:
+                            return amount_float
+                    except ValueError:
+                        continue
+        
+        return None
+    
+    def extract_receiver_name(self, sms_text: str):
+        """Extract receiver name with multilingual support"""
+        if not sms_text or sms_text == "WITHDRAW":
+            return None
+            
+        sms_text = sms_text.replace('\n', ' ').replace('\r', ' ')
+        sms_text = ' '.join(sms_text.split())
+        
+        # Name patterns in multiple languages
+        name_patterns = [
+            # English patterns
+            r'to\s+([A-Za-z\s]+?)(?:\s+on\s+|\s*,\s*|\.|$)',
+            r'for\s+([A-Za-z\s]+?)(?:\s+on\s+|\s*,\s*|\.|$)',
+            r'Receiver\s*[:\s]*([A-Za-z\s]+?)(?:\s*[,.]|\s*$)',
+            r'Beneficiary\s*[:\s]*([A-Za-z\s]+?)(?:\s*[,.]|\s*$)',
+            
+            # Amharic patterns
+            r'ለ\s+([ሀ-ፐ\s]+?)(?:\s+በ\s+|\s*[,.]|\s*$|\))',
+            r'ወደ\s+([ሀ-ፐ\s]+?)(?:\s+በ\s+|\s*[,.]|\s*$|\))',
+            r'ተቀባይ\s*[:\s]*([ሀ-ፐ\s]+?)(?:\s*[,.]|\s*$|\))',
+            r'ለሚከተለው\s+([ሀ-ፐ\s]+?)(?:\s*[,.]|\s*$)',
+            
+            # Oromifa patterns
+            r'gara\s+([A-Za-zሀ-ፐ\s]+?)(?:\s+irratti|\s*[,.]|\s*$|\))',
+            r'fudhataa\s*[:\s]*([A-Za-zሀ-ፐ\s]+?)(?:\s*[,.]|\s*$|\))',
+            r'maqaa\s*[:\s]*([A-Za-zሀ-ፐ\s]+?)(?:\s*[,.]|\s*$|\))',
+            r'kan\s+([A-Za-zሀ-ፐ\s]+?)(?:\s*[,.]|\s*$)',
+        ]
+        
+        for pattern in name_patterns:
+            match = re.search(pattern, sms_text, re.IGNORECASE)
+            if match:
+                name = match.group(1).strip()
+                # Clean up name
+                name = re.sub(r'\s+', ' ', name)
+                # Remove any trailing punctuation
+                name = re.sub(r'[.,;:\s]+$', '', name)
+                if len(name) > 2 and not name.isdigit():
+                    return name
+        
+        return None
+    
+    def extract_date_time(self, sms_text: str):
+        """Extract transaction date and time"""
+        if not sms_text or sms_text == "WITHDRAW":
+            return None, None
+            
+        sms_text = sms_text.replace('\n', ' ').replace('\r', ' ')
+        sms_text = ' '.join(sms_text.split())
+        
+        # Date patterns
+        date_patterns = [
+            # English patterns
+            r'on\s+(\d{2}[/-]\d{2}[/-]\d{4})',
+            r'date\s*[:\s]*(\d{2}[/-]\d{2}[/-]\d{4})',
+            
+            # Amharic patterns
+            r'በ\s+(\d{2}[/-]\d{2}[/-]\d{4})',
+            r'ቀን\s*[:\s]*(\d{2}[/-]\d{2}[/-]\d{4})',
+            
+            # Oromifa patterns
+            r'guyyaa\s*[:\s]*(\d{2}[/-]\d{2}[/-]\d{4})',
+            r'tti\s+(\d{2}[/-]\d{2}[/-]\d{4})',
+        ]
+        
+        date = None
+        for pattern in date_patterns:
+            match = re.search(pattern, sms_text, re.IGNORECASE)
+            if match:
+                date = match.group(1)
+                break
+        
+        # Time patterns
+        time_patterns = [
+            r'at\s+(\d{2}:\d{2}:\d{2})',
+            r'time\s*[:\s]*(\d{2}:\d{2}:\d{2})',
+            r'(\d{2}:\d{2}:\d{2})',
+            r'በ\s+(\d{2}:\d{2}:\d{2})',
+            r'ሰዓት\s*[:\s]*(\d{2}:\d{2}:\d{2})',
+        ]
+        
+        time = None
+        for pattern in time_patterns:
+            match = re.search(pattern, sms_text, re.IGNORECASE)
+            if match:
+                time = match.group(1)
+                break
+        
+        return date, time
+    
+    def _format_phone_number(self, phone: str):
+        """Format phone number to standard format (251XXXXXXXXX) for API"""
+        if not phone:
+            return None
+        
+        # If it's masked, keep it for display but also try to extract digits
+        if '****' in phone:
+            # Try to get the full number from context if possible
+            # For API, we need the full number, so this might fail
+            # Return as is for now - API might still work with masked?
+            return phone
+            
+        # Remove non-digits
+        phone_clean = re.sub(r'[^\d]', '', phone)
+        
+        # Format to 251XXXXXXXXX (12 digits) for API
+        if phone_clean.startswith('09') and len(phone_clean) == 10:
+            return '251' + phone_clean[1:]
+        elif phone_clean.startswith('+251') and len(phone_clean) == 13:
+            return phone_clean[1:]
+        elif phone_clean.startswith('251') and len(phone_clean) == 12:
+            return phone_clean
+        elif len(phone_clean) == 9:
+            return '251' + phone_clean
+        
+        return phone_clean
+    
+    def extract_info_from_sms(self, sms_text: str):
+        """Extract all info from SMS with multilingual support"""
+        result = {
+            'receipt_number': None,
+            'phone_number': None,
+            'amount': None,
+            'receiver_name': None,
+            'date': None,
+            'time': None,
+            'extracted': False
+        }
+        
+        if not sms_text or sms_text == "WITHDRAW":
+            return result
+            
+        sms_text = sms_text.replace('\n', ' ').replace('\r', ' ')
+        sms_text = ' '.join(sms_text.split())
+        
+        # Extract all fields
+        result['receipt_number'] = self.extract_receipt_number(sms_text)
+        result['phone_number'] = self.extract_phone_number(sms_text)
+        result['amount'] = self.extract_amount(sms_text)
+        result['receiver_name'] = self.extract_receiver_name(sms_text)
+        result['date'], result['time'] = self.extract_date_time(sms_text)
+        
+        # Check if extraction was successful (receipt, phone, and amount are essential)
+        result['extracted'] = all([
+            result['receipt_number'] is not None,
+            result['phone_number'] is not None,
+            result['amount'] is not None
+        ])
+        
+        logger.info(f"CBE SMS Extraction Result: {result}")
+        return result
 
 # ==================== SHUTDOWN HANDLERS ====================
 async def enhanced_shutdown(restart: bool = False):
