@@ -451,20 +451,33 @@ class CbeBirrVerificationApiClient:
         
         return result
 
-# ==================== SMS SCRAPERS ====================
+# ==================== ENHANCED SMS SCRAPERS WITH AMHARIC & OROMIFA SUPPORT ====================
+
 class TelebirrScraper:
-    """SMS-only scraper for Ethio telecom receipts"""
+    """SMS scraper for Ethio telecom receipts - Enhanced with Amharic & Oromifa support"""
     
     def extract_transaction_id(self, sms_text: str):
+        """Extract transaction ID from SMS"""
         if not sms_text or sms_text == "WITHDRAW":
             return None
             
         sms_text = sms_text.replace('\n', ' ').replace('\r', ' ')
         sms_text = ' '.join(sms_text.split())
         
+        # Your specific pattern - from the example
+        # "የሂሳብ እንቅስቃሴ ቁጥርዎ DC12B3F6J8 ነዉ"
+        # Also the URL: https://transactioninfo.ethiotelecom.et/receipt/DC12B3F6J8
+        
         patterns = [
+            # From URL - most reliable
             r'transactioninfo\.ethiotelecom\.et/receipt/([A-Z0-9]+)',
             r'receipt/([A-Z0-9]+)',
+            
+            # Amharic pattern - የሂሳብ እንቅስቃሴ ቁጥርዎ XXXX ነዉ
+            r'የሂሳብ\s*እንቅስቃሴ\s*ቁጥርዎ\s*([A-Z0-9]{8,12})\s*ነዉ',
+            r'ቁጥርዎ\s*([A-Z0-9]{8,12})\s*ነዉ',
+            
+            # English patterns
             r'transaction\s*(?:No|ID|#)?[:\s]*([A-Z0-9]{8,12})',
             r'TX\s*(?:No|ID|#)?[:\s]*([A-Z0-9]{8,12})',
             r'(\b[A-Z0-9]{8,12}\b)',
@@ -484,13 +497,172 @@ class TelebirrScraper:
             return False
         if not re.match(r'^[A-Z0-9]+$', tx_id):
             return False
+        # Transaction IDs usually have both letters and numbers
         if tx_id.isdigit():
             return False
         if not re.search(r'[A-Z]', tx_id):
             return False
         return True
     
+    def extract_amount(self, sms_text: str):
+        """Extract amount with Amharic support - specifically for your format"""
+        if not sms_text or sms_text == "WITHDRAW":
+            return None
+            
+        sms_text = sms_text.replace('\n', ' ').replace('\r', ' ')
+        sms_text = ' '.join(sms_text.split())
+        
+        # Your specific pattern: "ወደ YITBAREK AMARE(0938****89) 5.00 ብር ልከዋል"
+        # Look for number before "ብር"
+        
+        amount_patterns = [
+            # Your specific Amharic pattern - number before ብር
+            r'([\d,]+\.?\d*)\s*ብር\s*ልከዋል',
+            r'([\d,]+\.?\d*)\s*ብር',
+            
+            # English patterns
+            r'ETB\s*([\d,]+\.?\d*)',
+            r'BIRR\s*([\d,]+\.?\d*)',
+            r'Amount\s*[:\s]*([\d,]+\.?\d*)',
+            r'([\d,]+\.?\d{2})\s*(?:ETB|BIRR)',
+            
+            # Oromifa patterns
+            r'Qarshii\s*([\d,]+\.?\d*)',
+            r'([\d,]+\.?\d{2})\s*(?:Qarshii|Birrii)',
+            
+            # Generic number pattern (as fallback)
+            r'([\d,]+\.\d{2})',
+        ]
+        
+        for pattern in amount_patterns:
+            matches = re.findall(pattern, sms_text, re.IGNORECASE)
+            if matches:
+                for match in matches:
+                    if isinstance(match, tuple):
+                        match = match[0]
+                    try:
+                        amount_str = str(match).replace(',', '')
+                        amount_float = float(amount_str)
+                        # Validate reasonable amount (between 1 and 100,000)
+                        if 1 <= amount_float <= 100000:
+                            return amount_float
+                    except ValueError:
+                        continue
+        
+        return None
+    
+    def extract_phone_number(self, sms_text: str):
+        """Extract phone number from SMS - handles your masked format"""
+        if not sms_text or sms_text == "WITHDRAW":
+            return None
+            
+        sms_text = sms_text.replace('\n', ' ').replace('\r', ' ')
+        sms_text = ' '.join(sms_text.split())
+        
+        # Your specific pattern: "ወደ YITBAREK AMARE(0938****89)"
+        # Look for phone in parentheses
+        
+        phone_patterns = [
+            # Your specific Amharic pattern - phone in parentheses
+            r'\((\+?2519\*\*\*\*\d{2,4})\)',
+            r'\((\+?2519\d{4}\*\*\*\*\d{2,4})\)',
+            r'\((\+?2519\d{8})\)',
+            r'\((\+?251\d{9})\)',
+            r'\((\+?2519\*\*\*\*\d{2,4})\)',
+            r'\((\+?2519\d{4}\*\*\*\*\d{2,4})\)',
+            
+            # Standard patterns
+            r'to\s+[^\(]*\((\+?2519\*\*\*\*\d{4})\)',
+            r'receiver\s*[:\s]*\((\+?2519\*\*\*\*\d{4})\)',
+            r'(\+2519\d{8})',
+            r'(2519\d{8})',
+            r'(09\d{8})',
+            
+            # Amharic patterns
+            r'ስልክ\s*[:\s]*(\+?2519\d{8}|09\d{8})',
+            r'ስልክ\s*[:\s]*\((\+?2519\d{4}\*\*\*\*\d{4})\)',
+            
+            # Oromifa patterns
+            r'bilbilaa\s*[:\s]*(\+?2519\d{8}|09\d{8})',
+        ]
+        
+        for pattern in phone_patterns:
+            match = re.search(pattern, sms_text, re.IGNORECASE)
+            if match:
+                phone = match.group(1).strip()
+                return self._format_phone_number(phone)
+        
+        return None
+    
+    def extract_receiver_name(self, sms_text: str):
+        """Extract receiver name from SMS - handles your format"""
+        if not sms_text or sms_text == "WITHDRAW":
+            return None
+            
+        sms_text = sms_text.replace('\n', ' ').replace('\r', ' ')
+        sms_text = ' '.join(sms_text.split())
+        
+        # Your specific pattern: "ወደ YITBAREK AMARE(0938****89)"
+        # Name before the parentheses
+        
+        name_patterns = [
+            # Your specific Amharic pattern - after ወደ and before (
+            r'ወደ\s+([A-Za-zሀ-ፐ\s]+?)\(',
+            r'ወደ\s+([A-Za-zሀ-ፐ\s]+?)(?:\s+\(|\s*$)',
+            
+            # English patterns
+            r'to\s+([A-Za-z\s]+?)(?:\s+\(|\s+on|\s*[,.]|\s+at|$)',
+            r'receiver\s*[:\s]*([A-Za-z\s]+?)(?:\s+[,.]|\s*$|\.)',
+            
+            # Amharic patterns
+            r'ለ\s+([ሀ-ፐ\s]+?)(?:\s+በ|\s*[,.]|\s*$|\))',
+            r'ተቀባይ\s*[:\s]*([ሀ-ፐ\s]+?)(?:\s+[,.]|\s*$|\))',
+            
+            # Oromifa patterns
+            r'gara\s+([A-Za-zሀ-ፐ\s]+?)(?:\s+\(|\s+irratti|\s*[,.]|\s*$)',
+            r'fudhataa\s*[:\s]*([A-Za-zሀ-ፐ\s]+?)(?:\s+[,.]|\s*$|\))',
+        ]
+        
+        for pattern in name_patterns:
+            match = re.search(pattern, sms_text, re.IGNORECASE)
+            if match:
+                name = match.group(1).strip()
+                # Clean up name (remove extra spaces, etc.)
+                name = re.sub(r'\s+', ' ', name)
+                if len(name) > 2 and not name.isdigit():
+                    return name
+        
+        return None
+    
+    def _format_phone_number(self, phone: str):
+        """Format phone number to standard format - preserves masked format"""
+        if not phone:
+            return None
+            
+        # If it's already masked, keep it as is for display
+        if '****' in phone:
+            # Ensure it has +251 prefix if missing
+            if not phone.startswith('+') and not phone.startswith('0'):
+                return '+251' + phone
+            return phone
+            
+        # Remove non-digits
+        phone_clean = re.sub(r'[^\d]', '', phone)
+        
+        # Format to +251XXXXXXXXX
+        if phone_clean.startswith('09') and len(phone_clean) == 10:
+            return '+251' + phone_clean[1:]
+        elif phone_clean.startswith('251') and len(phone_clean) == 12:
+            return '+' + phone_clean
+        elif phone_clean.startswith('0') and len(phone_clean) == 10:
+            return '+251' + phone_clean[1:]
+        elif len(phone_clean) == 9:
+            return '+251' + phone_clean
+        
+        return phone
+    
     def extract_info_from_sms(self, sms_text: str):
+        """Extract all info from SMS with multilingual support"""
         result = {
             'transaction_id': None,
             'amount': None,
@@ -505,209 +677,27 @@ class TelebirrScraper:
         sms_text = sms_text.replace('\n', ' ').replace('\r', ' ')
         sms_text = ' '.join(sms_text.split())
         
+        # Extract transaction ID
         result['transaction_id'] = self.extract_transaction_id(sms_text)
         
-        amount_patterns = [
-            r'ETB\s*([\d,]+\.?\d*)',
-            r'ብር\s*([\d,]+\.?\d*)',
-            r'BIRR\s*([\d,]+\.?\d*)',
-            r'([\d,]+\.?\d{2})\s*(?:ETB|ብር|BIRR)?'
-        ]
+        # Extract amount
+        result['amount'] = self.extract_amount(sms_text)
         
-        for pattern in amount_patterns:
-            matches = re.findall(pattern, sms_text, re.IGNORECASE)
-            if matches:
-                for match in matches:
-                    if isinstance(match, tuple):
-                        match = match[0]
-                    try:
-                        amount_str = str(match).replace(',', '')
-                        amount_float = float(amount_str)
-                        if amount_float > 0.1:
-                            result['amount'] = amount_float
-                            break
-                    except ValueError:
-                        continue
+        # Extract phone number
+        result['receiver_phone'] = self.extract_phone_number(sms_text)
         
-        phone_patterns = [
-            r'to\s+[^\(]*\((\+?2519\d{8}|09\d{8}|2519\*\*\*\*\d{4})\)',
-            r'receiver\s*[:\s]*(\+?2519\d{8}|09\d{8}|2519\*\*\*\*\d{4})',
-            r'(\+2519\d{8})',
-            r'(09\d{8})',
-        ]
+        # Extract receiver name
+        result['receiver_name'] = self.extract_receiver_name(sms_text)
         
-        for pattern in phone_patterns:
-            match = re.search(pattern, sms_text, re.IGNORECASE)
-            if match:
-                phone = match.group(1).strip()
-                if '****' in phone:
-                    result['receiver_phone'] = phone
-                elif '2519' in phone or '09' in phone:
-                    if phone.startswith('09'):
-                        phone = '+251' + phone[1:]
-                    elif phone.startswith('251'):
-                        phone = '+' + phone
-                    elif not phone.startswith('+'):
-                        phone = '+251' + phone[-9:] if len(phone) >= 9 else phone
-                    result['receiver_phone'] = phone
-                break
-        
+        # Check if extraction was successful
         result['extracted'] = all([
             result['transaction_id'] is not None,
             result['amount'] is not None,
             result['receiver_phone'] is not None
         ])
         
+        logger.info(f"Telebirr SMS Extraction Result: {result}")
         return result
-
-class CbeBirrScraper:
-    """SMS scraper for CBE Birr receipts - UPDATED FOR NEW SMS FORMAT"""
-    
-    def extract_receipt_number(self, sms_text: str):
-        if not sms_text or sms_text == "WITHDRAW":
-            return None
-            
-        sms_text = sms_text.replace('\n', ' ').replace('\r', ' ')
-        sms_text = ' '.join(sms_text.split())
-        
-        patterns = [
-            r'Txn\s*ID\s*([A-Z0-9]{10,15})',
-            r'Receipt\s*(?:No|Number|#)?[:\s]*([A-Z0-9]{8,15})',
-            r'receipt\s*(?:No|Number|#)?[:\s]*([A-Z0-9]{8,15})',
-            r'(\b[A-Z0-9]{10,15}\b)',
-        ]
-        
-        for pattern in patterns:
-            match = re.search(pattern, sms_text, re.IGNORECASE)
-            if match:
-                receipt_no = match.group(1).strip().upper()
-                if self.validate_receipt_number(receipt_no):
-                    return receipt_no
-        
-        return None
-    
-    def validate_receipt_number(self, receipt_no: str):
-        if not receipt_no or len(receipt_no) < 8:
-            return False
-        if not re.match(r'^[A-Z0-9]+$', receipt_no):
-            return False
-        return True
-    
-    def extract_phone_number(self, sms_text: str):
-        if not sms_text or sms_text == "WITHDRAW":
-            return None
-            
-        sms_text = sms_text.replace('\n', ' ').replace('\r', ' ')
-        sms_text = ' '.join(sms_text.split())
-        
-        phone_patterns = [
-            r'PH=(\d{12})',
-            r'Phone\s*(?:No|Number)?[:\s]*(\+?251\d{9})',
-            r'phone\s*(?:No|Number)?[:\s]*(\+?251\d{9})',
-            r'(\+251\d{9})',
-            r'(09\d{8})'
-        ]
-        
-        for pattern in phone_patterns:
-            match = re.search(pattern, sms_text, re.IGNORECASE)
-            if match:
-                phone = match.group(1).strip()
-                
-                phone_clean = re.sub(r'[^\d]', '', phone)
-                
-                if phone_clean.startswith('09') and len(phone_clean) == 10:
-                    phone_clean = '251' + phone_clean[2:]
-                elif phone_clean.startswith('+251'):
-                    phone_clean = phone_clean[1:]
-                elif phone_clean.startswith('251') and len(phone_clean) == 12:
-                    pass
-                elif len(phone_clean) == 9:
-                    phone_clean = '251' + phone_clean
-                elif len(phone_clean) == 12 and phone_clean.startswith('251'):
-                    pass
-                
-                if len(phone_clean) == 12 and phone_clean.startswith('251'):
-                    logger.info(f"📱 Extracted and formatted phone for CBE API: {phone_clean}")
-                    return phone_clean
-                else:
-                    logger.warning(f"⚠️ Phone format incorrect after processing: {phone_clean}")
-        
-        logger.warning(f"⚠️ No valid phone number found in SMS: {sms_text[:100]}...")
-        return None
-    
-    def extract_amount(self, sms_text: str):
-        if not sms_text or sms_text == "WITHDRAW":
-            return None
-            
-        sms_text = sms_text.replace('\n', ' ').replace('\r', ' ')
-        sms_text = ' '.join(sms_text.split())
-        
-        amount_patterns = [
-            r'sent\s*([\d,]+\.?\d*)\s*Br',
-            r'Amount\s*[:\s]*([\d,]+\.?\d*)',
-            r'amount\s*[:\s]*([\d,]+\.?\d*)',
-            r'ETB\s*([\d,]+\.?\d*)',
-            r'([\d,]+\.\d{2})\s*(?:ETB|ብር|BIRR|Br)?'
-        ]
-        
-        for pattern in amount_patterns:
-            matches = re.findall(pattern, sms_text, re.IGNORECASE)
-            if matches:
-                for match in matches:
-                    if isinstance(match, tuple):
-                        match = match[0]
-                    try:
-                        amount_str = str(match).replace(',', '')
-                        amount_float = float(amount_str)
-                        if amount_float > 0.1:
-                            return amount_float
-                    except ValueError:
-                        continue
-        
-        return None
-    
-    def extract_receiver_name(self, sms_text: str):
-        if not sms_text or sms_text == "WITHDRAW":
-            return None
-            
-        sms_text = sms_text.replace('\n', ' ').replace('\r', ' ')
-        sms_text = ' '.join(sms_text.split())
-        
-        pattern = r'to\s+([A-Z\s]+?)(?:\s+on\s+|\s*,\s*|\.)'
-        match = re.search(pattern, sms_text, re.IGNORECASE)
-        if match:
-            name = match.group(1).strip()
-            if name and len(name) > 2:
-                return name
-        
-        return None
-    
-    def extract_info_from_sms(self, sms_text: str):
-        result = {
-            'receipt_number': None,
-            'phone_number': None,
-            'amount': None,
-            'receiver_name': None,
-            'extracted': False
-        }
-        
-        if not sms_text or sms_text == "WITHDRAW":
-            return result
-            
-        result['receipt_number'] = self.extract_receipt_number(sms_text)
-        result['phone_number'] = self.extract_phone_number(sms_text)
-        result['amount'] = self.extract_amount(sms_text)
-        result['receiver_name'] = self.extract_receiver_name(sms_text)
-        
-        result['extracted'] = all([
-            result['receipt_number'] is not None,
-            result['phone_number'] is not None,
-            result['amount'] is not None
-        ])
-        
-        logger.info(f"CBE SMS Extraction Result: {result}")
-        return result
-
 # ==================== ENHANCED PAYMENT VALIDATOR ====================
 class EnhancedPaymentValidator:
     """Enhanced validator with SMS parsing and API verification"""
