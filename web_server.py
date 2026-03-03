@@ -2140,7 +2140,7 @@ async def admin_reject_withdrawal(request):
 # ==================== FIXED: Add endpoint to get commission details from commission_records ====================
 @routes.get('/api/admin/commission-details')
 async def admin_commission_details(request):
-    """Get detailed commission breakdown by game - with daily and monthly summaries"""
+    """Get detailed commission breakdown by game - FIXED: Uses commission_records table"""
     try:
         from database.db import Database
         
@@ -2149,45 +2149,18 @@ async def admin_commission_details(request):
         limit = int(request.query.get('limit', 20))
         offset = (page - 1) * limit
         
-        logger.info(f"📊 Commission details request - page: {page}, limit: {limit}")
-        
         with Database.get_cursor() as cursor:
-            # First, check if commission_records table exists
-            cursor.execute("""
-                SELECT name FROM sqlite_master 
-                WHERE type='table' AND name='commission_records'
-            """)
-            table_exists = cursor.fetchone()
-            
-            if not table_exists:
-                logger.warning("commission_records table does not exist")
-                return web.json_response({
-                    'success': True,
-                    'games': [],
-                    'daily': [],
-                    'monthly': [],
-                    'pagination': {
-                        'page': page,
-                        'limit': limit,
-                        'total': 0,
-                        'pages': 0
-                    },
-                    'message': 'commission_records table not found',
-                    'timestamp': datetime.now().isoformat()
-                })
-            
-            # Get games commission data
             cursor.execute("""
                 SELECT 
                     cr.game_id,
-                    COALESCE(g.round_number, 1) as round_number,
+                    g.round_number,
                     cr.recorded_at as game_date,
-                    COALESCE(cr.real_players_count, 0) as real_players,
-                    COALESCE(cr.commission_amount, 0) as commission,
-                    COALESCE(cr.status, 'recorded') as commission_status,
-                    COALESCE(g.total_cards_sold, 0) as total_cards_sold,
-                    COALESCE(g.prize_pool, 0) as prize_pool,
-                    COALESCE(g.total_cards_sold * g.card_price, 0) as total_sales
+                    cr.real_players_count as real_players,
+                    cr.commission_amount as commission,
+                    cr.status as commission_status,
+                    g.total_cards_sold,
+                    g.prize_pool,
+                    (g.total_cards_sold * g.card_price) as total_sales
                 FROM commission_records cr
                 LEFT JOIN games g ON cr.game_id = g.game_id
                 ORDER BY cr.recorded_at DESC
@@ -2199,12 +2172,12 @@ async def admin_commission_details(request):
             
             for row in rows:
                 game_data = {
-                    'game_id': row[0] or 'N/A',
-                    'round_number': row[1] or 1,
-                    'game_date': row[2].isoformat() if row[2] else datetime.now().isoformat(),
+                    'game_id': row[0],
+                    'round_number': row[1],
+                    'game_date': row[2],
                     'real_players': row[3] or 0,
                     'commission': float(row[4] or 0),
-                    'commission_status': row[5] or 'recorded',
+                    'commission_status': row[5],
                     'total_cards_sold': row[6] or 0,
                     'prize_pool': float(row[7] or 0),
                     'total_sales': float(row[8] or 0)
@@ -2214,15 +2187,15 @@ async def admin_commission_details(request):
             # Get daily summary
             cursor.execute("""
                 SELECT 
-                    date(cr.recorded_at) as day,
+                    date(recorded_at) as day,
                     COUNT(*) as games_count,
-                    COALESCE(SUM(cr.real_players_count), 0) as total_players,
-                    COALESCE(SUM(cr.commission_amount), 0) as total_commission,
-                    COALESCE(SUM(g.total_cards_sold), 0) as total_cards_sold,
-                    COALESCE(SUM(g.total_cards_sold * g.card_price), 0) as total_sales
+                    SUM(real_players_count) as total_players,
+                    SUM(commission_amount) as total_commission,
+                    SUM(g.total_cards_sold) as total_cards_sold,
+                    SUM(g.total_cards_sold * g.card_price) as total_sales
                 FROM commission_records cr
                 LEFT JOIN games g ON cr.game_id = g.game_id
-                GROUP BY date(cr.recorded_at)
+                GROUP BY date(recorded_at)
                 ORDER BY day DESC
                 LIMIT 30
             """)
@@ -2230,7 +2203,7 @@ async def admin_commission_details(request):
             daily_data = []
             for row in daily_rows:
                 daily_data.append({
-                    'date': row[0] or 'N/A',
+                    'date': row[0],
                     'games_count': row[1] or 0,
                     'total_players': row[2] or 0,
                     'total_commission': float(row[3] or 0),
@@ -2241,15 +2214,15 @@ async def admin_commission_details(request):
             # Get monthly summary
             cursor.execute("""
                 SELECT 
-                    strftime('%Y-%m', cr.recorded_at) as month,
+                    strftime('%Y-%m', recorded_at) as month,
                     COUNT(*) as games_count,
-                    COALESCE(SUM(cr.real_players_count), 0) as total_players,
-                    COALESCE(SUM(cr.commission_amount), 0) as total_commission,
-                    COALESCE(SUM(g.total_cards_sold), 0) as total_cards_sold,
-                    COALESCE(SUM(g.total_cards_sold * g.card_price), 0) as total_sales
+                    SUM(real_players_count) as total_players,
+                    SUM(commission_amount) as total_commission,
+                    SUM(g.total_cards_sold) as total_cards_sold,
+                    SUM(g.total_cards_sold * g.card_price) as total_sales
                 FROM commission_records cr
                 LEFT JOIN games g ON cr.game_id = g.game_id
-                GROUP BY strftime('%Y-%m', cr.recorded_at)
+                GROUP BY strftime('%Y-%m', recorded_at)
                 ORDER BY month DESC
                 LIMIT 12
             """)
@@ -2257,7 +2230,7 @@ async def admin_commission_details(request):
             monthly_data = []
             for row in monthly_rows:
                 monthly_data.append({
-                    'month': row[0] or 'N/A',
+                    'month': row[0],
                     'games_count': row[1] or 0,
                     'total_players': row[2] or 0,
                     'total_commission': float(row[3] or 0),
@@ -2269,8 +2242,6 @@ async def admin_commission_details(request):
             cursor.execute("SELECT COUNT(*) as total FROM commission_records")
             total_row = cursor.fetchone()
             total = total_row[0] if total_row else 0
-            
-            logger.info(f"📊 Commission details - games: {len(commission_games)}, daily: {len(daily_data)}, monthly: {len(monthly_data)}")
             
             return web.json_response({
                 'success': True,
@@ -2285,14 +2256,15 @@ async def admin_commission_details(request):
                 },
                 'calculation_method': 'real_players × 2 (from commission_records table)',
                 'timestamp': datetime.now().isoformat()
-            }, dumps=lambda obj: json.dumps(obj, cls=CustomJSONEncoder))
+            })
             
     except Exception as e:
-        logger.error(f"Error getting commission details: {e}", exc_info=True)
+        logger.error(f"Error getting commission details: {e}")
         return web.json_response({
             'success': False,
             'message': str(e)
         }, status=500)
+
 
 # ==================== TEST COMMISSION ENDPOINT ====================
 @routes.post('/api/admin/test-commission')
@@ -8792,7 +8764,7 @@ async def admin_html(request):
                                     admin_id: 'admin',
                                     reason: reason
                                 })
-                            });
+                                                        });
                             
                             const data = await response.json();
                             if (data.success) {
