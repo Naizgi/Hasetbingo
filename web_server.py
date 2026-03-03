@@ -4208,6 +4208,253 @@ async def admin_health_check(request):
             'timestamp': datetime.now().isoformat()
         }, status=500)
 
+
+
+
+
+
+
+# ==================== USER SEARCH API FOR ADMIN PANEL ====================
+@routes.get('/api/admin/user/search')
+async def admin_search_users(request):
+    """Search users by ID, username, or full name - for admin panel"""
+    try:
+        query = request.query.get('q', '').strip()
+        search_type = request.query.get('type', 'all')  # all, id, username, name
+        limit = int(request.query.get('limit', 20))
+        
+        if not query or len(query) < 2:
+            return web.json_response({
+                'success': True,
+                'users': [],
+                'message': 'Please enter at least 2 characters to search'
+            })
+        
+        from database.db import Database
+        
+        with Database.get_cursor() as cursor:
+            # Build search query based on type
+            if search_type == 'id':
+                # Search by user_id (exact or partial match)
+                try:
+                    # Try to parse as integer for exact match
+                    user_id = int(query)
+                    cursor.execute("""
+                        SELECT 
+                            user_id, username, full_name, balance, 
+                            created_at, status, games_played,
+                            total_wins, total_winnings
+                        FROM users 
+                        WHERE user_id = ?
+                        LIMIT ?
+                    """, (user_id, limit))
+                except ValueError:
+                    # If not an integer, search as string
+                    cursor.execute("""
+                        SELECT 
+                            user_id, username, full_name, balance, 
+                            created_at, status, games_played,
+                            total_wins, total_winnings
+                        FROM users 
+                        WHERE CAST(user_id AS TEXT) LIKE ?
+                        LIMIT ?
+                    """, (f'%{query}%', limit))
+            
+            elif search_type == 'username':
+                # Search by username
+                cursor.execute("""
+                    SELECT 
+                        user_id, username, full_name, balance, 
+                        created_at, status, games_played,
+                        total_wins, total_winnings
+                    FROM users 
+                    WHERE username LIKE ? OR username LIKE ?
+                    LIMIT ?
+                """, (f'%{query}%', f'{query}%', limit))
+            
+            elif search_type == 'name':
+                # Search by full name
+                cursor.execute("""
+                    SELECT 
+                        user_id, username, full_name, balance, 
+                        created_at, status, games_played,
+                        total_wins, total_winnings
+                    FROM users 
+                    WHERE full_name LIKE ? OR full_name LIKE ?
+                    LIMIT ?
+                """, (f'%{query}%', f'{query}%', limit))
+            
+            else:  # 'all' - search across all fields
+                cursor.execute("""
+                    SELECT 
+                        user_id, username, full_name, balance, 
+                        created_at, status, games_played,
+                        total_wins, total_winnings
+                    FROM users 
+                    WHERE 
+                        CAST(user_id AS TEXT) LIKE ? OR
+                        username LIKE ? OR
+                        full_name LIKE ?
+                    ORDER BY 
+                        CASE 
+                            WHEN CAST(user_id AS TEXT) = ? THEN 1
+                            WHEN username = ? THEN 2
+                            WHEN full_name = ? THEN 3
+                            ELSE 4
+                        END,
+                        created_at DESC
+                    LIMIT ?
+                """, (f'%{query}%', f'%{query}%', f'%{query}%', 
+                      query, query, query, limit))
+            
+            rows = cursor.fetchall()
+            users = []
+            
+            for row in rows:
+                user = {
+                    'user_id': row[0],
+                    'username': row[1],
+                    'full_name': row[2],
+                    'balance': float(row[3] or 0),
+                    'created_at': row[4].isoformat() if row[4] else None,
+                    'status': row[5],
+                    'games_played': row[6] or 0,
+                    'total_wins': row[7] or 0,
+                    'total_winnings': float(row[8] or 0)
+                }
+                users.append(user)
+            
+            # Get total count for this search
+            cursor.execute("""
+                SELECT COUNT(*) as count
+                FROM users 
+                WHERE 
+                    CAST(user_id AS TEXT) LIKE ? OR
+                    username LIKE ? OR
+                    full_name LIKE ?
+            """, (f'%{query}%', f'%{query}%', f'%{query}%'))
+            count_row = cursor.fetchone()
+            total_count = count_row[0] if count_row else 0
+            
+            logger.info(f"🔍 User search: '{query}' - found {len(users)} users")
+            
+            return web.json_response({
+                'success': True,
+                'users': users,
+                'total': total_count,
+                'query': query,
+                'search_type': search_type,
+                'timestamp': datetime.now().isoformat()
+            }, dumps=lambda obj: json.dumps(obj, cls=CustomJSONEncoder))
+            
+    except Exception as e:
+        logger.error(f"Error searching users: {e}")
+        return web.json_response({
+            'success': False,
+            'message': str(e)
+        }, status=500)
+
+
+# ==================== GET SINGLE USER DETAILS (already exists but improved) ====================
+@routes.get('/api/admin/user/{user_id}')
+async def admin_get_user_details(request):
+    """Get detailed user information - improved with more stats"""
+    try:
+        user_id_str = request.match_info['user_id']
+        user_id = parse_user_id(user_id_str)
+        
+        from database.db import Database
+        
+        with Database.get_cursor() as cursor:
+            # Get user details with aggregated stats
+            cursor.execute("""
+                SELECT 
+                    u.*, 
+                    COUNT(DISTINCT pc.game_id) as total_games_played,
+                    COUNT(pc.id) as total_cards_purchased,
+                    SUM(CASE WHEN g.winner_id = u.user_id THEN 1 ELSE 0 END) as total_wins,
+                    SUM(CASE WHEN g.winner_id = u.user_id THEN g.prize_pool ELSE 0 END) as total_winnings,
+                    SUM(CASE WHEN pc.is_fake = 0 AND pc.is_active = 1 THEN 1 ELSE 0 END) as active_cards,
+                    (SELECT COUNT(*) FROM transactions WHERE user_id = u.user_id) as total_transactions,
+                    (SELECT SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END) FROM transactions WHERE user_id = u.user_id) as total_deposits,
+                    (SELECT SUM(CASE WHEN amount < 0 THEN ABS(amount) ELSE 0 END) FROM transactions WHERE user_id = u.user_id) as total_withdrawals
+                FROM users u
+                LEFT JOIN player_cards pc ON u.user_id = pc.user_id
+                LEFT JOIN games g ON pc.game_id = g.game_id AND g.winner_id = u.user_id
+                WHERE u.user_id = ?
+                GROUP BY u.user_id
+            """, (user_id,))
+            
+            row = cursor.fetchone()
+            
+            if row:
+                user_data = dict(row)
+                # Convert Decimal to float
+                for key, value in user_data.items():
+                    if isinstance(value, decimal.Decimal):
+                        user_data[key] = float(value)
+                
+                # Get recent transactions
+                cursor.execute("""
+                    SELECT * FROM transactions 
+                    WHERE user_id = ? 
+                    ORDER BY created_at DESC 
+                    LIMIT 20
+                """, (user_id,))
+                
+                transactions = []
+                for tx_row in cursor.fetchall():
+                    tx_data = dict(tx_row)
+                    if isinstance(tx_data.get('amount'), decimal.Decimal):
+                        tx_data['amount'] = float(tx_data['amount'])
+                    transactions.append(tx_data)
+                
+                user_data['recent_transactions'] = transactions
+                
+                # Get game history
+                cursor.execute("""
+                    SELECT 
+                        g.game_id,
+                        g.round_number,
+                        g.status,
+                        g.created_at as game_date,
+                        g.prize_pool,
+                        pc.card_index,
+                        pc.is_active,
+                        CASE WHEN g.winner_id = u.user_id THEN 1 ELSE 0 END as is_winner
+                    FROM games g
+                    JOIN player_cards pc ON g.game_id = pc.game_id
+                    WHERE pc.user_id = ? AND pc.is_active = 1
+                    ORDER BY g.created_at DESC
+                    LIMIT 10
+                """, (user_id,))
+                
+                game_history = []
+                for game_row in cursor.fetchall():
+                    game_data = dict(game_row)
+                    if isinstance(game_data.get('prize_pool'), decimal.Decimal):
+                        game_data['prize_pool'] = float(game_data['prize_pool'])
+                    game_history.append(game_data)
+                
+                user_data['game_history'] = game_history
+                
+                return web.json_response({
+                    'success': True,
+                    'user': user_data,
+                    'timestamp': datetime.now().isoformat()
+                }, dumps=lambda obj: json.dumps(obj, cls=CustomJSONEncoder))
+            
+            return web.json_response({
+                'success': False,
+                'message': 'User not found'
+            }, status=404)
+            
+    except Exception as e:
+        logger.error(f"Error getting user details: {e}")
+        return web.json_response({
+            'success': False,
+            'message': str(e)
+        }, status=500)
 # ==================== DEBUG ENDPOINT ====================
 @routes.get('/api/debug/card/{user_id}/{game_id}')
 async def debug_user_card(request):

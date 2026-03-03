@@ -2369,16 +2369,22 @@
                                 <i class="fas fa-search"></i>
                                 <input type="text" id="user-search" placeholder="Search users...">
                             </div>
-                            <select class="filter-select" id="user-status-filter">
-                                <option value="all">All Status</option>
-                                <option value="active">Active</option>
-                                <option value="suspended">Suspended</option>
-                                <option value="deleted">Deleted</option>
+                            <select class="filter-select" id="user-search-type">
+                                <option value="all">All Fields</option>
+                                <option value="id">User ID</option>
+                                <option value="username">Username</option>
+                                <option value="name">Full Name</option>
                             </select>
+                            <button class="btn btn-primary" id="search-users-btn">
+                                <i class="fas fa-search"></i> Search
+                            </button>
                             <button class="btn btn-primary" id="refresh-users">
                                 <i class="fas fa-sync-alt"></i>
                             </button>
                         </div>
+                        
+                        <!-- Search Results Info -->
+                        <div id="search-results-info" style="margin-bottom: 10px; font-size: 14px; color: #666;"></div>
                         
                         <div class="table-container">
                             <table id="users-table">
@@ -3104,11 +3110,11 @@
                                 <tr>
                                     <th>Game ID</th>
                                     <th>Round</th>
+                                    <th>Date</th>
                                     <th>Real Players</th>
                                     <th>Cards Sold</th>
                                     <th>Total Sales</th>
                                     <th>Commission</th>
-                                    <th>Date</th>
                                 </tr>
                             </thead>
                             <tbody id="commission-games-body">
@@ -3125,10 +3131,10 @@
                                 <tr>
                                     <th>Date</th>
                                     <th>Games</th>
+                                    <th>Real Players</th>
                                     <th>Cards Sold</th>
                                     <th>Sales</th>
                                     <th>Commission</th>
-                                    <th>Winners</th>
                                 </tr>
                             </thead>
                             <tbody id="commission-daily-body">
@@ -3145,13 +3151,14 @@
                                 <tr>
                                     <th>Month</th>
                                     <th>Games</th>
+                                    <th>Real Players</th>
                                     <th>Cards Sold</th>
                                     <th>Sales</th>
                                     <th>Commission</th>
                                 </tr>
                             </thead>
                             <tbody id="commission-monthly-body">
-                                <tr><td colspan="5" class="loading">Loading monthly commission...</td></tr>
+                                <tr><td colspan="6" class="loading">Loading monthly commission...</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -3287,6 +3294,11 @@
         let depositsPage = 1, depositsPageSize = 20, depositsTotal = 0, depositsTotalPages = 0;
         let withdrawalsPage = 1, withdrawalsPageSize = 20, withdrawalsTotal = 0, withdrawalsTotalPages = 0;
         let transactionsPage = 1, transactionsPageSize = 20, transactionsTotal = 0, transactionsTotalPages = 0;
+
+        // User search state
+        let userSearchQuery = '';
+        let userSearchType = 'all';
+        let isSearchMode = false;
 
         // ==================== UTILITY FUNCTIONS ====================
         function formatCurrency(amount) {
@@ -3511,7 +3523,6 @@
                     throw new Error(`HTTP error ${response.status}: ${errorText}`);
                 }
                 
-                // Get filename from Content-Disposition header or use default with correct extension
                 const contentDisposition = response.headers.get('Content-Disposition');
                 let filename = '';
                 
@@ -3533,7 +3544,6 @@
                     }
                 }
                 
-                // Create download link
                 const blob = await response.blob();
                 const url = window.URL.createObjectURL(blob);
                 const a = document.createElement('a');
@@ -3575,7 +3585,6 @@
                         formData.append('database', blob, file.name);
                         formData.append('admin_id', adminId);
                         
-                        // Detect if file is compressed
                         const fileNameLower = file.name.toLowerCase();
                         const isCompressed = fileNameLower.endsWith('.gz') || fileNameLower.endsWith('.zip') || fileNameLower.endsWith('.db.gz') || fileNameLower.endsWith('.db.zip');
                         formData.append('compressed', isCompressed ? 'true' : 'false');
@@ -3643,7 +3652,6 @@
                 return;
             }
             
-            // Check for valid file extensions - including .zip and .db.zip
             const fileNameLower = file.name.toLowerCase();
             const isValid = fileNameLower.endsWith('.db') || 
                            fileNameLower.endsWith('.sqlite') || 
@@ -3674,7 +3682,6 @@
                 detailsEl.textContent = `File: ${file.name} (${(file.size / (1024 * 1024)).toFixed(2)} MB)`;
                 updateRestoreStep(0, 'Validating file...');
                 
-                // Check compression type
                 if (file.name.toLowerCase().endsWith('.zip') || file.name.toLowerCase().endsWith('.db.zip')) {
                     updateRestoreStep(1, 'Detected ZIP archive format...');
                     updateRestoreStep(2, 'Will extract database from ZIP...');
@@ -3722,7 +3729,6 @@
             showNotification('Attempting to force reset game...', 'info');
             
             try {
-                // First try to stop any active game
                 if (currentGame && currentGame.game_id) {
                     const stopResponse = await fetch('/api/admin/stopgame', {
                         method: 'POST',
@@ -3774,6 +3780,134 @@
             }
             
             closeModal('reset-game-modal');
+        }
+
+        // ==================== USER SEARCH FUNCTIONS ====================
+        async function searchUsers() {
+            const searchInput = document.getElementById('user-search');
+            const searchType = document.getElementById('user-search-type').value;
+            const query = searchInput.value.trim();
+            
+            if (!query || query.length < 2) {
+                showNotification('Please enter at least 2 characters to search', 'warning');
+                return;
+            }
+            
+            userSearchQuery = query;
+            userSearchType = searchType;
+            isSearchMode = true;
+            
+            try {
+                showNotification(`Searching for "${query}"...`, 'info');
+                
+                const url = `/api/admin/user/search?q=${encodeURIComponent(query)}&type=${searchType}&limit=50`;
+                console.log('Search URL:', url);
+                
+                const response = await fetch(url);
+                
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error('Search error response:', errorText);
+                    throw new Error(`HTTP error ${response.status}: ${errorText}`);
+                }
+                
+                const data = await response.json();
+                console.log('Search results:', data);
+                
+                const tbody = document.getElementById('users-table-body');
+                const resultsInfo = document.getElementById('search-results-info');
+                
+                if (data.success && data.users && data.users.length > 0) {
+                    let html = '';
+                    data.users.forEach(user => {
+                        const firstLetter = user.username ? user.username.charAt(0).toUpperCase() : 'U';
+                        
+                        let statusClass = 'status-active';
+                        let statusText = 'Active';
+                        if (user.status === 'suspended') {
+                            statusClass = 'status-suspended';
+                            statusText = 'Suspended';
+                        } else if (user.status === 'deleted') {
+                            statusClass = 'status-deleted';
+                            statusText = 'Deleted';
+                        } else if (user.status === 'inactive') {
+                            statusClass = 'status-pending';
+                            statusText = 'Inactive';
+                        }
+                        
+                        html += `
+                            <tr>
+                                <td>
+                                    <div style="display: flex; align-items: center; gap: 10px;">
+                                        <div class="user-avatar">${firstLetter}</div>
+                                        <div>
+                                            <div style="font-weight: 600;">ID: ${user.user_id}</div>
+                                            <div style="font-size: 11px; color: #666;">Joined: ${user.created_at ? 
+                                                new Date(user.created_at).toLocaleDateString() : 'N/A'}</div>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td><strong>${user.full_name || 'Not set'}</strong></td>
+                                <td><strong>${user.username || `User ${user.user_id}`}</strong></td>
+                                <td><strong>${formatCurrency(user.balance || 0)}</strong></td>
+                                <td>${user.games_played || 0}</td>
+                                <td>
+                                    <div class="win-stats">
+                                        <div class="win-stat-item">
+                                            <span class="win-label">Wins:</span>
+                                            <span class="win-value">${user.total_wins || 0}</span>
+                                        </div>
+                                        <div class="win-stat-item">
+                                            <span class="win-label">Winnings:</span>
+                                            <span class="win-value">${formatCurrency(user.total_winnings || 0)}</span>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td><span class="status-badge ${statusClass}">${statusText}</span></td>
+                                <td>
+                                    <button class="btn-action btn-view" onclick="openViewUserModal(${user.user_id})"><i class="fas fa-eye"></i> View</button>
+                                    <button class="btn-action btn-approve" onclick="openAddBalanceModal(${user.user_id})"><i class="fas fa-plus"></i> Add</button>
+                                    <button class="btn-action btn-suspend" onclick="suspendUser(${user.user_id})"><i class="fas fa-ban"></i> Suspend</button>
+                                    <button class="btn-action btn-delete" onclick="deleteUser(${user.user_id})"><i class="fas fa-trash"></i> Delete</button>
+                                </td>
+                            </tr>
+                        `;
+                    });
+                    
+                    tbody.innerHTML = html;
+                    
+                    // Hide pagination during search
+                    document.getElementById('users-pagination').style.display = 'none';
+                    
+                    // Show search results info
+                    resultsInfo.innerHTML = `🔍 Found ${data.total} result(s) for "${query}" in ${data.search_type} fields. <a href="#" onclick="clearUserSearch(); return false;">Clear Search</a>`;
+                    
+                    addLiveUpdate(`Found ${data.users.length} users matching "${query}"`, 'success');
+                    
+                } else {
+                    tbody.innerHTML = '<tr><td colspan="8" style="text-align: center;">No users found matching your search</td></tr>';
+                    document.getElementById('users-pagination').style.display = 'none';
+                    resultsInfo.innerHTML = `🔍 No results found for "${query}". <a href="#" onclick="clearUserSearch(); return false;">Clear Search</a>`;
+                }
+                
+            } catch (error) {
+                console.error('Error searching users:', error);
+                showNotification('Error searching users: ' + error.message, 'danger');
+                document.getElementById('users-table-body').innerHTML = '<tr><td colspan="8" style="text-align: center;">Error searching users: ' + error.message + '</td></tr>';
+            }
+        }
+
+        function clearUserSearch() {
+            userSearchQuery = '';
+            userSearchType = 'all';
+            isSearchMode = false;
+            
+            document.getElementById('user-search').value = '';
+            document.getElementById('user-search-type').value = 'all';
+            document.getElementById('search-results-info').innerHTML = '';
+            
+            usersPage = 1;
+            loadUsers();
         }
 
         // ==================== LOAD FUNCTIONS ====================
@@ -3979,6 +4113,12 @@
                 const statusFilter = document.getElementById('user-status-filter').value;
                 const searchTerm = document.getElementById('user-search').value;
                 
+                // If in search mode, don't load regular users
+                if (isSearchMode) {
+                    document.getElementById('users-pagination').style.display = 'none';
+                    return;
+                }
+                
                 let url = `/api/admin/users?page=${usersPage}&limit=${usersPageSize}`;
                 if (statusFilter !== 'all') url += `&status=${statusFilter}`;
                 if (searchTerm) url += `&search=${encodeURIComponent(searchTerm)}`;
@@ -4067,6 +4207,9 @@
                             `;
                         });
                         tbody.innerHTML = html;
+                        
+                        // Clear search results info
+                        document.getElementById('search-results-info').innerHTML = '';
                         
                         const pagination = document.getElementById('users-pagination');
                         if (pagination) {
@@ -4354,6 +4497,89 @@
             }
         }
 
+        async function loadCommissionDetails() {
+            try {
+                // Load games commission
+                const gamesTbody = document.getElementById('commission-games-body');
+                if (gamesTbody) {
+                    gamesTbody.innerHTML = '<tr><td colspan="7" class="loading">Loading commission data...</td></tr>';
+                    
+                    const response = await fetch('/api/admin/commission-details');
+                    if (!response.ok) {
+                        throw new Error(`HTTP error ${response.status}`);
+                    }
+                    
+                    const data = await response.json();
+                    
+                    if (data.success) {
+                        if (data.games && data.games.length > 0) {
+                            let html = '';
+                            data.games.forEach(game => {
+                                html += `
+                                    <tr>
+                                        <td><code>${game.game_id ? game.game_id.substring(0, 8) + '...' : 'N/A'}</code></td>
+                                        <td>${game.round_number || 1}</td>
+                                        <td>${game.game_date ? new Date(game.game_date).toLocaleDateString() : 'N/A'}</td>
+                                        <td>${game.real_players || 0}</td>
+                                        <td>${game.total_cards_sold || 0}</td>
+                                        <td>${formatCurrency(game.total_sales || 0)}</td>
+                                        <td><strong style="color: var(--success-color);">${formatCurrency(game.commission || 0)}</strong></td>
+                                    </tr>
+                                `;
+                            });
+                            gamesTbody.innerHTML = html;
+                        } else {
+                            gamesTbody.innerHTML = '<tr><td colspan="7" style="text-align: center;">No commission data available</td></tr>';
+                        }
+                        
+                        // Load daily commission
+                        if (data.daily && data.daily.length > 0) {
+                            const dailyTbody = document.getElementById('commission-daily-body');
+                            let dailyHtml = '';
+                            data.daily.forEach(day => {
+                                dailyHtml += `
+                                    <tr>
+                                        <td>${day.date || 'N/A'}</td>
+                                        <td>${day.games_count || 0}</td>
+                                        <td>${day.real_players || 0}</td>
+                                        <td>${day.total_cards_sold || 0}</td>
+                                        <td>${formatCurrency(day.total_sales || 0)}</td>
+                                        <td><strong style="color: var(--success-color);">${formatCurrency(day.commission || 0)}</strong></td>
+                                    </tr>
+                                `;
+                            });
+                            dailyTbody.innerHTML = dailyHtml;
+                        }
+                        
+                        // Load monthly commission
+                        if (data.monthly && data.monthly.length > 0) {
+                            const monthlyTbody = document.getElementById('commission-monthly-body');
+                            let monthlyHtml = '';
+                            data.monthly.forEach(month => {
+                                monthlyHtml += `
+                                    <tr>
+                                        <td>${month.month || 'N/A'}</td>
+                                        <td>${month.games_count || 0}</td>
+                                        <td>${month.real_players || 0}</td>
+                                        <td>${month.total_cards_sold || 0}</td>
+                                        <td>${formatCurrency(month.total_sales || 0)}</td>
+                                        <td><strong style="color: var(--success-color);">${formatCurrency(month.commission || 0)}</strong></td>
+                                    </tr>
+                                `;
+                            });
+                            monthlyTbody.innerHTML = monthlyHtml;
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading commission details:', error);
+                const gamesTbody = document.getElementById('commission-games-body');
+                if (gamesTbody) {
+                    gamesTbody.innerHTML = `<tr><td colspan="7" style="text-align: center;">Error loading commission data: ${error.message}</td></tr>`;
+                }
+            }
+        }
+
         async function loadGameStatus() {
             try {
                 const response = await fetch('/api/game/active');
@@ -4449,7 +4675,6 @@
                         </div>
                     `;
                     
-                    // Add called numbers if available
                     if (game.called_numbers && game.called_numbers.length > 0) {
                         html += `
                             <div class="detail-row" style="flex-direction: column; align-items: flex-start;">
@@ -4530,7 +4755,6 @@
                         </div>
                     `;
                     
-                    // Add recent transactions if available
                     if (user.recent_transactions && user.recent_transactions.length > 0) {
                         html += '<h4 style="margin-top: 20px; margin-bottom: 10px;">Recent Transactions</h4>';
                         html += '<table style="width: 100%; font-size: 12px;">';
@@ -4551,15 +4775,12 @@
                     
                     document.getElementById('user-details-content').innerHTML = html;
                     
-                    // Add action buttons
                     const actionSection = document.getElementById('user-details-modal').querySelector('.modal-body .form-actions');
                     if (actionSection) {
-                        // Remove existing buttons except Close
                         while (actionSection.children.length > 1) {
                             actionSection.removeChild(actionSection.children[0]);
                         }
                         
-                        // Add action buttons before Close
                         const addBalanceBtn = document.createElement('button');
                         addBalanceBtn.className = 'btn btn-success';
                         addBalanceBtn.innerHTML = '<i class="fas fa-plus"></i> Add Balance';
@@ -4673,7 +4894,6 @@
                     
                     document.getElementById('deposit-details-content').innerHTML = html;
                     
-                    // Add action buttons for pending deposits
                     const actionSection = document.getElementById('deposit-action-section');
                     if (actionSection && payment.status === 'pending') {
                         actionSection.innerHTML = `
@@ -4768,7 +4988,6 @@
                     
                     document.getElementById('withdrawal-details-content').innerHTML = html;
                     
-                    // Add action buttons for pending withdrawals
                     const actionSection = document.getElementById('withdrawal-action-section');
                     if (actionSection && withdrawal.status === 'pending') {
                         actionSection.innerHTML = `
@@ -5073,7 +5292,10 @@
                     
                     if (this.dataset.tab === 'system') checkDatabaseInfo();
                     else if (this.dataset.tab === 'games') loadGames();
-                    else if (this.dataset.tab === 'users') loadUsers();
+                    else if (this.dataset.tab === 'users') {
+                        clearUserSearch(); // Clear search when switching tabs
+                        loadUsers();
+                    }
                     else if (this.dataset.tab === 'payments') {
                         if (currentPaymentType === 'deposits') loadDeposits();
                         else loadWithdrawals();
@@ -5097,6 +5319,15 @@
                         withdrawalsPage = 1;
                         loadWithdrawals();
                     }
+                });
+            });
+            
+            document.querySelectorAll('.commission-tab-btn').forEach(btn => {
+                btn.addEventListener('click', function() {
+                    document.querySelectorAll('.commission-tab-btn').forEach(b => b.classList.remove('active'));
+                    document.querySelectorAll('.commission-tab-content').forEach(p => p.classList.remove('active'));
+                    this.classList.add('active');
+                    document.getElementById('commission-' + this.dataset.commissionTab + '-content').classList.add('active');
                 });
             });
             
@@ -5125,6 +5356,14 @@
             document.getElementById('force-reset-game-btn')?.addEventListener('click', () => openModal('reset-game-modal'));
             document.getElementById('confirm-reset-game')?.addEventListener('click', forceResetGame);
             
+            document.getElementById('search-users-btn')?.addEventListener('click', searchUsers);
+            
+            document.getElementById('user-search')?.addEventListener('keyup', (e) => {
+                if (e.key === 'Enter') {
+                    searchUsers();
+                }
+            });
+            
             document.querySelectorAll('.modal-close, .btn-secondary[data-modal]').forEach(btn => {
                 btn.addEventListener('click', function() {
                     closeModal(this.dataset.modal || this.closest('.modal')?.id);
@@ -5138,12 +5377,16 @@
             });
             
             document.getElementById('refresh-games')?.addEventListener('click', loadGames);
-            document.getElementById('refresh-users')?.addEventListener('click', loadUsers);
+            document.getElementById('refresh-users')?.addEventListener('click', () => {
+                clearUserSearch();
+                loadUsers();
+            });
             document.getElementById('refresh-deposits')?.addEventListener('click', loadDeposits);
             document.getElementById('refresh-withdrawals')?.addEventListener('click', loadWithdrawals);
             document.getElementById('refresh-transactions')?.addEventListener('click', loadTransactions);
             document.getElementById('refresh-weekly-commission')?.addEventListener('click', loadWeeklyCommission);
             document.getElementById('view-commission-details')?.addEventListener('click', () => {
+                loadCommissionDetails();
                 openModal('commission-details-modal');
             });
             
@@ -5215,12 +5458,7 @@
             });
             
             document.getElementById('user-status-filter')?.addEventListener('change', () => {
-                usersPage = 1;
-                loadUsers();
-            });
-            
-            document.getElementById('user-search')?.addEventListener('keyup', (e) => {
-                if (e.key === 'Enter') {
+                if (!isSearchMode) {
                     usersPage = 1;
                     loadUsers();
                 }
@@ -5453,7 +5691,7 @@
             setInterval(() => {
                 const activeTab = document.querySelector('.tab-pane.active')?.id;
                 if (activeTab === 'games-tab') loadGames();
-                else if (activeTab === 'users-tab') loadUsers();
+                else if (activeTab === 'users-tab' && !isSearchMode) loadUsers();
                 else if (activeTab === 'payments-tab') {
                     if (currentPaymentType === 'deposits') loadDeposits();
                     else loadWithdrawals();
