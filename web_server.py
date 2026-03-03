@@ -2263,7 +2263,7 @@ async def admin_commission_details(request):
         return web.json_response({
             'success': False,
             'message': str(e)
-        }, status=500)
+        }, status-500)
 
 
 # ==================== TEST COMMISSION ENDPOINT ====================
@@ -3637,7 +3637,7 @@ async def admin_database_info(request):
         return web.json_response({
             'success': False,
             'message': str(e)
-        }, status=500)
+        }, status-500)
 
 
 @routes.get('/api/admin/download-database')
@@ -3753,7 +3753,7 @@ async def admin_download_database(request):
         return web.json_response({
             'success': False,
             'message': str(e)
-        }, status=500)
+        }, status-500)
         
         
         
@@ -4307,7 +4307,7 @@ async def admin_search_users(request):
         return web.json_response({
             'success': False,
             'message': str(e)
-        }, status=500)
+        }, status-500)
 
 
 # ==================== GET SINGLE USER DETAILS (already exists but improved) ====================
@@ -4953,7 +4953,7 @@ async def get_active_game(request):
         return web.json_response({
             'success': False,
             'message': f'Error getting active game: {str(e)}'
-        }, status=500)
+        }, status-500)
         
 
 # ==================== FIXED USER GAME STATE ENDPOINT ====================
@@ -5053,7 +5053,7 @@ async def get_user_game_state(request):
         return web.json_response({
             'success': False,
             'message': f'Error getting user game state: {str(e)}'
-        }, status=500)
+        }, status-500)
 
 
 # ==================== CARD PURCHASE API ====================
@@ -5263,7 +5263,7 @@ async def claim_bingo_lightning_fast(request):
         return web.json_response({
             'success': False,
             'message': f'Error claiming bingo: {str(e)}'
-        }, status=500)
+        }, status-500)
 
 
 # ==================== DEBUG BINGO VERIFICATION ENDPOINT ====================
