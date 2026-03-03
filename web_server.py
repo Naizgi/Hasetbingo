@@ -1139,7 +1139,7 @@ class ValidationWebSocketServer:
                 elif isinstance(card_data, dict):
                     if 'numbers' in card_data:
                         card_numbers = card_data['numbers']
-                    elif 'grid' in card_data:
+                    elif 'grid' in card_data):
                         # Flatten 5x5 grid
                         for row in card_data['grid']:
                             card_numbers.extend(row)
@@ -1406,6 +1406,27 @@ async def cors_middleware(request, handler):
 
 # Create routes
 routes = web.RouteTableDef()
+
+# ==================== DATABASE INITIALIZATION ====================
+async def init_commission_table():
+    """Initialize commission_records table if it doesn't exist"""
+    try:
+        from database.db import Database
+        with Database.get_cursor() as cursor:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS commission_records (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    game_id TEXT NOT NULL,
+                    commission_amount REAL NOT NULL,
+                    real_players_count INTEGER NOT NULL,
+                    recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    status TEXT DEFAULT 'recorded',
+                    FOREIGN KEY (game_id) REFERENCES games(game_id)
+                )
+            """)
+            logger.info("✅ commission_records table initialized")
+    except Exception as e:
+        logger.error(f"Error initializing commission_records table: {e}")
 
 # ==================== FIXED ADMIN API ENDPOINTS ====================
 
@@ -2119,7 +2140,7 @@ async def admin_reject_withdrawal(request):
 # ==================== FIXED: Add endpoint to get commission details from commission_records ====================
 @routes.get('/api/admin/commission-details')
 async def admin_commission_details(request):
-    """Get detailed commission breakdown by game - FIXED: Uses commission_records table"""
+    """Get detailed commission breakdown by game - with daily and monthly summaries"""
     try:
         from database.db import Database
         
@@ -2128,19 +2149,45 @@ async def admin_commission_details(request):
         limit = int(request.query.get('limit', 20))
         offset = (page - 1) * limit
         
+        logger.info(f"📊 Commission details request - page: {page}, limit: {limit}")
+        
         with Database.get_cursor() as cursor:
+            # First, check if commission_records table exists
+            cursor.execute("""
+                SELECT name FROM sqlite_master 
+                WHERE type='table' AND name='commission_records'
+            """)
+            table_exists = cursor.fetchone()
+            
+            if not table_exists:
+                logger.warning("commission_records table does not exist")
+                return web.json_response({
+                    'success': True,
+                    'games': [],
+                    'daily': [],
+                    'monthly': [],
+                    'pagination': {
+                        'page': page,
+                        'limit': limit,
+                        'total': 0,
+                        'pages': 0
+                    },
+                    'message': 'commission_records table not found',
+                    'timestamp': datetime.now().isoformat()
+                })
+            
             # Get games commission data
             cursor.execute("""
                 SELECT 
                     cr.game_id,
-                    g.round_number,
+                    COALESCE(g.round_number, 1) as round_number,
                     cr.recorded_at as game_date,
-                    cr.real_players_count as real_players,
-                    cr.commission_amount as commission,
-                    cr.status as commission_status,
-                    g.total_cards_sold,
-                    g.prize_pool,
-                    (g.total_cards_sold * g.card_price) as total_sales
+                    COALESCE(cr.real_players_count, 0) as real_players,
+                    COALESCE(cr.commission_amount, 0) as commission,
+                    COALESCE(cr.status, 'recorded') as commission_status,
+                    COALESCE(g.total_cards_sold, 0) as total_cards_sold,
+                    COALESCE(g.prize_pool, 0) as prize_pool,
+                    COALESCE(g.total_cards_sold * g.card_price, 0) as total_sales
                 FROM commission_records cr
                 LEFT JOIN games g ON cr.game_id = g.game_id
                 ORDER BY cr.recorded_at DESC
@@ -2152,12 +2199,12 @@ async def admin_commission_details(request):
             
             for row in rows:
                 game_data = {
-                    'game_id': row[0],
-                    'round_number': row[1],
-                    'game_date': row[2],
+                    'game_id': row[0] or 'N/A',
+                    'round_number': row[1] or 1,
+                    'game_date': row[2].isoformat() if row[2] else datetime.now().isoformat(),
                     'real_players': row[3] or 0,
                     'commission': float(row[4] or 0),
-                    'commission_status': row[5],
+                    'commission_status': row[5] or 'recorded',
                     'total_cards_sold': row[6] or 0,
                     'prize_pool': float(row[7] or 0),
                     'total_sales': float(row[8] or 0)
@@ -2167,15 +2214,15 @@ async def admin_commission_details(request):
             # Get daily summary
             cursor.execute("""
                 SELECT 
-                    date(recorded_at) as day,
+                    date(cr.recorded_at) as day,
                     COUNT(*) as games_count,
-                    SUM(real_players_count) as total_players,
-                    SUM(commission_amount) as total_commission,
-                    SUM(g.total_cards_sold) as total_cards_sold,
-                    SUM(g.total_cards_sold * g.card_price) as total_sales
+                    COALESCE(SUM(cr.real_players_count), 0) as total_players,
+                    COALESCE(SUM(cr.commission_amount), 0) as total_commission,
+                    COALESCE(SUM(g.total_cards_sold), 0) as total_cards_sold,
+                    COALESCE(SUM(g.total_cards_sold * g.card_price), 0) as total_sales
                 FROM commission_records cr
                 LEFT JOIN games g ON cr.game_id = g.game_id
-                GROUP BY date(recorded_at)
+                GROUP BY date(cr.recorded_at)
                 ORDER BY day DESC
                 LIMIT 30
             """)
@@ -2183,7 +2230,7 @@ async def admin_commission_details(request):
             daily_data = []
             for row in daily_rows:
                 daily_data.append({
-                    'date': row[0],
+                    'date': row[0] or 'N/A',
                     'games_count': row[1] or 0,
                     'total_players': row[2] or 0,
                     'total_commission': float(row[3] or 0),
@@ -2194,15 +2241,15 @@ async def admin_commission_details(request):
             # Get monthly summary
             cursor.execute("""
                 SELECT 
-                    strftime('%Y-%m', recorded_at) as month,
+                    strftime('%Y-%m', cr.recorded_at) as month,
                     COUNT(*) as games_count,
-                    SUM(real_players_count) as total_players,
-                    SUM(commission_amount) as total_commission,
-                    SUM(g.total_cards_sold) as total_cards_sold,
-                    SUM(g.total_cards_sold * g.card_price) as total_sales
+                    COALESCE(SUM(cr.real_players_count), 0) as total_players,
+                    COALESCE(SUM(cr.commission_amount), 0) as total_commission,
+                    COALESCE(SUM(g.total_cards_sold), 0) as total_cards_sold,
+                    COALESCE(SUM(g.total_cards_sold * g.card_price), 0) as total_sales
                 FROM commission_records cr
                 LEFT JOIN games g ON cr.game_id = g.game_id
-                GROUP BY strftime('%Y-%m', recorded_at)
+                GROUP BY strftime('%Y-%m', cr.recorded_at)
                 ORDER BY month DESC
                 LIMIT 12
             """)
@@ -2210,7 +2257,7 @@ async def admin_commission_details(request):
             monthly_data = []
             for row in monthly_rows:
                 monthly_data.append({
-                    'month': row[0],
+                    'month': row[0] or 'N/A',
                     'games_count': row[1] or 0,
                     'total_players': row[2] or 0,
                     'total_commission': float(row[3] or 0),
@@ -2222,6 +2269,8 @@ async def admin_commission_details(request):
             cursor.execute("SELECT COUNT(*) as total FROM commission_records")
             total_row = cursor.fetchone()
             total = total_row[0] if total_row else 0
+            
+            logger.info(f"📊 Commission details - games: {len(commission_games)}, daily: {len(daily_data)}, monthly: {len(monthly_data)}")
             
             return web.json_response({
                 'success': True,
@@ -2236,14 +2285,15 @@ async def admin_commission_details(request):
                 },
                 'calculation_method': 'real_players × 2 (from commission_records table)',
                 'timestamp': datetime.now().isoformat()
-            })
+            }, dumps=lambda obj: json.dumps(obj, cls=CustomJSONEncoder))
             
     except Exception as e:
-        logger.error(f"Error getting commission details: {e}")
+        logger.error(f"Error getting commission details: {e}", exc_info=True)
         return web.json_response({
             'success': False,
             'message': str(e)
         }, status=500)
+
 # ==================== TEST COMMISSION ENDPOINT ====================
 @routes.post('/api/admin/test-commission')
 async def admin_test_commission(request):
@@ -4098,122 +4148,6 @@ async def admin_force_reset_game(request):
         }, status=500)
 
 
-@routes.get('/api/admin/commission-details')
-async def admin_commission_details(request):
-    """Get detailed commission breakdown by game"""
-    try:
-        from database.db import Database
-        
-        # Get page and limit parameters
-        page = int(request.query.get('page', 1))
-        limit = int(request.query.get('limit', 20))
-        offset = (page - 1) * limit
-        
-        with Database.get_cursor() as cursor:
-            cursor.execute("""
-                SELECT 
-                    cr.game_id,
-                    g.round_number,
-                    cr.recorded_at as game_date,
-                    cr.real_players_count as real_players,
-                    cr.commission_amount as commission,
-                    cr.status as commission_status,
-                    g.total_cards_sold,
-                    g.prize_pool
-                FROM commission_records cr
-                LEFT JOIN games g ON cr.game_id = g.game_id
-                ORDER BY cr.recorded_at DESC
-                LIMIT ? OFFSET ?
-            """, (limit, offset))
-            
-            rows = cursor.fetchall()
-            commission_games = []
-            
-            for row in rows:
-                game_data = {
-                    'game_id': row[0],
-                    'round_number': row[1],
-                    'game_date': row[2],
-                    'real_players': row[3] or 0,
-                    'commission': float(row[4] or 0),
-                    'commission_status': row[5],
-                    'total_cards_sold': row[6] or 0,
-                    'prize_pool': float(row[7] or 0)
-                }
-                commission_games.append(game_data)
-            
-            # Get total count
-            cursor.execute("SELECT COUNT(*) as total FROM commission_records")
-            total_row = cursor.fetchone()
-            total = total_row[0] if total_row else 0
-            
-            # Get daily summary
-            cursor.execute("""
-                SELECT 
-                    date(recorded_at) as day,
-                    COUNT(*) as games_count,
-                    SUM(real_players_count) as total_players,
-                    SUM(commission_amount) as total_commission
-                FROM commission_records
-                GROUP BY date(recorded_at)
-                ORDER BY day DESC
-                LIMIT 30
-            """)
-            daily_rows = cursor.fetchall()
-            daily_data = []
-            for row in daily_rows:
-                daily_data.append({
-                    'date': row[0],
-                    'games_count': row[1] or 0,
-                    'total_players': row[2] or 0,
-                    'total_commission': float(row[3] or 0)
-                })
-            
-            # Get monthly summary
-            cursor.execute("""
-                SELECT 
-                    strftime('%Y-%m', recorded_at) as month,
-                    COUNT(*) as games_count,
-                    SUM(real_players_count) as total_players,
-                    SUM(commission_amount) as total_commission
-                FROM commission_records
-                GROUP BY strftime('%Y-%m', recorded_at)
-                ORDER BY month DESC
-                LIMIT 12
-            """)
-            monthly_rows = cursor.fetchall()
-            monthly_data = []
-            for row in monthly_rows:
-                monthly_data.append({
-                    'month': row[0],
-                    'games_count': row[1] or 0,
-                    'total_players': row[2] or 0,
-                    'total_commission': float(row[3] or 0)
-                })
-            
-            return web.json_response({
-                'success': True,
-                'games': commission_games,
-                'daily': daily_data,
-                'monthly': monthly_data,
-                'pagination': {
-                    'page': page,
-                    'limit': limit,
-                    'total': total,
-                    'pages': (total + limit - 1) // limit if total > 0 else 0
-                },
-                'calculation_method': 'real_players × 2 (from commission_records table)',
-                'timestamp': datetime.now().isoformat()
-            })
-            
-    except Exception as e:
-        logger.error(f"Error getting commission details: {e}")
-        return web.json_response({
-            'success': False,
-            'message': str(e)
-        }, status=500)
-
-
 @routes.get('/api/admin/health')
 async def admin_health_check(request):
     """Admin health check endpoint with detailed status"""
@@ -4272,6 +4206,8 @@ async def admin_search_users(request):
         query = request.query.get('q', '').strip()
         search_type = request.query.get('type', 'all')  # all, id, username, name
         limit = int(request.query.get('limit', 50))
+        
+        logger.info(f"🔍 User search request - query: '{query}', type: {search_type}, limit: {limit}")
         
         if not query or len(query) < 2:
             return web.json_response({
@@ -4383,24 +4319,12 @@ async def admin_search_users(request):
                 }
                 users.append(user)
             
-            # Get total count for this search
-            cursor.execute("""
-                SELECT COUNT(*) as count
-                FROM users 
-                WHERE 
-                    CAST(user_id AS TEXT) LIKE ? OR
-                    username LIKE ? OR
-                    full_name LIKE ?
-            """, (f'%{query}%', f'%{query}%', f'%{query}%'))
-            row = cursor.fetchone()
-            total_count = row[0] if row else 0
-            
             logger.info(f"🔍 User search: '{query}' - found {len(users)} users")
             
             return web.json_response({
                 'success': True,
                 'users': users,
-                'total': total_count,
+                'total': len(users),
                 'query': query,
                 'search_type': search_type,
                 'timestamp': datetime.now().isoformat()
@@ -4412,6 +4336,7 @@ async def admin_search_users(request):
             'success': False,
             'message': str(e)
         }, status=500)
+
 
 # ==================== GET SINGLE USER DETAILS (already exists but improved) ====================
 @routes.get('/api/admin/user/{user_id}')
@@ -8867,7 +8792,7 @@ async def admin_html(request):
                                     admin_id: 'admin',
                                     reason: reason
                                 })
-                                                        });
+                            });
                             
                             const data = await response.json();
                             if (data.success) {
@@ -9042,6 +8967,25 @@ async def run_server():
     os.makedirs('/app/sounds', exist_ok=True)
     os.makedirs('/app/html', exist_ok=True)
     
+    # Initialize commission table
+    from database.db import Database
+    try:
+        with Database.get_cursor() as cursor:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS commission_records (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    game_id TEXT NOT NULL,
+                    commission_amount REAL NOT NULL,
+                    real_players_count INTEGER NOT NULL,
+                    recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    status TEXT DEFAULT 'recorded',
+                    FOREIGN KEY (game_id) REFERENCES games(game_id)
+                )
+            """)
+            logger.info("✅ commission_records table initialized")
+    except Exception as e:
+        logger.error(f"Error initializing commission_records table: {e}")
+    
     app = web.Application(middlewares=[cors_middleware])
     app.add_routes(routes)
     
@@ -9078,4 +9022,3 @@ async def run_server():
 
 # Function name that the bot expects
 start_web_server = run_server
-                
