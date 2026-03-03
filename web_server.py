@@ -1139,7 +1139,7 @@ class ValidationWebSocketServer:
                 elif isinstance(card_data, dict):
                     if 'numbers' in card_data:
                         card_numbers = card_data['numbers']
-                    elif 'grid' in card_data):
+                    elif 'grid' in card_data:
                         # Flatten 5x5 grid
                         for row in card_data['grid']:
                             card_numbers.extend(row)
@@ -4789,46 +4789,44 @@ async def calculate_server_countdown(game: dict) -> int:
                     except:
                         return 30
                     
-                    now = datetime.now()
-                    remaining = (purchase_end - now).total_seconds()
-                    return max(0, int(remaining))
-                
-                # Fallback to countdown_remaining
-                countdown = game.get('countdown_remaining')
-                if countdown is not None:
-                    return max(0, countdown)
-                
-                return 30  # Default
+                now = datetime.now()
+                remaining = (purchase_end - now).total_seconds()
+                return max(0, int(remaining))
             
-            elif status == 'winner_display':
-                # Winner display lasts 5 seconds
-                winner_display_start = game.get('last_phase_change') or game.get('completed_at')
-                if winner_display_start:
-                    if isinstance(winner_display_start, str):
-                        try:
-                            from dateutil.parser import parse
-                            winner_display_start = parse(winner_display_start)
-                        except:
-                            return 5
-                    
-                    now = datetime.now()
-                    elapsed = (now - winner_display_start).total_seconds()
-                    return max(0, 5 - int(elapsed))
-                
-                return 5  # Default
+            # Fallback to countdown_remaining
+            countdown = game.get('countdown_remaining')
+            if countdown is not None:
+                return max(0, countdown)
             
-            elif status == 'active':
-                # For active games, no countdown needed
-                return 0
-            
-            else:
-                return 30
-        
-        except Exception as e:
-            logger.error(f"Error calculating countdown: {e}")
             return 30  # Default
-
-
+        
+        elif status == 'winner_display':
+            # Winner display lasts 5 seconds
+            winner_display_start = game.get('last_phase_change') or game.get('completed_at')
+            if winner_display_start:
+                if isinstance(winner_display_start, str):
+                    try:
+                        from dateutil.parser import parse
+                        winner_display_start = parse(winner_display_start)
+                    except:
+                        return 5
+                    
+                now = datetime.now()
+                elapsed = (now - winner_display_start).total_seconds()
+                return max(0, 5 - int(elapsed))
+            
+            return 5  # Default
+        
+        elif status == 'active':
+            # For active games, no countdown needed
+            return 0
+        
+        else:
+            return 30
+            
+    except Exception as e:
+        logger.error(f"Error calculating countdown: {e}")
+        return 30  # Default
 # ==================== REAL BALANCE API ====================
 @routes.get('/api/user/balance/{user_id}')
 async def get_user_balance(request):
