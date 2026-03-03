@@ -14,6 +14,7 @@
 # ADDED: Force reset game endpoint to handle stuck games
 # ADDED: Game state cleanup on startup
 # FIXED: Start game endpoint to handle edge cases
+# ADDED: User search API for admin panel
 
 from aiohttp import web
 import json
@@ -1138,7 +1139,7 @@ class ValidationWebSocketServer:
                 elif isinstance(card_data, dict):
                     if 'numbers' in card_data:
                         card_numbers = card_data['numbers']
-                    elif 'grid' in card_data:
+                    elif 'grid' in card_data):
                         # Flatten 5x5 grid
                         for row in card_data['grid']:
                             card_numbers.extend(row)
@@ -4209,11 +4210,6 @@ async def admin_health_check(request):
         }, status=500)
 
 
-
-
-
-
-
 # ==================== USER SEARCH API FOR ADMIN PANEL ====================
 @routes.get('/api/admin/user/search')
 async def admin_search_users(request):
@@ -4221,12 +4217,13 @@ async def admin_search_users(request):
     try:
         query = request.query.get('q', '').strip()
         search_type = request.query.get('type', 'all')  # all, id, username, name
-        limit = int(request.query.get('limit', 20))
+        limit = int(request.query.get('limit', 50))
         
         if not query or len(query) < 2:
             return web.json_response({
                 'success': True,
                 'users': [],
+                'total': 0,
                 'message': 'Please enter at least 2 characters to search'
             })
         
@@ -4242,8 +4239,10 @@ async def admin_search_users(request):
                     cursor.execute("""
                         SELECT 
                             user_id, username, full_name, balance, 
-                            created_at, status, games_played,
-                            total_wins, total_winnings
+                            created_at, status,
+                            (SELECT COUNT(*) FROM player_cards WHERE user_id = users.user_id) as games_played,
+                            (SELECT COUNT(*) FROM games WHERE winner_id = users.user_id) as wins,
+                            (SELECT COALESCE(SUM(prize_pool), 0) FROM games WHERE winner_id = users.user_id) as total_winnings
                         FROM users 
                         WHERE user_id = ?
                         LIMIT ?
@@ -4253,32 +4252,36 @@ async def admin_search_users(request):
                     cursor.execute("""
                         SELECT 
                             user_id, username, full_name, balance, 
-                            created_at, status, games_played,
-                            total_wins, total_winnings
+                            created_at, status,
+                            (SELECT COUNT(*) FROM player_cards WHERE user_id = users.user_id) as games_played,
+                            (SELECT COUNT(*) FROM games WHERE winner_id = users.user_id) as wins,
+                            (SELECT COALESCE(SUM(prize_pool), 0) FROM games WHERE winner_id = users.user_id) as total_winnings
                         FROM users 
                         WHERE CAST(user_id AS TEXT) LIKE ?
                         LIMIT ?
                     """, (f'%{query}%', limit))
             
             elif search_type == 'username':
-                # Search by username
                 cursor.execute("""
                     SELECT 
                         user_id, username, full_name, balance, 
-                        created_at, status, games_played,
-                        total_wins, total_winnings
+                        created_at, status,
+                        (SELECT COUNT(*) FROM player_cards WHERE user_id = users.user_id) as games_played,
+                        (SELECT COUNT(*) FROM games WHERE winner_id = users.user_id) as wins,
+                        (SELECT COALESCE(SUM(prize_pool), 0) FROM games WHERE winner_id = users.user_id) as total_winnings
                     FROM users 
                     WHERE username LIKE ? OR username LIKE ?
                     LIMIT ?
                 """, (f'%{query}%', f'{query}%', limit))
             
             elif search_type == 'name':
-                # Search by full name
                 cursor.execute("""
                     SELECT 
                         user_id, username, full_name, balance, 
-                        created_at, status, games_played,
-                        total_wins, total_winnings
+                        created_at, status,
+                        (SELECT COUNT(*) FROM player_cards WHERE user_id = users.user_id) as games_played,
+                        (SELECT COUNT(*) FROM games WHERE winner_id = users.user_id) as wins,
+                        (SELECT COALESCE(SUM(prize_pool), 0) FROM games WHERE winner_id = users.user_id) as total_winnings
                     FROM users 
                     WHERE full_name LIKE ? OR full_name LIKE ?
                     LIMIT ?
@@ -4288,8 +4291,10 @@ async def admin_search_users(request):
                 cursor.execute("""
                     SELECT 
                         user_id, username, full_name, balance, 
-                        created_at, status, games_played,
-                        total_wins, total_winnings
+                        created_at, status,
+                        (SELECT COUNT(*) FROM player_cards WHERE user_id = users.user_id) as games_played,
+                        (SELECT COUNT(*) FROM games WHERE winner_id = users.user_id) as wins,
+                        (SELECT COALESCE(SUM(prize_pool), 0) FROM games WHERE winner_id = users.user_id) as total_winnings
                     FROM users 
                     WHERE 
                         CAST(user_id AS TEXT) LIKE ? OR
@@ -4317,9 +4322,9 @@ async def admin_search_users(request):
                     'full_name': row[2],
                     'balance': float(row[3] or 0),
                     'created_at': row[4].isoformat() if row[4] else None,
-                    'status': row[5],
+                    'status': row[5] or 'active',
                     'games_played': row[6] or 0,
-                    'total_wins': row[7] or 0,
+                    'wins': row[7] or 0,
                     'total_winnings': float(row[8] or 0)
                 }
                 users.append(user)
@@ -4333,8 +4338,8 @@ async def admin_search_users(request):
                     username LIKE ? OR
                     full_name LIKE ?
             """, (f'%{query}%', f'%{query}%', f'%{query}%'))
-            count_row = cursor.fetchone()
-            total_count = count_row[0] if count_row else 0
+            row = cursor.fetchone()
+            total_count = row[0] if row else 0
             
             logger.info(f"🔍 User search: '{query}' - found {len(users)} users")
             
@@ -4455,6 +4460,8 @@ async def admin_get_user_details(request):
             'success': False,
             'message': str(e)
         }, status=500)
+
+
 # ==================== DEBUG ENDPOINT ====================
 @routes.get('/api/debug/card/{user_id}/{game_id}')
 async def debug_user_card(request):
@@ -4781,45 +4788,45 @@ async def calculate_server_countdown(game: dict) -> int:
                         purchase_end = parse(purchase_end)
                     except:
                         return 30
+                    
+                    now = datetime.now()
+                    remaining = (purchase_end - now).total_seconds()
+                    return max(0, int(remaining))
                 
-                now = datetime.now()
-                remaining = (purchase_end - now).total_seconds()
-                return max(0, int(remaining))
+                # Fallback to countdown_remaining
+                countdown = game.get('countdown_remaining')
+                if countdown is not None:
+                    return max(0, countdown)
+                
+                return 30  # Default
             
-            # Fallback to countdown_remaining
-            countdown = game.get('countdown_remaining')
-            if countdown is not None:
-                return max(0, countdown)
+            elif status == 'winner_display':
+                # Winner display lasts 5 seconds
+                winner_display_start = game.get('last_phase_change') or game.get('completed_at')
+                if winner_display_start:
+                    if isinstance(winner_display_start, str):
+                        try:
+                            from dateutil.parser import parse
+                            winner_display_start = parse(winner_display_start)
+                        except:
+                            return 5
+                    
+                    now = datetime.now()
+                    elapsed = (now - winner_display_start).total_seconds()
+                    return max(0, 5 - int(elapsed))
+                
+                return 5  # Default
             
+            elif status == 'active':
+                # For active games, no countdown needed
+                return 0
+            
+            else:
+                return 30
+        
+        except Exception as e:
+            logger.error(f"Error calculating countdown: {e}")
             return 30  # Default
-        
-        elif status == 'winner_display':
-            # Winner display lasts 5 seconds
-            winner_display_start = game.get('last_phase_change') or game.get('completed_at')
-            if winner_display_start:
-                if isinstance(winner_display_start, str):
-                    try:
-                        from dateutil.parser import parse
-                        winner_display_start = parse(winner_display_start)
-                    except:
-                        return 5
-                
-                now = datetime.now()
-                elapsed = (now - winner_display_start).total_seconds()
-                return max(0, 5 - int(elapsed))
-            
-            return 5  # Default
-        
-        elif status == 'active':
-            # For active games, no countdown needed
-            return 0
-        
-        else:
-            return 30
-    
-    except Exception as e:
-        logger.error(f"Error calculating countdown: {e}")
-        return 30  # Default
 
 
 # ==================== REAL BALANCE API ====================
@@ -6667,7 +6674,7 @@ async def game_html(request):
                                 })
                             });
                             
-                            const data = await response.json();
+                                                        const data = await response.json();
                             
                             if (data.success) {
                                 showNotification('✅ Bingo claim submitted!', 'success');
@@ -8216,7 +8223,7 @@ async def admin_html(request):
                             adminState.withdrawalsPage = page;
                             const response = await fetch(`/api/admin/withdrawals?status=${adminState.withdrawalStatus}&page=${page}&limit=20`);
                             const data = await response.json();
-                                            if (data.success) {
+                            if (data.success) {
                                 const container = document.getElementById('withdrawalsTable');
                                 if (data.withdrawals.length === 0) {
                                     container.innerHTML = '<p>No withdrawals found</p>';
@@ -9012,3 +9019,4 @@ async def run_server():
 
 # Function name that the bot expects
 start_web_server = run_server
+                
