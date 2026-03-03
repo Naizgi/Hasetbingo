@@ -1139,7 +1139,7 @@ class ValidationWebSocketServer:
                 elif isinstance(card_data, dict):
                     if 'numbers' in card_data:
                         card_numbers = card_data['numbers']
-                    elif 'grid' in card_data):
+                    elif 'grid' in card_data:
                         # Flatten 5x5 grid
                         for row in card_data['grid']:
                             card_numbers.extend(row)
