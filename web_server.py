@@ -638,7 +638,7 @@ class ValidationWebSocketServer:
         to_phase = data.get('to_phase')
         
         if not game_id or not from_phase or not to_phase:
-         return
+            return
         
         try:
             from utils.game_manager import game_manager
@@ -3951,7 +3951,7 @@ async def admin_restore_database(request):
             'success': False,
             'message': str(e)
         }, status=500)
-# Also update the frontend to support ZIP format
+
 
 @routes.post('/api/admin/force-reset-game')
 async def admin_force_reset_game(request):
@@ -4827,6 +4827,8 @@ async def calculate_server_countdown(game: dict) -> int:
     except Exception as e:
         logger.error(f"Error calculating countdown: {e}")
         return 30  # Default
+
+
 # ==================== REAL BALANCE API ====================
 @routes.get('/api/user/balance/{user_id}')
 async def get_user_balance(request):
@@ -6672,7 +6674,7 @@ async def game_html(request):
                                 })
                             });
                             
-                                                        const data = await response.json();
+                            const data = await response.json();
                             
                             if (data.success) {
                                 showNotification('✅ Bingo claim submitted!', 'success');
@@ -8812,7 +8814,7 @@ async def admin_html(request):
                                     admin_id: 'admin',
                                     reason: reason
                                 })
-                            });
+                                                        });
                             
                             const data = await response.json();
                             if (data.success) {
@@ -8876,6 +8878,12 @@ async def admin_html(request):
                             const text = row.textContent.toLowerCase();
                             row.style.display = text.includes(searchTerm) ? '' : 'none';
                         });
+                    }
+                    
+                    // Clear user search
+                    function clearUserSearch() {
+                        document.getElementById('userSearch').value = '';
+                        loadUsers(1);
                     }
                     
                     // System actions (placeholder)
@@ -8995,7 +9003,7 @@ async def run_server():
     runner = web.AppRunner(app)
     await runner.setup()
     
-    # Use port 80 instead of 8080 to match your logs
+    # Use port 8001
     site = web.TCPSite(runner, WEBSERVER_HOST, 8001)
     await site.start()
     
