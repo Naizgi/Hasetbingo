@@ -1,4 +1,8 @@
 # utils/number_caller.py - Server-controlled number calling system
+# FIXED: Now uses system_state table to get authoritative current game
+# ADDED: get_current_game_id_from_system_state method
+# FIXED: ensure_calling_for_game now verifies against system_state
+# FIXED: start_number_calling_for_game checks system_state before starting
 
 import asyncio
 import logging
@@ -21,16 +25,48 @@ class NumberCaller:
         self.called_numbers = {}  # Track called numbers per game
         logger.info("NumberCaller initialized")
     
+    # ==================== NEW: Get current game from system_state ====================
+    async def get_current_game_id_from_system_state(self) -> Optional[str]:
+        """Get the current authoritative game ID from system_state table"""
+        try:
+            from database.db import Database
+            
+            with Database.get_cursor() as cursor:
+                cursor.execute("""
+                    SELECT current_game_id 
+                    FROM system_state 
+                    WHERE id = 1
+                """)
+                row = cursor.fetchone()
+                
+                if row and row[0]:
+                    return row[0]
+                return None
+        except Exception as e:
+            logger.error(f"Error getting current game from system_state: {e}")
+            return None
+    
     # NEW: Add this method to track active number calling
     def is_calling_numbers_for_game(self, game_id: str) -> bool:
         """Check if number calling is active for a specific game"""
         return game_id in self._active_games and self._active_games[game_id]
     
     async def start_number_calling_for_game(self, game_id: str):
-        """Start number calling for a game"""
+        """Start number calling for a game - FIXED: Verifies against system_state"""
         try:
             from database.db import Database
             from web_server import websocket_server
+            
+            # ========== CRITICAL: Verify this is the current game from system_state ==========
+            current_game_id = await self.get_current_game_id_from_system_state()
+            
+            if not current_game_id:
+                logger.warning(f"No current game in system_state, cannot start number calling for {game_id}")
+                return False
+            
+            if current_game_id != game_id:
+                logger.warning(f"Game {game_id} is not the current game in system_state (current: {current_game_id}). Not starting number calling.")
+                return False
             
             # Check if game exists
             game = await Database.get_game(game_id)
@@ -69,7 +105,7 @@ class NumberCaller:
                 countdown_task = asyncio.create_task(self._manage_game_countdown(game_id))
                 self.countdown_tasks[game_id] = countdown_task
             
-            logger.info(f"Started number calling for game {game_id}")
+            logger.info(f"Started number calling for current game {game_id}")
             return True
             
         except Exception as e:
@@ -131,6 +167,12 @@ class NumberCaller:
                     game = await Database.get_game(game_id)
                     if not game:
                         logger.info(f"Game {game_id} not found, stopping number calling")
+                        break
+                    
+                    # ========== CRITICAL: Verify this is still the current game ==========
+                    current_game_id = await self.get_current_game_id_from_system_state()
+                    if not current_game_id or current_game_id != game_id:
+                        logger.warning(f"Game {game_id} is no longer the current game (current: {current_game_id}). Stopping number calling.")
                         break
                     
                     # Get current status and phase
@@ -279,6 +321,12 @@ class NumberCaller:
                         logger.info(f"Game {game_id} not found, stopping countdown")
                         break
                     
+                    # ========== CRITICAL: Verify this is still the current game ==========
+                    current_game_id = await self.get_current_game_id_from_system_state()
+                    if not current_game_id or current_game_id != game_id:
+                        logger.warning(f"Game {game_id} is no longer the current game (current: {current_game_id}). Stopping countdown.")
+                        break
+                    
                     status = game.get('status', 'unknown')
                     phase = game.get('current_phase', 'unknown')
                     
@@ -394,11 +442,22 @@ class NumberCaller:
                 active_games.append(game_id)
         return active_games
     
-    # NEW: Force check and restart if needed
+    # NEW: Force check and restart if needed - FIXED: Uses system_state
     async def ensure_calling_for_game(self, game_id: str) -> bool:
-        """Ensure number calling is active for a game, restart if not"""
+        """Ensure number calling is active for a game, restart if not - FIXED: Verifies against system_state"""
         try:
             from database.db import Database
+            
+            # ========== CRITICAL: Verify this is the current game from system_state ==========
+            current_game_id = await self.get_current_game_id_from_system_state()
+            
+            if not current_game_id:
+                logger.warning(f"No current game in system_state, cannot ensure calling for {game_id}")
+                return False
+            
+            if current_game_id != game_id:
+                logger.debug(f"Game {game_id} is not the current game (current: {current_game_id}). Not ensuring calling.")
+                return False
             
             # Check if game exists and is active
             game = await Database.get_game(game_id)
@@ -411,7 +470,7 @@ class NumberCaller:
             # Only ensure calling if game is active
             if status in ['active', 'game_play'] and phase not in ['winner_display', 'completed']:
                 if not self.is_calling_numbers_for_game(game_id):
-                    logger.warning(f"Number calling not active for game {game_id}, restarting...")
+                    logger.warning(f"Number calling not active for current game {game_id}, restarting...")
                     return await self.start_number_calling_for_game(game_id)
                 return True
             return False
