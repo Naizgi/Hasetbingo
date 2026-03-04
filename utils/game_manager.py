@@ -41,17 +41,12 @@
 # Added database-level checks for existing non-completed games
 # Fixed start_new_round_game to reuse existing games instead of creating duplicates
 # Fixed _schedule_next_round_after_winner_display to check for existing games first
-# ==================== DATABASE-LEVEL LOCKING ====================
-# Added system_state table as single source of truth
-# Added atomic game creation with BEGIN IMMEDIATE
-# Added get_current_game method to fetch authoritative game
 # ============================================================
 
 import asyncio
 import logging
 import random
 import json
-import uuid
 from datetime import datetime, timedelta
 from typing import Dict, List, Any
 import time
@@ -172,51 +167,6 @@ class GameManager:
         """Generate random number of fake players between min_fake_players and max_fake_players"""
         return random.randint(self.min_fake_players, self.max_fake_players)
     
-    # ==================== NEW: Get current game from system_state ====================
-    async def get_current_game(self):
-        """
-        Get the current authoritative game from system_state
-        """
-        try:
-            from database.db import Database
-            
-            with Database.get_cursor() as cursor:
-                cursor.execute("""
-                    SELECT current_game_id 
-                    FROM system_state 
-                    WHERE id = 1
-                """)
-                row = cursor.fetchone()
-                
-                if not row or not row[0]:
-                    return None
-                
-                game_id = row[0]
-                
-                # Get the game data
-                game = await Database.get_game(game_id)
-                
-                # Update local cache if needed
-                async with self._lock:
-                    if self.active_game and self.active_game.get('game_id') != game_id:
-                        self.active_game = game
-                        
-                        # Reinitialize tracking for this game
-                        if game_id not in self.game_winners:
-                            self.game_winners[game_id] = []
-                        if game_id not in self._game_state_versions:
-                            self._game_state_versions[game_id] = 1
-                        if game_id not in self._fake_players_finalized:
-                            self._fake_players_finalized[game_id] = False
-                        if game_id not in self._final_winner_broadcast_sent:
-                            self._final_winner_broadcast_sent[game_id] = False
-                
-                return game
-                
-        except Exception as e:
-            logger.error(f"Error getting current game: {e}")
-            return None
-    
     async def initialize(self):
         """Initialize the game manager - FIXED: No race conditions"""
         if self._initialization_complete:
@@ -234,30 +184,58 @@ class GameManager:
                 await Database.init_db()
                 await Database.migrate_db()
                 
-                # Initialize system_state table
-                with Database.get_cursor() as cursor:
-                    cursor.execute("""
-                        CREATE TABLE IF NOT EXISTS system_state (
-                            id INTEGER PRIMARY KEY CHECK (id = 1),
-                            current_game_id TEXT
-                        )
-                    """)
-                    cursor.execute("""
-                        INSERT OR IGNORE INTO system_state (id, current_game_id)
-                        VALUES (1, NULL)
-                    """)
-                
-                # FIX: Get active game from system_state
+                # FIX: Get active game with proper locking
                 async with self._lock:
-                    self.active_game = await self.get_current_game()
+                    self.active_game = await Database.get_active_round_game()
                 
                 # CRITICAL FIX: Check for any stuck games in card_purchase phase
                 await self._recover_abandoned_games()
                 
                 if not self.active_game:
                     # Create a new game with 30-second countdown
-                    result = await self.start_new_round_game()
-                    if not result.get('success'):
+                    latest_round = await Database.get_latest_round_number()
+                    round_number = latest_round + 1
+                    
+                    current_time = datetime.now()
+                    countdown_end = current_time + timedelta(seconds=30)
+                    purchase_end_time = current_time + timedelta(seconds=30)
+                    
+                    game_id = await Database.create_new_round_game(
+                        admin_id=0,  # System admin
+                        round_number=round_number,
+                        status='card_purchase',
+                        current_phase='card_purchase',
+                        countdown_end=countdown_end,
+                        purchase_end_time=purchase_end_time
+                    )
+                    
+                    if game_id:
+                        async with self._lock:
+                            self.active_game = await Database.get_game(game_id)
+                        
+                        # Initialize winner tracking for this game
+                        self.game_winners[game_id] = []
+                        
+                        # Initialize state version
+                        self._game_state_versions[game_id] = 1
+                        
+                        # Initialize fake players finalized flag
+                        self._fake_players_finalized[game_id] = False
+                        
+                        # ==================== NEW: Initialize final winner broadcast flag ====================
+                        self._final_winner_broadcast_sent[game_id] = False
+                        
+                        # ==================== NEW: Add RANDOM number of fake users ====================
+                        if self.fake_users_enabled:
+                            # Get random fake count between 25-35
+                            random_fake_count = self._get_random_fake_count()
+                            logger.info(f"🎲 Selected {random_fake_count} fake players for game {game_id} (random between {self.min_fake_players}-{self.max_fake_players})")
+                            
+                            # Immediately populate with random fake users
+                            await self._add_initial_fake_users(game_id, random_fake_count)
+                        
+                        logger.info(f"Created new game: {game_id} (Round {round_number}) with 30-second countdown")
+                    else:
                         logger.error("Failed to create new game")
                         return False
                 else:
@@ -1225,27 +1203,30 @@ class GameManager:
         try:
             from database.db import Database
             
-            # Get current game from system_state
-            current_game = await self.get_current_game()
+            # Get all games in card_purchase phase
+            card_purchase_games = await Database.get_games_by_status('card_purchase')
             
-            if current_game:
-                game_id = current_game.get('game_id')
-                status = current_game.get('status')
-                phase = current_game.get('current_phase')
+            if len(card_purchase_games) > 1:
+                logger.warning(f"Found {len(card_purchase_games)} games in card_purchase phase. Need to recover...")
                 
-                if phase == 'card_purchase' and status == 'card_purchase':
-                    # Calculate remaining time
-                    countdown = await Database.calculate_purchase_countdown(game_id)
+                # Sort by creation time (oldest first)
+                card_purchase_games.sort(key=lambda x: x.get('created_at', datetime.min))
+                
+                # Keep only the newest game, refund players in older games
+                for i, game in enumerate(card_purchase_games):
+                    game_id = game.get('game_id')
                     
-                    # If countdown is negative (stuck), reset it
-                    if countdown < -30:  # Stuck for more than 30 seconds
-                        logger.warning(f"Current game {game_id} appears stuck with negative countdown ({countdown}). Resetting...")
+                    if i == len(card_purchase_games) - 1:
+                        # This is the newest game, keep it as active
+                        async with self._lock:
+                            self.active_game = game
+                        logger.info(f"Keeping game {game_id} as active (newest)")
+                    else:
+                        # Older game, refund players and mark as completed
+                        logger.warning(f"Game {game_id} is an older game in card_purchase. Refunding players...")
                         
-                        # Check if there are any real players
-                        real_players = await Database.count_game_players(game_id)
-                        if real_players > 0:
-                            # Refund real players first
-                            await self._refund_all_players(game_id)
+                        # Refund all real players
+                        await self._refund_all_players(game_id)
                         
                         # Clean up fake users
                         self.fake_user_manager.cleanup_game(game_id)
@@ -1257,16 +1238,33 @@ class GameManager:
                         if game_id in self._fake_players_finalized:
                             del self._fake_players_finalized[game_id]
                         
-                        # Clear final winner broadcast flag
-                        if game_id in self._final_winner_broadcast_sent:
-                            del self._final_winner_broadcast_sent[game_id]
+                        # Mark game as completed/abandoned
+                        await Database.update_game_status(game_id, 'completed')
+                        await Database.update_game_phase(game_id, 'completed')
                         
-                        # Reset purchase end time
-                        new_end_time = datetime.now() + timedelta(seconds=30)
-                        await Database.set_purchase_end_time(game_id, new_end_time)
-                        await Database.update_game_countdown(game_id, 30)
-                        
-                        logger.info(f"Reset stuck current game {game_id} countdown to 30 seconds")
+                        logger.info(f"Game {game_id} marked as completed and players refunded")
+            
+            elif len(card_purchase_games) == 1:
+                # Only one game, set it as active
+                async with self._lock:
+                    self.active_game = card_purchase_games[0]
+                game_id = self.active_game.get('game_id')
+                if game_id:
+                    # Initialize winner tracking
+                    if game_id not in self.game_winners:
+                        self.game_winners[game_id] = []
+                    
+                    # Initialize state version
+                    if game_id not in self._game_state_versions:
+                        self._game_state_versions[game_id] = 1
+                    
+                    # Initialize fake finalized flag
+                    if game_id not in self._fake_players_finalized:
+                        self._fake_players_finalized[game_id] = False
+                    
+                    # ==================== NEW: Initialize final winner broadcast flag ====================
+                    if game_id not in self._final_winner_broadcast_sent:
+                        self._final_winner_broadcast_sent[game_id] = False
             
         except Exception as e:
             logger.error(f"Error recovering abandoned games: {e}")
@@ -1438,70 +1436,55 @@ class GameManager:
         try:
             from database.db import Database
             
-            # Get current game from system_state
-            current_game = await self.get_current_game()
+            # Get games in winner_display phase
+            winner_display_games = await Database.get_games_by_status('winner_display')
             
-            if not current_game:
-                return
-            
-            game_id = current_game.get('game_id')
-            if not game_id:
-                return
-            
-            game = await Database.get_game(game_id)
-            if not game:
-                return
-            
-            status = game.get('status')
-            phase = game.get('current_phase')
-            
-            if status != 'winner_display' or phase != 'winner_display':
-                return
-            
-            winner_display_end = game.get('winner_display_end')
-            
-            if winner_display_end:
-                if isinstance(winner_display_end, str):
-                    try:
-                        winner_display_end = datetime.fromisoformat(winner_display_end.replace('Z', '+00:00'))
-                    except:
-                        winner_display_end = datetime.fromisoformat(winner_display_end)
+            for game in winner_display_games:
+                game_id = game.get('game_id')
+                winner_display_end = game.get('winner_display_end')
                 
-                current_time = datetime.now()
-                
-                # Calculate remaining time
-                if winner_display_end > current_time:
-                    remaining = (winner_display_end - current_time).total_seconds()
-                    logger.info(f"⏱️ Game {game_id} winner display: {remaining:.1f}s remaining")
+                if winner_display_end:
+                    if isinstance(winner_display_end, str):
+                        try:
+                            winner_display_end = datetime.fromisoformat(winner_display_end.replace('Z', '+00:00'))
+                        except:
+                            winner_display_end = datetime.fromisoformat(winner_display_end)
                     
-                    # CRITICAL FIX: If stuck at 5 seconds for more than 30 seconds, force complete
-                    if 4.5 <= remaining <= 5.5:
-                        # Check if we've been stuck at 5 seconds
-                        stuck_key = f"stuck_5s_{game_id}"
-                        current_timestamp = time.time()
+                    current_time = datetime.now()
+                    
+                    # Calculate remaining time
+                    if winner_display_end > current_time:
+                        remaining = (winner_display_end - current_time).total_seconds()
+                        logger.info(f"⏱️ Game {game_id} winner display: {remaining:.1f}s remaining")
                         
-                        if stuck_key in self._stuck_5s_tracking:
-                            stuck_time = current_timestamp - self._stuck_5s_tracking[stuck_key]
-                            if stuck_time > 30:  # Stuck at 5 seconds for more than 30 seconds
-                                logger.warning(f"🚨 Game {game_id} stuck at 5 seconds for {stuck_time:.0f}s. Force completing!")
-                                await self.force_complete_winner_display_immediately(game_id)
-                                return
+                        # CRITICAL FIX: If stuck at 5 seconds for more than 30 seconds, force complete
+                        if 4.5 <= remaining <= 5.5:
+                            # Check if we've been stuck at 5 seconds
+                            stuck_key = f"stuck_5s_{game_id}"
+                            current_timestamp = time.time()
+                            
+                            if stuck_key in self._stuck_5s_tracking:
+                                stuck_time = current_timestamp - self._stuck_5s_tracking[stuck_key]
+                                if stuck_time > 30:  # Stuck at 5 seconds for more than 30 seconds
+                                    logger.warning(f"🚨 Game {game_id} stuck at 5 seconds for {stuck_time:.0f}s. Force completing!")
+                                    await self.force_complete_winner_display_immediately(game_id)
+                                    continue
+                            else:
+                                self._stuck_5s_tracking[stuck_key] = current_timestamp
                         else:
-                            self._stuck_5s_tracking[stuck_key] = current_timestamp
-                    else:
-                        # Clear stuck tracking if not at 5 seconds
-                        stuck_key = f"stuck_5s_{game_id}"
-                        if stuck_key in self._stuck_5s_tracking:
-                            del self._stuck_5s_tracking[stuck_key]
-                
-                # If winner display ended more than 2 seconds ago but game is still in winner_display
-                if winner_display_end <= current_time:
-                    time_since_end = (current_time - winner_display_end).total_seconds()
+                            # Clear stuck tracking if not at 5 seconds
+                            stuck_key = f"stuck_5s_{game_id}"
+                            if stuck_key in self._stuck_5s_tracking:
+                                del self._stuck_5s_tracking[stuck_key]
                     
-                    # If ended, force completion
-                    if time_since_end > 2:
-                        logger.warning(f"🚨 Game {game_id} winner display ended {time_since_end:.0f}s ago but still in winner_display. Force completing...")
-                        await self.force_complete_winner_display_immediately(game_id)
+                    # If winner display ended more than 2 seconds ago but game is still in winner_display
+                    if winner_display_end <= current_time:
+                        time_since_end = (current_time - winner_display_end).total_seconds()
+                        
+                        # If ended, force completion
+                        if time_since_end > 2:
+                            logger.warning(f"🚨 Game {game_id} winner display ended {time_since_end:.0f}s ago but still in winner_display. Force completing...")
+                            await self.force_complete_winner_display_immediately(game_id)
         
         except Exception as e:
             logger.error(f"Error checking for stuck winner displays: {e}")
@@ -1917,14 +1900,12 @@ class GameManager:
             return False
     
     async def get_active_round_game(self):
-        """Get active round game - FIXED: Uses system_state as source of truth"""
+        """Get active round game - FIXED: Return a copy from cache with lock"""
         async with self._lock:
-            # If we already have it cached, return it
+            # Return a copy to prevent external modification
             if self.active_game:
                 return self.active_game.copy()
-            
-            # Otherwise fetch from database
-            return await self.get_current_game()
+            return None
     
     # ==================== FIXED: Get game status with correct prize pool and commission calculation ====================
     async def get_game_status(self, game_id: str):
@@ -2074,12 +2055,12 @@ class GameManager:
                 }
 
             # CRITICAL: Check if this is the current active game
-            current_game = await self.get_current_game()
-            if not current_game or current_game.get('game_id') != game_id:
-                return {
-                    'success': False,
-                    'message': 'This game is no longer active. Please purchase cards in the latest game.'
-                }
+            async with self._lock:
+                if self.active_game and self.active_game.get('game_id') != game_id:
+                    return {
+                        'success': False,
+                        'message': 'This game is no longer active. Please purchase cards in the latest game.'
+                    }
 
             # Check countdown
             countdown = await Database.calculate_purchase_countdown(game_id)
@@ -3533,34 +3514,100 @@ class GameManager:
             # Clean up caches
             await self.cleanup_game_caches(completed_game_id)
             
-            # CRITICAL FIX: Check if there's already a game in system_state
-            current_game = await self.get_current_game()
-            if current_game and current_game.get('game_id') != completed_game_id:
-                logger.info(f"Game {current_game.get('game_id')} is already active. Not creating new game.")
-                # Set this as active game
-                async with self._lock:
-                    self.active_game = current_game
-                    # Initialize winner tracking for this game
-                    game_id = current_game.get('game_id')
-                    if game_id not in self.game_winners:
-                        self.game_winners[game_id] = []
+            # CRITICAL FIX: Check if there's already a game in card_purchase phase
+            # This prevents creating multiple concurrent games
+            card_purchase_games = await Database.get_games_by_status('card_purchase')
+            
+            if card_purchase_games:
+                logger.warning(f"Found existing game(s) in card_purchase phase: {[g.get('game_id') for g in card_purchase_games]}")
+                # Check if any of these have players
+                for game in card_purchase_games:
+                    game_id = game.get('game_id')
+                    if game_id != completed_game_id:
+                        real_players = await Database.count_game_players(game_id)
+                        fake_count = len(self.fake_user_manager.game_fake_cards.get(game_id, {}))
+                        total_players = real_players + fake_count
+                        
+                        if total_players > 0:
+                            logger.info(f"Game {game_id} already has {total_players} total player(s) (real: {real_players}, fake: {fake_count}) in card_purchase. Not creating new game.")
+                            # Set this as active game
+                            async with self._lock:
+                                self.active_game = game
+                                # Initialize winner tracking for this game
+                                if game_id not in self.game_winners:
+                                    self.game_winners[game_id] = []
+                                
+                                # Initialize state version
+                                if game_id not in self._game_state_versions:
+                                    self._game_state_versions[game_id] = 1
+                            return
+                        else:
+                            # No players, can be replaced
+                            logger.info(f"Game {game_id} has no players. Can be replaced.")
+                            await Database.delete_game(game_id)
+            
+            # Get next round number
+            latest_round = await Database.get_latest_round_number()
+            round_number = latest_round + 1
+            
+            # Create new game with 30-second countdown
+            current_time = datetime.now()
+            countdown_end = current_time + timedelta(seconds=30)
+            purchase_end_time = current_time + timedelta(seconds=30)
+            
+            async with self._creation_lock:
+                game_id = await Database.create_new_round_game(
+                    admin_id=0,
+                    round_number=round_number,
+                    status='card_purchase',
+                    current_phase='card_purchase',
+                    countdown_end=countdown_end,
+                    purchase_end_time=purchase_end_time
+                )
+                
+                if game_id:
+                    async with self._lock:
+                        self.active_game = await Database.get_game(game_id)
+                    
+                    # Initialize winner tracking for new game
+                    self.game_winners[game_id] = []
                     
                     # Initialize state version
-                    if game_id not in self._game_state_versions:
-                        self._game_state_versions[game_id] = 1
-                return
-            
-            # Just call the safe creation method
-            await self.start_new_round_game()
+                    self._game_state_versions[game_id] = 1
+                    
+                    # Initialize fake finalized flag
+                    self._fake_players_finalized[game_id] = False
+                    
+                    # ==================== NEW: Initialize final winner broadcast flag ====================
+                    self._final_winner_broadcast_sent[game_id] = False
+                    
+                    # ==================== NEW: Add RANDOM number of fake users ====================
+                    if self.fake_users_enabled:
+                        random_fake_count = self._get_random_fake_count()
+                        logger.info(f"🎲 Adding {random_fake_count} fake players to new game {game_id}")
+                        await self._add_initial_fake_users(game_id, random_fake_count)
+                    
+                    # Broadcast new game started
+                    await self._safe_broadcast({
+                        'type': 'new_game_started',
+                        'game_id': game_id,
+                        'round_number': round_number,
+                        'status': 'card_purchase',
+                        'phase': 'card_purchase',
+                        'countdown_seconds': 30,
+                        'max_winners': self.max_winners,
+                        'min_fake_players': self.min_fake_players,
+                        'max_fake_players': self.max_fake_players,
+                        'timestamp': datetime.now().isoformat()
+                    }, game_id)
+                    
+                    logger.info(f"New round game started: {game_id} (Round {round_number}) with 30-second countdown")
                     
         except Exception as e:
             logger.error(f"Error scheduling next round: {e}")
     
     async def _schedule_next_round_after_winner_display(self, completed_game_id: str):
-        """
-        Schedule next round with strict duplicate prevention
-        FIXED: Uses start_new_round_game safely
-        """
+        """Schedule next round with strict duplicate prevention"""
         try:
             await asyncio.sleep(0.1)
             
@@ -3590,200 +3637,286 @@ class GameManager:
             # Clean up caches
             await self.cleanup_game_caches(completed_game_id)
             
-            # Instead of manually checking games again, just call the safe creation method
-            result = await self.start_new_round_game()
-
-            if result.get("success"):
-                logger.info(f"Next round started safely: {result.get('game_id')}")
-            else:
-                logger.error(f"Failed to start next round: {result.get('message')}")
+            # CRITICAL FIX: First check if there's ALREADY an active game
+            with Database.get_cursor() as cursor:
+                cursor.execute("""
+                    SELECT game_id, status, current_phase, created_at
+                    FROM games 
+                    WHERE status IN ('card_purchase', 'active', 'winner_display')
+                    AND game_id != ?
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                """, (completed_game_id,))
+                existing_game = cursor.fetchone()
+            
+            if existing_game:
+                game_id = existing_game['game_id']
+                status = existing_game['status']
+                phase = existing_game['current_phase']
+                
+                # Check if this existing game has players
+                cursor.execute("""
+                    SELECT 
+                        COUNT(CASE WHEN is_fake = 0 AND is_active = 1 THEN 1 END) as real_players,
+                        COUNT(CASE WHEN is_fake = 1 AND is_active = 1 THEN 1 END) as fake_players
+                    FROM player_cards 
+                    WHERE game_id = ?
+                """, (game_id,))
+                counts = cursor.fetchone()
+                real_players = counts['real_players'] if counts else 0
+                fake_players = counts['fake_players'] if counts else 0
+                total_players = real_players + fake_players
+                
+                logger.info(f"Found existing active game {game_id} after winner display with {total_players} total players (real: {real_players}, fake: {fake_players}). Using it instead of creating new.")
+                
+                # Set as active game
+                async with self._lock:
+                    self.active_game = await Database.get_game(game_id)
+                    
+                    # Initialize tracking
+                    if game_id not in self.game_winners:
+                        self.game_winners[game_id] = []
+                    if game_id not in self._game_state_versions:
+                        self._game_state_versions[game_id] = 1
+                    if game_id not in self._fake_players_finalized:
+                        self._fake_players_finalized[game_id] = False
+                    if game_id not in self._final_winner_broadcast_sent:
+                        self._final_winner_broadcast_sent[game_id] = False
+                
+                # If game is in card_purchase but has no fake players, add them
+                if phase == 'card_purchase' and self.fake_users_enabled and fake_players == 0:
+                    random_fake_count = self._get_random_fake_count()
+                    logger.info(f"🎲 Adding {random_fake_count} fake players to existing game {game_id}")
+                    await self._add_initial_fake_users(game_id, random_fake_count)
+                
+                # Broadcast that we're using existing game
+                await self._safe_broadcast({
+                    'type': 'existing_game_resumed',
+                    'game_id': game_id,
+                    'real_players': real_players,
+                    'fake_players': fake_players,
+                    'total_players': total_players,
+                    'message': 'Continuing with existing game',
+                    'timestamp': datetime.now().isoformat()
+                }, game_id)
+                return
+            
+            # No existing game, create new one
+            latest_round = await Database.get_latest_round_number()
+            round_number = latest_round + 1
+            
+            current_time = datetime.now()
+            countdown_end = current_time + timedelta(seconds=30)
+            purchase_end_time = current_time + timedelta(seconds=30)
+            
+            async with self._creation_lock:
+                game_id = await Database.create_new_round_game(
+                    admin_id=0,
+                    round_number=round_number,
+                    status='card_purchase',
+                    current_phase='card_purchase',
+                    countdown_end=countdown_end,
+                    purchase_end_time=purchase_end_time
+                )
+                
+                if game_id:
+                    async with self._lock:
+                        self.active_game = await Database.get_game(game_id)
+                    
+                    # Initialize winner tracking for new game
+                    self.game_winners[game_id] = []
+                    
+                    # Initialize state version
+                    self._game_state_versions[game_id] = 1
+                    
+                    # Initialize fake finalized flag
+                    self._fake_players_finalized[game_id] = False
+                    
+                    # ==================== NEW: Initialize final winner broadcast flag ====================
+                    self._final_winner_broadcast_sent[game_id] = False
+                    
+                    # ==================== NEW: Add RANDOM number of fake users ====================
+                    if self.fake_users_enabled:
+                        random_fake_count = self._get_random_fake_count()
+                        logger.info(f"🎲 Adding {random_fake_count} fake players to new game {game_id}")
+                        await self._add_initial_fake_users(game_id, random_fake_count)
+                    
+                    # Broadcast new game started
+                    await self._safe_broadcast({
+                        'type': 'new_game_started',
+                        'game_id': game_id,
+                        'round_number': round_number,
+                        'status': 'card_purchase',
+                        'phase': 'card_purchase',
+                        'countdown_seconds': 30,
+                        'max_winners': self.max_winners,
+                        'min_fake_players': self.min_fake_players,
+                        'max_fake_players': self.max_fake_players,
+                        'timestamp': datetime.now().isoformat(),
+                        'message': 'New game started after winner display'
+                    }, game_id)
+                    
+                    logger.info(f"🎮 Created new game {game_id} after winner display")
         
         except Exception as e:
             logger.error(f"Error scheduling next round after winner display: {e}")
     
-    # ==================== NEW: Atomic game creation with DB-level locking ====================
     async def start_new_round_game(self):
-        """
-        Start a new round game
-        FIXED: Atomic creation with DB-level locking and single source of truth
-        """
-        async with self._creation_lock:  # Python-level lock (secondary protection)
+        """Start a new round game - FIXED: Strict duplicate prevention"""
+        async with self._creation_lock:
             try:
                 from database.db import Database
-                import uuid
-                from datetime import datetime, timedelta
+                from web_server import websocket_server
                 
-                with Database.get_connection() as conn:
-                    conn.execute("BEGIN IMMEDIATE")  # 🔥 CRITICAL: DB write lock
-                    
-                    cursor = conn.cursor()
-                    
-                    # ==========================================================
-                    # 1️⃣ Check if a current game already exists (authoritative)
-                    # ==========================================================
+                # CRITICAL FIX: Check for ANY active games in card_purchase or active phase
+                # This prevents creating duplicate games
+                
+                # Get all games that are NOT completed
+                with Database.get_cursor() as cursor:
                     cursor.execute("""
-                        SELECT current_game_id 
-                        FROM system_state 
-                        WHERE id = 1
-                    """)
-                    row = cursor.fetchone()
-                    current_game_id = row[0] if row else None
-                    
-                    if current_game_id:
-                        cursor.execute("""
-                            SELECT game_id, status, current_phase, prize_pool, round_number
-                            FROM games 
-                            WHERE game_id = ?
-                            AND status IN ('card_purchase', 'active', 'winner_display')
-                        """, (current_game_id,))
-                        existing = cursor.fetchone()
-                        
-                        if existing:
-                            logger.info(f"Using existing current game {current_game_id}")
-                            
-                            # Get game data as dict
-                            game_dict = {
-                                'game_id': existing[0],
-                                'status': existing[1],
-                                'current_phase': existing[2],
-                                'prize_pool': existing[3],
-                                'round_number': existing[4]
-                            }
-                            
-                            conn.commit()
-                            
-                            async with self._lock:
-                                self.active_game = game_dict
-                                
-                                # Initialize tracking for this game
-                                if current_game_id not in self.game_winners:
-                                    self.game_winners[current_game_id] = []
-                                if current_game_id not in self._game_state_versions:
-                                    self._game_state_versions[current_game_id] = 1
-                                if current_game_id not in self._fake_players_finalized:
-                                    self._fake_players_finalized[current_game_id] = False
-                                if current_game_id not in self._final_winner_broadcast_sent:
-                                    self._final_winner_broadcast_sent[current_game_id] = False
-                            
-                            return {
-                                "success": True,
-                                "game_id": current_game_id,
-                                "round_number": game_dict.get('round_number', 1),
-                                "status": game_dict.get('status'),
-                                "phase": game_dict.get('current_phase'),
-                                "message": "Using existing active game"
-                            }
-                    
-                    # ==========================================================
-                    # 2️⃣ Force close ALL previous active-like games
-                    # ==========================================================
-                    cursor.execute("""
-                        UPDATE games
-                        SET status = 'completed', 
-                            current_phase = 'completed',
-                            completed_at = ?
+                        SELECT game_id, status, current_phase, created_at 
+                        FROM games 
                         WHERE status IN ('card_purchase', 'active', 'winner_display')
-                    """, (datetime.now().isoformat(),))
+                        ORDER BY created_at DESC
+                    """)
+                    active_games = cursor.fetchall()
+                
+                if active_games:
+                    # Take the most recent active game
+                    newest_game = active_games[0]
+                    game_id = newest_game['game_id']
+                    status = newest_game['status']
+                    phase = newest_game['current_phase']
                     
-                    # ==========================================================
-                    # 3️⃣ Create New Game with 30-second countdown
-                    # ==========================================================
-                    new_game_id = str(uuid.uuid4())
-                    now = datetime.now()
-                    countdown_end = now + timedelta(seconds=30)
-                    purchase_end_time = now + timedelta(seconds=30)
+                    logger.warning(f"Found existing active game {game_id} in {status}/{phase} phase")
                     
-                    # Get next round number
-                    cursor.execute("SELECT COALESCE(MAX(round_number), 0) as max_round FROM games")
-                    round_row = cursor.fetchone()
-                    next_round = (round_row[0] if round_row else 0) + 1
-                    
+                    # Check if this game has players
                     cursor.execute("""
-                        INSERT INTO games (
-                            game_id,
-                            round_number,
-                            status,
-                            current_phase,
-                            prize_pool,
-                            card_price,
-                            purchase_end_time,
-                            countdown_end,
-                            created_at
-                        )
-                        VALUES (?, ?, 'card_purchase', 'card_purchase', 0, 10, ?, ?, ?)
-                    """, (new_game_id, next_round, purchase_end_time.isoformat(), 
-                          countdown_end.isoformat(), now.isoformat()))
+                        SELECT 
+                            COUNT(CASE WHEN is_fake = 0 AND is_active = 1 THEN 1 END) as real_players,
+                            COUNT(CASE WHEN is_fake = 1 AND is_active = 1 THEN 1 END) as fake_players
+                        FROM player_cards 
+                        WHERE game_id = ?
+                    """, (game_id,))
+                    counts = cursor.fetchone()
+                    real_players = counts['real_players'] if counts else 0
+                    fake_players = counts['fake_players'] if counts else 0
+                    total_players = real_players + fake_players
                     
-                    # ==========================================================
-                    # 4️⃣ Set as Current Game (Single Source of Truth)
-                    # ==========================================================
-                    cursor.execute("""
-                        UPDATE OR IGNORE system_state
-                        SET current_game_id = ?
-                        WHERE id = 1
-                    """, (new_game_id,))
+                    logger.info(f"Game {game_id} has {total_players} total players (real: {real_players}, fake: {fake_players})")
                     
-                    # If no row was updated, insert it
-                    if cursor.rowcount == 0:
-                        cursor.execute("""
-                            INSERT INTO system_state (id, current_game_id)
-                            VALUES (1, ?)
-                        """, (new_game_id,))
+                    # Set this as the active game
+                    async with self._lock:
+                        self.active_game = await Database.get_game(game_id)
+                        
+                        # Initialize all tracking for this game
+                        if game_id not in self.game_winners:
+                            self.game_winners[game_id] = []
+                        if game_id not in self._game_state_versions:
+                            self._game_state_versions[game_id] = 1
+                        if game_id not in self._fake_players_finalized:
+                            self._fake_players_finalized[game_id] = False
+                        if game_id not in self._final_winner_broadcast_sent:
+                            self._final_winner_broadcast_sent[game_id] = False
                     
-                    conn.commit()  # 🔥 Finalize atomic transaction
+                    # If game is in card_purchase but has no fake players, add them
+                    if phase == 'card_purchase' and self.fake_users_enabled and fake_players == 0:
+                        random_fake_count = self._get_random_fake_count()
+                        logger.info(f"🎲 Adding {random_fake_count} fake players to existing game {game_id}")
+                        await self._add_initial_fake_users(game_id, random_fake_count)
                     
-                logger.info(f"✅ Created new game safely: {new_game_id} (Round {next_round})")
+                    # If game is in active phase but number caller not running, start it
+                    if phase == 'active':
+                        from utils.number_caller import number_caller
+                        try:
+                            if hasattr(number_caller, 'is_calling_numbers_for_game'):
+                                if not number_caller.is_calling_numbers_for_game(game_id):
+                                    await number_caller.start_number_calling_for_game(game_id)
+                            else:
+                                await number_caller.start_number_calling_for_game(game_id)
+                        except Exception as e:
+                            logger.error(f"Error starting number caller: {e}")
+                    
+                    return {
+                        'success': True,
+                        'game_id': game_id,
+                        'round_number': self.active_game.get('round_number', 1) if self.active_game else 1,
+                        'status': status,
+                        'phase': phase,
+                        'real_players': real_players,
+                        'fake_players': fake_players,
+                        'total_players': total_players,
+                        'message': f'Using existing game {game_id}'
+                    }
                 
-                # Get the full game data
-                from database.db import Database
-                game_data = await Database.get_game(new_game_id)
+                # No active games found, create a new one
+                latest_round = await Database.get_latest_round_number()
+                round_number = latest_round + 1
                 
-                async with self._lock:
-                    self.active_game = game_data
+                current_time = datetime.now()
+                countdown_end = current_time + timedelta(seconds=30)
+                purchase_end_time = current_time + timedelta(seconds=30)
+                
+                game_id = await Database.create_new_round_game(
+                    admin_id=0,
+                    round_number=round_number,
+                    status='card_purchase',
+                    current_phase='card_purchase',
+                    countdown_end=countdown_end,
+                    purchase_end_time=purchase_end_time
+                )
+                
+                if game_id:
+                    async with self._lock:
+                        self.active_game = await Database.get_game(game_id)
                     
-                    # Initialize tracking for new game
-                    self.game_winners[new_game_id] = []
-                    self._game_state_versions[new_game_id] = 1
-                    self._fake_players_finalized[new_game_id] = False
-                    self._final_winner_broadcast_sent[new_game_id] = False
-                
-                # ==========================================================
-                # 5️⃣ Add fake users if enabled
-                # ==========================================================
-                if self.fake_users_enabled:
-                    random_fake_count = self._get_random_fake_count()
-                    await self._add_initial_fake_users(new_game_id, random_fake_count)
-                
-                # Broadcast new game started
-                await self._safe_broadcast({
-                    'type': 'new_game_started',
-                    'game_id': new_game_id,
-                    'round_number': next_round,
-                    'status': 'card_purchase',
-                    'phase': 'card_purchase',
-                    'countdown_seconds': 30,
-                    'max_winners': self.max_winners,
-                    'min_fake_players': self.min_fake_players,
-                    'max_fake_players': self.max_fake_players,
-                    'timestamp': datetime.now().isoformat()
-                }, new_game_id)
+                    # Initialize tracking
+                    self.game_winners[game_id] = []
+                    self._game_state_versions[game_id] = 1
+                    self._fake_players_finalized[game_id] = False
+                    self._final_winner_broadcast_sent[game_id] = False
+                    
+                    # Add fake users
+                    if self.fake_users_enabled:
+                        random_fake_count = self._get_random_fake_count()
+                        await self._add_initial_fake_users(game_id, random_fake_count)
+                    
+                    # Broadcast new game
+                    await self._safe_broadcast({
+                        'type': 'new_game_started',
+                        'game_id': game_id,
+                        'round_number': round_number,
+                        'status': 'card_purchase',
+                        'phase': 'card_purchase',
+                        'countdown_seconds': 30,
+                        'max_winners': self.max_winners,
+                        'timestamp': datetime.now().isoformat()
+                    }, game_id)
+                    
+                    logger.info(f"✅ Created NEW game: {game_id} (Round {round_number})")
+                    return {
+                        'success': True,
+                        'game_id': game_id,
+                        'round_number': round_number,
+                        'status': 'card_purchase',
+                        'phase': 'card_purchase',
+                        'countdown_seconds': 30,
+                        'max_winners': self.max_winners,
+                        'min_fake_players': self.min_fake_players,
+                        'max_fake_players': self.max_fake_players
+                    }
                 
                 return {
-                    'success': True,
-                    'game_id': new_game_id,
-                    'round_number': next_round,
-                    'status': 'card_purchase',
-                    'phase': 'card_purchase',
-                    'countdown_seconds': 30,
-                    'max_winners': self.max_winners,
-                    'min_fake_players': self.min_fake_players,
-                    'max_fake_players': self.max_fake_players,
-                    'message': 'New game created safely'
+                    'success': False,
+                    'message': 'Failed to create new game'
                 }
                 
             except Exception as e:
-                logger.error(f"Error starting new round game: {e}", exc_info=True)
-                return {"success": False, "message": str(e)}
+                logger.error(f"Error starting new round game: {e}")
+                return {
+                    'success': False,
+                    'message': str(e)
+                }
     
     # ==================== FIXED: Start game play with correct prize pool verification ====================
     async def start_game_play(self, game_id: str):
@@ -4119,7 +4252,7 @@ class GameManager:
         async with self._lock:
             try:
                 from database.db import Database
-                self.active_game = await self.get_current_game()
+                self.active_game = await Database.get_active_round_game()
                 
                 # Re-initialize winner tracking for active game
                 if self.active_game:
@@ -4150,22 +4283,84 @@ class GameManager:
         try:
             from database.db import Database
             
-            # Get current game from system_state
-            current_game = await self.get_current_game()
+            # Get all games in card_purchase phase
+            card_purchase_games = await Database.get_games_by_status('card_purchase')
             
-            if not current_game:
-                # No current game, nothing to recover
-                return
+            if len(card_purchase_games) > 1:
+                logger.warning(f"Found {len(card_purchase_games)} games in card_purchase phase. Recovering...")
+                
+                # Sort by creation time (oldest first)
+                card_purchase_games.sort(key=lambda x: x.get('created_at', datetime.min))
+                
+                # Keep only the newest game
+                newest_game = card_purchase_games[-1]
+                newest_game_id = newest_game.get('game_id')
+                
+                for i, game in enumerate(card_purchase_games):
+                    game_id = game.get('game_id')
+                    
+                    if game_id == newest_game_id:
+                        # This is the newest game, keep it
+                        continue
+                    
+                    # Older game, check if it has real players
+                    real_players = await Database.count_game_players(game_id)
+                    fake_count = len(self.fake_user_manager.game_fake_cards.get(game_id, {}))
+                    total_players = real_players + fake_count
+                    
+                    if real_players > 0:
+                        # Refund real players
+                        logger.warning(f"Game {game_id} has {real_players} real player(s). Refunding...")
+                        await self._refund_all_players(game_id)
+                    
+                    # Clean up fake users
+                    self.fake_user_manager.cleanup_game(game_id)
+                    
+                    # Clear winners for this game
+                    await self.clear_winners(game_id)
+                    
+                    # Clear fake finalized flag
+                    if game_id in self._fake_players_finalized:
+                        del self._fake_players_finalized[game_id]
+                    
+                    # ==================== NEW: Clear final winner broadcast flag ====================
+                    if game_id in self._final_winner_broadcast_sent:
+                        del self._final_winner_broadcast_sent[game_id]
+                    
+                    # Clean up caches
+                    await self.cleanup_game_caches(game_id)
+                    
+                    # Mark as completed
+                    await Database.update_game_status(game_id, 'completed')
+                    await Database.update_game_phase(game_id, 'completed')
+                    
+                    # Add to completed games set
+                    self._completed_games.add(game_id)
+                    
+                    logger.info(f"Recovered stuck game {game_id}")
+                
+                # Set newest game as active
+                async with self._lock:
+                    self.active_game = newest_game
+                    # Initialize winner tracking for active game
+                    if newest_game_id not in self.game_winners:
+                        self.game_winners[newest_game_id] = []
+                    
+                    # Initialize state version
+                    if newest_game_id not in self._game_state_versions:
+                        self._game_state_versions[newest_game_id] = 1
+                    
+                    # Initialize fake finalized flag
+                    if newest_game_id not in self._fake_players_finalized:
+                        self._fake_players_finalized[newest_game_id] = False
+                    
+                    # ==================== NEW: Initialize final winner broadcast flag ====================
+                    if newest_game_id not in self._final_winner_broadcast_sent:
+                        self._final_winner_broadcast_sent[newest_game_id] = False
             
-            game_id = current_game.get('game_id')
-            game = await Database.get_game(game_id)
-            if not game:
-                return
-            
-            status = game.get('status')
-            phase = game.get('current_phase')
-            
-            if phase == 'card_purchase' and status == 'card_purchase':
+            for game in card_purchase_games:
+                game_id = game.get('game_id')
+                
                 # Check if countdown is stuck
                 countdown = await Database.calculate_purchase_countdown(game_id)
                 
@@ -4193,22 +4388,23 @@ class GameManager:
                     await self.cleanup_game_caches(game_id)
                     
                     # Update local cache
-                    async with self._lock:
-                        self.active_game = await Database.get_game(game_id)
-                        # Initialize winner tracking
-                        if game_id not in self.game_winners:
-                            self.game_winners[game_id] = []
-                        
-                        # Increment state version
-                        self._game_state_versions[game_id] = self._game_state_versions.get(game_id, 0) + 1
-                        
-                        # Initialize fake finalized flag
-                        if game_id not in self._fake_players_finalized:
-                            self._fake_players_finalized[game_id] = False
-                        
-                        # ==================== NEW: Initialize final winner broadcast flag ====================
-                        if game_id not in self._final_winner_broadcast_sent:
-                            self._final_winner_broadcast_sent[game_id] = False
+                    if self.active_game and self.active_game.get('game_id') == game_id:
+                        async with self._lock:
+                            self.active_game = await Database.get_game(game_id)
+                            # Initialize winner tracking
+                            if game_id not in self.game_winners:
+                                self.game_winners[game_id] = []
+                            
+                            # Increment state version
+                            self._game_state_versions[game_id] = self._game_state_versions.get(game_id, 0) + 1
+                            
+                            # Initialize fake finalized flag
+                            if game_id not in self._fake_players_finalized:
+                                self._fake_players_finalized[game_id] = False
+                            
+                            # ==================== NEW: Initialize final winner broadcast flag ====================
+                            if game_id not in self._final_winner_broadcast_sent:
+                                self._final_winner_broadcast_sent[game_id] = False
                     
                     # ==================== NEW: Add random fake users if needed ====================
                     if self.fake_users_enabled:
@@ -4235,16 +4431,41 @@ class GameManager:
         try:
             from database.db import Database
             
-            # Get current game from system_state
-            current_game = await self.get_current_game()
-            
-            if not current_game:
-                # No current game, create one
-                logger.info("No current game found, creating new game...")
-                await self.start_new_round_game()
+            if not self.active_game:
+                # Check for existing games first
+                card_purchase_games = await Database.get_games_by_status('card_purchase')
+                
+                if card_purchase_games:
+                    # Use the newest game
+                    card_purchase_games.sort(key=lambda x: x.get('created_at', datetime.min))
+                    newest_game = card_purchase_games[-1]
+                    
+                    async with self._lock:
+                        self.active_game = newest_game
+                        # Initialize winner tracking for this game
+                        game_id = newest_game.get('game_id')
+                        if game_id not in self.game_winners:
+                            self.game_winners[game_id] = []
+                        
+                        # Initialize state version
+                        if game_id not in self._game_state_versions:
+                            self._game_state_versions[game_id] = 1
+                        
+                        # Initialize fake finalized flag
+                        if game_id not in self._fake_players_finalized:
+                            self._fake_players_finalized[game_id] = False
+                        
+                        # ==================== NEW: Initialize final winner broadcast flag ====================
+                        if game_id not in self._final_winner_broadcast_sent:
+                            self._final_winner_broadcast_sent[game_id] = False
+                    
+                    logger.info(f"Using existing game {newest_game.get('game_id')}")
+                else:
+                    # Start a new game
+                    await self.start_new_round_game()
                 return
             
-            game_id = current_game.get('game_id')
+            game_id = self.active_game.get('game_id')
             if not game_id:
                 return
             
