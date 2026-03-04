@@ -95,7 +95,6 @@ game_manager = None
 enhanced_payment_validator = None
 bot = None
 dp = None
-web_server_task = None  # ADDED: Web server task reference
 
 # ==================== PAYMENT CONFIGURATION ====================
 MINIMUM_WITHDRAWAL_AMOUNT = 100.00
@@ -699,7 +698,262 @@ class TelebirrScraper:
         
         logger.info(f"Telebirr SMS Extraction Result: {result}")
         return result
-# ==================== ENHANCED CBE BIRR SCRAPER WITH AMHARIC & OROMIFA SUPPORT ====================
+# ==================== ENHANCED PAYMENT VALIDATOR ====================
+class EnhancedPaymentValidator:
+    """Enhanced validator with SMS parsing and API verification"""
+    
+    def __init__(self, admin_phone: str, admin_name: str = None):
+        self.admin_phone = admin_phone
+        self.admin_name = admin_name or PAYMENT_RECEIVER_NAME
+        self.admin_phone_digits = re.sub(r'[^\d]', '', admin_phone)
+        self.telebirr_scraper = TelebirrScraper()
+        self.cbebirr_scraper = CbeBirrScraper()
+        self.telebirr_client = None
+        self.cbebirr_client = None
+        
+        logger.info("✅ Payment verification API clients initialized")
+    
+    async def initialize_clients(self, telebirr_api_key: str = "", cbebirr_api_key: str = ""):
+        """Initialize API clients with proper session management"""
+        self.telebirr_client = TelebirrVerificationApiClient(
+            api_url=TELEBIRR_VERIFICATION_API_URL,
+            api_key=telebirr_api_key
+        )
+        
+        self.cbebirr_client = CbeBirrVerificationApiClient(
+            api_url=CBE_BIRR_VERIFICATION_API_URL,
+            api_key=cbebirr_api_key
+        )
+        
+        if telebirr_api_key:
+            await self.telebirr_client._ensure_session()
+        if cbebirr_api_key:
+            await self.cbebirr_client._ensure_session()
+    
+    async def close(self):
+        """Close all API client sessions"""
+        if self.telebirr_client:
+            await self.telebirr_client.close()
+        if self.cbebirr_client:
+            await self.cbebirr_client.close()
+    
+    def calculate_sms_hash(self, sms_text: str) -> str:
+        """Create unique hash of SMS to prevent reuse"""
+        if not sms_text or sms_text == "WITHDRAW":
+            return ""
+            
+        normalized = unicodedata.normalize('NFKC', sms_text.strip())
+        normalized = re.sub(r'\s+', ' ', normalized)
+        normalized = normalized.lower().strip()
+        return hashlib.sha256(normalized.encode('utf-8')).hexdigest()[:32]
+    
+    def mask_phone_number(self, phone: str) -> str:
+        """Mask phone number for privacy"""
+        if not phone or phone == 'N/A':
+            return "****"
+        
+        digits = re.sub(r'[^\d]', '', phone)
+        
+        if len(digits) >= 9:
+            return f"+2519****{digits[-4:]}"
+        elif len(digits) >= 4:
+            return f"****{digits[-4:]}"
+        else:
+            return "****"
+    
+    async def check_duplicate_transaction(self, transaction_id: str, sms_hash: str = None, payment_method: str = None) -> bool:
+        """Check if transaction has already been used before"""
+        if not transaction_id or transaction_id == "WITHDRAW":
+            return False
+            
+        try:
+            from database.db import Database
+            
+            with Database.get_cursor() as cursor:
+                cursor.execute("""
+                    SELECT id FROM telebirr_transactions 
+                    WHERE transaction_id = ? AND status IN ('approved', 'pending')
+                    LIMIT 1
+                """, (transaction_id,))
+                result = cursor.fetchone()
+                
+                if result:
+                    return True
+                
+                if sms_hash:
+                    cursor.execute("""
+                        SELECT id FROM telebirr_transactions 
+                        WHERE sms_hash = ? AND status IN ('approved', 'pending')
+                        LIMIT 1
+                    """, (sms_hash,))
+                    result = cursor.fetchone()
+                    
+                    if result:
+                        return True
+            
+            return False
+        except Exception as e:
+            logger.error(f"Error checking duplicate transaction: {e}")
+            return False
+    
+    async def verify_telebirr_transaction(self, sms_text: str):
+        """Verify Telebirr transaction using dual API with fallback"""
+        try:
+            if not sms_text or sms_text == "WITHDRAW":
+                return False, None, ["Invalid SMS text provided"]
+                
+            sms_info = self.telebirr_scraper.extract_info_from_sms(sms_text)
+            
+            if not sms_info['extracted']:
+                tx_id = self.telebirr_scraper.extract_transaction_id(sms_text)
+                if not tx_id:
+                    return False, None, ["Failed to extract transaction ID from SMS"]
+                
+                sms_info['transaction_id'] = tx_id
+                sms_info['extracted'] = True
+            
+            sms_hash = self.calculate_sms_hash(sms_text)
+            is_duplicate = await self.check_duplicate_transaction(sms_info['transaction_id'], sms_hash, 'Telebirr')
+            
+            if is_duplicate:
+                return False, None, ["This transaction has already been used"]
+            
+            if not self.telebirr_client:
+                return False, None, ["Telebirr client not initialized"]
+            
+            # Use the verify_transaction method that tries both APIs with fallback
+            api_result = await self.telebirr_client.verify_transaction(sms_info['transaction_id'])
+            
+            if not api_result:
+                return False, None, ["Failed to verify transaction via Telebirr API (both endpoints failed)"]
+            
+            if not api_result.get('transaction_verified', False):
+                return False, None, ["Transaction verification failed"]
+            
+            errors = []
+            api_settled_amount = api_result.get('amount')
+            
+            if api_settled_amount is None or api_settled_amount <= 0:
+                errors.append("No valid settled amount found in receipt")
+            elif sms_info.get('amount'):
+                sms_amount = sms_info['amount']
+                max_allowed_difference = 2.0
+                if abs(sms_amount - api_settled_amount) > max_allowed_difference:
+                    errors.append(f"Amount mismatch (SMS: {sms_amount:.2f} vs API: {api_settled_amount:.2f})")
+            
+            if not api_result.get('is_valid', False):
+                if not api_result.get('phone_match'):
+                    errors.append(f"Payment phone not found in receipt. Expected: {PAYMENT_PHONE_NUMBER}")
+                else:
+                    errors.append("Transaction not valid")
+            
+            if api_result.get('transaction_status') != 'Completed':
+                errors.append("Transaction status is not completed")
+            
+            if errors:
+                return False, api_settled_amount, errors
+            else:
+                return True, api_settled_amount, []
+            
+        except Exception as e:
+            logger.error(f"Telebirr verification error: {e}", exc_info=True)
+            return False, None, [f"Verification error: {str(e)}"]
+    
+    async def verify_cbebirr_transaction(self, sms_text: str):
+        """Verify CBE Birr transaction - UPDATED"""
+        try:
+            if not sms_text or sms_text == "WITHDRAW":
+                return False, None, ["Invalid SMS text provided"]
+                
+            sms_info = self.cbebirr_scraper.extract_info_from_sms(sms_text)
+            
+            logger.info(f"CBE Birr SMS info extracted: {sms_info}")
+            
+            if not sms_info['extracted']:
+                receipt_no = self.cbebirr_scraper.extract_receipt_number(sms_text)
+                if not receipt_no:
+                    return False, None, ["Failed to extract receipt number from SMS"]
+                
+                sms_info['receipt_number'] = receipt_no
+                sms_info['phone_number'] = self.cbebirr_scraper.extract_phone_number(sms_text)
+                sms_info['amount'] = self.cbebirr_scraper.extract_amount(sms_text)
+            
+            if not sms_info.get('receipt_number'):
+                return False, None, ["Receipt number not found in SMS"]
+                
+            if not sms_info.get('phone_number'):
+                logger.error(f"No phone number extracted from SMS: {sms_text[:100]}...")
+                return False, None, ["Phone number not found in SMS"]
+            
+            sms_hash = self.calculate_sms_hash(sms_text)
+            is_duplicate = await self.check_duplicate_transaction(sms_info['receipt_number'], sms_hash, 'CBE Birr')
+            
+            if is_duplicate:
+                return False, None, ["This transaction has already been used"]
+            
+            if not self.cbebirr_client:
+                return False, None, ["CBE Birr client not initialized"]
+            
+            api_result = await self.cbebirr_client.verify_transaction(
+                sms_info['receipt_number'], 
+                sms_info['phone_number']
+            )
+            
+            if not api_result:
+                return False, None, ["Failed to verify transaction via CBE Birr API"]
+            
+            if not api_result.get('success', False):
+                return False, None, ["Transaction verification failed"]
+            
+            errors = []
+            api_amount = api_result.get('amount')
+            
+            if api_amount is None or api_amount <= 0:
+                errors.append("No valid amount found in receipt")
+            elif sms_info.get('amount'):
+                sms_amount = sms_info['amount']
+                max_allowed_difference = 2.0
+                if abs(sms_amount - api_amount) > max_allowed_difference:
+                    errors.append(f"Amount mismatch (SMS: {sms_amount:.2f} vs API: {api_amount:.2f})")
+            
+            if not api_result.get('is_valid', False):
+                if not api_result.get('phone_match'):
+                    errors.append(f"Payment phone not found in receipt. Expected: {PAYMENT_PHONE_NUMBER}")
+                else:
+                    errors.append("Transaction not valid")
+            
+            if api_result.get('transaction_status') != 'Completed':
+                errors.append("Transaction status is not completed")
+            
+            if sms_info.get('receiver_name') and api_result.get('customer_name'):
+                receiver_name_norm = ' '.join(sms_info['receiver_name'].lower().split())
+                customer_name_norm = ' '.join(api_result['customer_name'].lower().split())
+                payment_name_norm = ' '.join(PAYMENT_RECEIVER_NAME.lower().split())
+                
+                name_matches = (
+                    payment_name_norm in customer_name_norm or 
+                    customer_name_norm in payment_name_norm or
+                    payment_name_norm in receiver_name_norm or
+                    receiver_name_norm in payment_name_norm
+                )
+                
+                if not name_matches:
+                    errors.append(f"Receiver name mismatch. Expected: {PAYMENT_RECEIVER_NAME}")
+            
+            if errors:
+                return False, api_amount, errors
+            else:
+                return True, api_amount, []
+            
+        except Exception as e:
+            logger.error(f"CBE Birr verification error: {e}", exc_info=True)
+            return False, None, [f"Verification error: {str(e)}"]
+        
+        
+        
+        
+        
+        # ==================== ENHANCED CBE BIRR SCRAPER WITH AMHARIC & OROMIFA SUPPORT ====================
 
 class CbeBirrScraper:
     """SMS scraper for CBE Birr receipts - Enhanced with Amharic & Oromifa support"""
@@ -992,261 +1246,10 @@ class CbeBirrScraper:
         logger.info(f"CBE SMS Extraction Result: {result}")
         return result
 
-# ==================== ENHANCED PAYMENT VALIDATOR ====================
-class EnhancedPaymentValidator:
-    """Enhanced validator with SMS parsing and API verification"""
-    
-    def __init__(self, admin_phone: str, admin_name: str = None):
-        self.admin_phone = admin_phone
-        self.admin_name = admin_name or PAYMENT_RECEIVER_NAME
-        self.admin_phone_digits = re.sub(r'[^\d]', '', admin_phone)
-        self.telebirr_scraper = TelebirrScraper()
-        self.cbebirr_scraper = CbeBirrScraper()
-        self.telebirr_client = None
-        self.cbebirr_client = None
-        
-        logger.info("✅ Payment verification API clients initialized")
-    
-    async def initialize_clients(self, telebirr_api_key: str = "", cbebirr_api_key: str = ""):
-        """Initialize API clients with proper session management"""
-        self.telebirr_client = TelebirrVerificationApiClient(
-            api_url=TELEBIRR_VERIFICATION_API_URL,
-            api_key=telebirr_api_key
-        )
-        
-        self.cbebirr_client = CbeBirrVerificationApiClient(
-            api_url=CBE_BIRR_VERIFICATION_API_URL,
-            api_key=cbebirr_api_key
-        )
-        
-        if telebirr_api_key:
-            await self.telebirr_client._ensure_session()
-        if cbebirr_api_key:
-            await self.cbebirr_client._ensure_session()
-    
-    async def close(self):
-        """Close all API client sessions"""
-        if self.telebirr_client:
-            await self.telebirr_client.close()
-        if self.cbebirr_client:
-            await self.cbebirr_client.close()
-    
-    def calculate_sms_hash(self, sms_text: str) -> str:
-        """Create unique hash of SMS to prevent reuse"""
-        if not sms_text or sms_text == "WITHDRAW":
-            return ""
-            
-        normalized = unicodedata.normalize('NFKC', sms_text.strip())
-        normalized = re.sub(r'\s+', ' ', normalized)
-        normalized = normalized.lower().strip()
-        return hashlib.sha256(normalized.encode('utf-8')).hexdigest()[:32]
-    
-    def mask_phone_number(self, phone: str) -> str:
-        """Mask phone number for privacy"""
-        if not phone or phone == 'N/A':
-            return "****"
-        
-        digits = re.sub(r'[^\d]', '', phone)
-        
-        if len(digits) >= 9:
-            return f"+2519****{digits[-4:]}"
-        elif len(digits) >= 4:
-            return f"****{digits[-4:]}"
-        else:
-            return "****"
-    
-    async def check_duplicate_transaction(self, transaction_id: str, sms_hash: str = None, payment_method: str = None) -> bool:
-        """Check if transaction has already been used before"""
-        if not transaction_id or transaction_id == "WITHDRAW":
-            return False
-            
-        try:
-            from database.db import Database
-            
-            with Database.get_cursor() as cursor:
-                cursor.execute("""
-                    SELECT id FROM telebirr_transactions 
-                    WHERE transaction_id = ? AND status IN ('approved', 'pending')
-                    LIMIT 1
-                """, (transaction_id,))
-                result = cursor.fetchone()
-                
-                if result:
-                    return True
-                
-                if sms_hash:
-                    cursor.execute("""
-                        SELECT id FROM telebirr_transactions 
-                        WHERE sms_hash = ? AND status IN ('approved', 'pending')
-                        LIMIT 1
-                    """, (sms_hash,))
-                    result = cursor.fetchone()
-                    
-                    if result:
-                        return True
-            
-            return False
-        except Exception as e:
-            logger.error(f"Error checking duplicate transaction: {e}")
-            return False
-    
-    async def verify_telebirr_transaction(self, sms_text: str):
-        """Verify Telebirr transaction using dual API with fallback"""
-        try:
-            if not sms_text or sms_text == "WITHDRAW":
-                return False, None, ["Invalid SMS text provided"]
-                
-            sms_info = self.telebirr_scraper.extract_info_from_sms(sms_text)
-            
-            if not sms_info['extracted']:
-                tx_id = self.telebirr_scraper.extract_transaction_id(sms_text)
-                if not tx_id:
-                    return False, None, ["Failed to extract transaction ID from SMS"]
-                
-                sms_info['transaction_id'] = tx_id
-                sms_info['extracted'] = True
-            
-            sms_hash = self.calculate_sms_hash(sms_text)
-            is_duplicate = await self.check_duplicate_transaction(sms_info['transaction_id'], sms_hash, 'Telebirr')
-            
-            if is_duplicate:
-                return False, None, ["This transaction has already been used"]
-            
-            if not self.telebirr_client:
-                return False, None, ["Telebirr client not initialized"]
-            
-            # Use the verify_transaction method that tries both APIs with fallback
-            api_result = await self.telebirr_client.verify_transaction(sms_info['transaction_id'])
-            
-            if not api_result:
-                return False, None, ["Failed to verify transaction via Telebirr API (both endpoints failed)"]
-            
-            if not api_result.get('transaction_verified', False):
-                return False, None, ["Transaction verification failed"]
-            
-            errors = []
-            api_settled_amount = api_result.get('amount')
-            
-            if api_settled_amount is None or api_settled_amount <= 0:
-                errors.append("No valid settled amount found in receipt")
-            elif sms_info.get('amount'):
-                sms_amount = sms_info['amount']
-                max_allowed_difference = 2.0
-                if abs(sms_amount - api_settled_amount) > max_allowed_difference:
-                    errors.append(f"Amount mismatch (SMS: {sms_amount:.2f} vs API: {api_settled_amount:.2f})")
-            
-            if not api_result.get('is_valid', False):
-                if not api_result.get('phone_match'):
-                    errors.append(f"Payment phone not found in receipt. Expected: {PAYMENT_PHONE_NUMBER}")
-                else:
-                    errors.append("Transaction not valid")
-            
-            if api_result.get('transaction_status') != 'Completed':
-                errors.append("Transaction status is not completed")
-            
-            if errors:
-                return False, api_settled_amount, errors
-            else:
-                return True, api_settled_amount, []
-            
-        except Exception as e:
-            logger.error(f"Telebirr verification error: {e}", exc_info=True)
-            return False, None, [f"Verification error: {str(e)}"]
-    
-    async def verify_cbebirr_transaction(self, sms_text: str):
-        """Verify CBE Birr transaction - UPDATED"""
-        try:
-            if not sms_text or sms_text == "WITHDRAW":
-                return False, None, ["Invalid SMS text provided"]
-                
-            sms_info = self.cbebirr_scraper.extract_info_from_sms(sms_text)
-            
-            logger.info(f"CBE Birr SMS info extracted: {sms_info}")
-            
-            if not sms_info['extracted']:
-                receipt_no = self.cbebirr_scraper.extract_receipt_number(sms_text)
-                if not receipt_no:
-                    return False, None, ["Failed to extract receipt number from SMS"]
-                
-                sms_info['receipt_number'] = receipt_no
-                sms_info['phone_number'] = self.cbebirr_scraper.extract_phone_number(sms_text)
-                sms_info['amount'] = self.cbebirr_scraper.extract_amount(sms_text)
-            
-            if not sms_info.get('receipt_number'):
-                return False, None, ["Receipt number not found in SMS"]
-                
-            if not sms_info.get('phone_number'):
-                logger.error(f"No phone number extracted from SMS: {sms_text[:100]}...")
-                return False, None, ["Phone number not found in SMS"]
-            
-            sms_hash = self.calculate_sms_hash(sms_text)
-            is_duplicate = await self.check_duplicate_transaction(sms_info['receipt_number'], sms_hash, 'CBE Birr')
-            
-            if is_duplicate:
-                return False, None, ["This transaction has already been used"]
-            
-            if not self.cbebirr_client:
-                return False, None, ["CBE Birr client not initialized"]
-            
-            api_result = await self.cbebirr_client.verify_transaction(
-                sms_info['receipt_number'], 
-                sms_info['phone_number']
-            )
-            
-            if not api_result:
-                return False, None, ["Failed to verify transaction via CBE Birr API"]
-            
-            if not api_result.get('success', False):
-                return False, None, ["Transaction verification failed"]
-            
-            errors = []
-            api_amount = api_result.get('amount')
-            
-            if api_amount is None or api_amount <= 0:
-                errors.append("No valid amount found in receipt")
-            elif sms_info.get('amount'):
-                sms_amount = sms_info['amount']
-                max_allowed_difference = 2.0
-                if abs(sms_amount - api_amount) > max_allowed_difference:
-                    errors.append(f"Amount mismatch (SMS: {sms_amount:.2f} vs API: {api_amount:.2f})")
-            
-            if not api_result.get('is_valid', False):
-                if not api_result.get('phone_match'):
-                    errors.append(f"Payment phone not found in receipt. Expected: {PAYMENT_PHONE_NUMBER}")
-                else:
-                    errors.append("Transaction not valid")
-            
-            if api_result.get('transaction_status') != 'Completed':
-                errors.append("Transaction status is not completed")
-            
-            if sms_info.get('receiver_name') and api_result.get('customer_name'):
-                receiver_name_norm = ' '.join(sms_info['receiver_name'].lower().split())
-                customer_name_norm = ' '.join(api_result['customer_name'].lower().split())
-                payment_name_norm = ' '.join(PAYMENT_RECEIVER_NAME.lower().split())
-                
-                name_matches = (
-                    payment_name_norm in customer_name_norm or 
-                    customer_name_norm in payment_name_norm or
-                    payment_name_norm in receiver_name_norm or
-                    receiver_name_norm in payment_name_norm
-                )
-                
-                if not name_matches:
-                    errors.append(f"Receiver name mismatch. Expected: {PAYMENT_RECEIVER_NAME}")
-            
-            if errors:
-                return False, api_amount, errors
-            else:
-                return True, api_amount, []
-            
-        except Exception as e:
-            logger.error(f"CBE Birr verification error: {e}", exc_info=True)
-            return False, None, [f"Verification error: {str(e)}"]
-
 # ==================== SHUTDOWN HANDLERS ====================
 async def enhanced_shutdown(restart: bool = False):
     """Enhanced clean shutdown with optional restart flag"""
-    global shutting_down, main_task, enhanced_payment_validator, restart_flag, web_server_task
+    global shutting_down, main_task, enhanced_payment_validator, restart_flag
     if shutting_down:
         return
     
@@ -1263,15 +1266,6 @@ async def enhanced_shutdown(restart: bool = False):
                 await main_task
             except asyncio.CancelledError:
                 pass
-        
-        # ADDED: Cancel web server task
-        if web_server_task and not web_server_task.done():
-            web_server_task.cancel()
-            try:
-                await web_server_task
-            except asyncio.CancelledError:
-                pass
-            logger.info("✅ Web server task cancelled")
         
         # Close payment validator clients
         if enhanced_payment_validator:
@@ -1985,7 +1979,7 @@ async def restore_database_from_file(file_path: str, admin_id: int, original_mes
         # ========== STEP 3: GRACEFUL SHUTDOWN ==========
         logger.info("Step 3: Performing graceful shutdown of all bot components...")
         
-        global shutting_down, dp, bot, main_task, enhanced_payment_validator, web_server_task
+        global shutting_down, dp, bot, main_task, enhanced_payment_validator
         
         # Set shutdown flag to prevent new operations
         original_shutdown_state = shutting_down
@@ -2016,15 +2010,6 @@ async def restore_database_from_file(file_path: str, admin_id: int, original_mes
                 logger.info("✅ Payment validator closed")
             except Exception as e:
                 logger.warning(f"Error closing payment validator: {e}")
-        
-        # Cancel web server task
-        if web_server_task and not web_server_task.done():
-            web_server_task.cancel()
-            try:
-                await web_server_task
-            except asyncio.CancelledError:
-                pass
-            logger.info("✅ Web server task cancelled")
         
         # CRITICAL: Close ALL database connections
         logger.info("Closing all database connections...")
@@ -2169,7 +2154,7 @@ async def restore_database_from_file(file_path: str, admin_id: int, original_mes
 # ==================== MAIN FUNCTION ====================
 async def main():
     """Main application entry point"""
-    global runner, currency, enhanced_payment_validator, game_manager, main_task, bot, dp, web_server_task
+    global runner, currency, enhanced_payment_validator, game_manager, main_task, bot, dp
     
     import sys
     if sys.platform != "win32":
@@ -3971,13 +3956,29 @@ async def main():
         logger.error(f"[ERROR] Game manager initialization failed: {e}")
         game_manager_obj = None
         
-    # ==================== FIXED: Start web server as asyncio task instead of thread ====================
+    # Start web servers as background task
     try:
         from web_server import start_web_server
-        web_server_task = asyncio.create_task(start_web_server())
-        logger.info(f"[OK] Web server started as asyncio task on http://{WEBSERVER_HOST}:{WEBSERVER_PORT}")
+        import threading
+        
+        def run_web_server_in_thread():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            
+            try:
+                loop.run_until_complete(start_web_server())
+            except Exception as e:
+                logger.error(f"Web server thread error: {e}")
+            finally:
+                loop.close()
+        
+        web_server_thread = threading.Thread(target=run_web_server_in_thread, daemon=True)
+        web_server_thread.start()
+        
+        logger.info(f"[OK] HTTP web server started in background thread on http://{WEBSERVER_HOST}:{WEBSERVER_PORT}")
+        
     except Exception as e:
-        logger.error(f"[ERROR] Failed to start web server: {e}")
+        logger.error(f"[ERROR] Failed to start HTTP web server: {e}")
     
     # Setup menu button
     try:
