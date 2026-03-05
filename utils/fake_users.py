@@ -11,8 +11,10 @@ Simulates players when real users are not available
 - CRITICAL FIX: Fake card creation ADDS to prize pool (+8) and house commission (+2)
 - CRITICAL FIX: Fake card removal DOES NOT affect prize pool (already counted)
 - CRITICAL FIX: Game cleanup DOES NOT affect prize pool
-- FIXED: Fake players now have realistic delays when marking numbers and claiming bingo
+- FIXED: Fake players now have realistic delays when marking numbers
 - FIXED: Fake users are added to fake_players table for admin panel filtering
+- ==================== CRITICAL FIX: INSTANT BINGO CLAIMS ====================
+- Fake winners now claim BINGO INSTANTLY (no delays) for faster game flow
 - ==================== CRITICAL FIX: INSTANT CARD BROADCAST ====================
 - Fake cards now broadcast IMMEDIATELY after each purchase via WebSocket
 - Frontend receives card indices as soon as each fake player buys a card
@@ -920,6 +922,16 @@ class FakeUserManager:
                     marked, winner_info = result
                     updated_count += 1 if marked else 0
                     if winner_info:
+                        # ==================== CRITICAL FIX: Process winner immediately ====================
+                        # No delay - when fake player gets BINGO, claim immediately
+                        card, pattern_type = winner_info
+                        
+                        # Trigger winner processing immediately
+                        from game_manager import game_manager
+                        asyncio.create_task(game_manager.process_fake_winner(
+                            game_id, user_id, card, pattern_type
+                        ))
+                        
                         winners.append(winner_info)
         
         if updated_count > 0:
@@ -949,6 +961,9 @@ class FakeUserManager:
                 if has_bingo and not card.get('is_winner'):
                     card['is_winner'] = True
                     logger.info(f"🎭 Fake user {user_id} got BINGO in game {game_id} with pattern: {pattern_type} (after {delay:.1f}s delay)")
+                    
+                    # ==================== CRITICAL FIX: Return winner info immediately ====================
+                    # The caller will process this without additional delay
                     return True, (card, pattern_type)
             
             return True, None
@@ -1113,11 +1128,11 @@ class FakeUserManager:
             result = cursor.fetchone()
             return result['count'] if result else 0
     
-    # ==================== FIXED: Claim bingo for fake winners with realistic delays ====================
+    # ==================== CRITICAL FIX: Claim bingo for fake winners - INSTANT! ====================
     async def claim_bingo_for_fake_winners_async(self, game_id: str) -> List[Dict]:
         """
-        Fake winners claim bingo with realistic delays.
-        They don't all claim instantly - they have varying reaction times.
+        Fake winners claim bingo INSTANTLY (no delays).
+        When a fake player gets BINGO, they claim immediately for faster game flow.
         """
         if game_id not in self.game_fake_cards:
             return []
@@ -1135,51 +1150,26 @@ class FakeUserManager:
         if not winner_cards:
             return []
         
-        logger.info(f"🎭 {len(winner_cards)} fake winners preparing to claim bingo with realistic delays...")
+        logger.info(f"🎭 {len(winner_cards)} fake winners claiming BINGO INSTANTLY...")
         
-        # Create tasks with varying claim delays
-        claim_tasks = []
+        # ==================== CRITICAL FIX: NO DELAYS ====================
+        # Process all winners immediately without any waiting
         for user_id, card in winner_cards:
-            # Fake players have different "reaction times" before claiming
-            # Some claim quickly (0.5-2 seconds), others take longer (2-5 seconds)
-            claim_delay = random.uniform(0.5, 3.0)
-            
-            # Also add some randomness to the order
-            # This simulates some winners realizing they won earlier than others
-            claim_tasks.append(self._delayed_claim_bingo(
-                game_id, user_id, card, claim_delay
-            ))
-        
-        if claim_tasks:
-            results = await asyncio.gather(*claim_tasks, return_exceptions=True)
-            for result in results:
-                if isinstance(result, dict):
-                    winners.append(result)
-        
-        if winners:
-            logger.info(f"🎭 {len(winners)} fake winners claimed bingo with realistic delays")
-        
-        return winners
-    
-    async def _delayed_claim_bingo(self, game_id: str, user_id: int, card: Dict, delay: float):
-        """Claim bingo for a fake winner after a delay"""
-        try:
-            await asyncio.sleep(delay)
-            
             card['bingo_claimed'] = True
             
-            logger.info(f"🎭 Fake user {user_id} claimed BINGO after {delay:.1f}s delay")
+            logger.info(f"🎭 Fake user {user_id} claimed BINGO INSTANTLY")
             
-            return {
+            winners.append({
                 'user_id': user_id,
                 'card': card,
                 'pattern_type': card.get('winning_pattern', 'unknown'),
-                'claim_delay': delay
-            }
-            
-        except Exception as e:
-            logger.error(f"Error in delayed bingo claim: {e}")
-            return None
+                'claim_delay': 0  # Instant claim
+            })
+        
+        if winners:
+            logger.info(f"🎭 {len(winners)} fake winners claimed bingo INSTANTLY")
+        
+        return winners
     
     # ==================== CRITICAL FIX: Cleanup game (DOES NOT affect prize pool) ====================
     def cleanup_game(self, game_id: str):

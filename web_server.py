@@ -14,7 +14,8 @@
 # ADDED: Force reset game endpoint to handle stuck games
 # ADDED: Game state cleanup on startup
 # FIXED: Start game endpoint to handle edge cases
-# ADDED: User search API for admin panel
+# ADDED: User search API for admin panel - FIXED to work properly
+# ADDED: Transaction filtering API for deposits and withdrawals
 
 from aiohttp import web
 import json
@@ -1426,7 +1427,7 @@ async def init_commission_table():
             """)
             logger.info("✅ commission_records table initialized")
     except Exception as e:
-        logger.error(f"Error initializing commission_records table: {e}")
+            logger.error(f"Error initializing commission_records table: {e}")
 
 # ==================== FIXED ADMIN API ENDPOINTS ====================
 
@@ -2263,7 +2264,7 @@ async def admin_commission_details(request):
         return web.json_response({
             'success': False,
             'message': str(e)
-        }, status-500)
+        }, status=500)
 
 
 # ==================== TEST COMMISSION ENDPOINT ====================
@@ -2554,9 +2555,10 @@ async def admin_get_withdrawals(request):
         }, status=500)
 
 
+# ==================== FIXED: TRANSACTIONS API WITH FILTERING ====================
 @routes.get('/api/admin/transactions')
 async def admin_transactions(request):
-    """Get all transactions for admin"""
+    """Get all transactions for admin with filtering for deposits and withdrawals"""
     try:
         from database.db import Database
         
@@ -2566,8 +2568,29 @@ async def admin_transactions(request):
         offset = (page - 1) * limit
         type_filter = request.query.get('type', 'all')
         
-        transactions = await Database.get_admin_transactions(limit, offset, type_filter)
-        total_transactions = await Database.get_total_transactions(type_filter)
+        # Map filter to actual transaction types
+        transaction_types = []
+        if type_filter == 'all':
+            transaction_types = []  # All types
+        elif type_filter == 'deposit':
+            transaction_types = ['deposit']  # Only deposits
+        elif type_filter == 'withdrawal':
+            transaction_types = ['withdrawal_approved', 'withdrawal_rejected', 'withdrawal_requested']  # Withdrawal related
+        elif type_filter == 'game':
+            transaction_types = ['card_purchase', 'winning', 'card_refund']  # Game related
+        elif type_filter == 'admin':
+            transaction_types = ['admin_add', 'admin_deduct']  # Admin actions
+        else:
+            transaction_types = [type_filter]  # Specific type
+        
+        # Log the filtering
+        logger.info(f"📊 Transaction filter: '{type_filter}' -> types: {transaction_types if transaction_types else 'ALL'}")
+        
+        # Get filtered transactions
+        transactions = await Database.get_admin_transactions_filtered(limit, offset, transaction_types if transaction_types else None)
+        
+        # Get total count for pagination
+        total_transactions = await Database.get_total_transactions_filtered(transaction_types if transaction_types else None)
         
         result = {
             'success': True,
@@ -2576,10 +2599,11 @@ async def admin_transactions(request):
                 'page': page,
                 'limit': limit,
                 'total': total_transactions,
-                'pages': (total_transactions + limit - 1) // limit
+                'pages': (total_transactions + limit - 1) // limit if total_transactions > 0 else 0
             },
             'filters': {
-                'type': type_filter
+                'type': type_filter,
+                'applied_types': transaction_types if transaction_types else 'all'
             }
         }
         
@@ -2589,7 +2613,7 @@ async def admin_transactions(request):
         )
         
     except Exception as e:
-        logger.error(f"Error getting admin transactions: {e}")
+        logger.error(f"Error getting admin transactions: {e}", exc_info=True)
         return web.json_response({
             'success': False,
             'message': str(e)
@@ -3637,7 +3661,7 @@ async def admin_database_info(request):
         return web.json_response({
             'success': False,
             'message': str(e)
-        }, status-500)
+        }, status=500)
 
 
 @routes.get('/api/admin/download-database')
@@ -3753,7 +3777,7 @@ async def admin_download_database(request):
         return web.json_response({
             'success': False,
             'message': str(e)
-        }, status-500)
+        }, status=500)
         
         
         
@@ -4170,10 +4194,10 @@ async def admin_health_check(request):
         }, status=500)
 
 
-# ==================== USER SEARCH API FOR ADMIN PANEL ====================
+# ==================== USER SEARCH API FOR ADMIN PANEL - FIXED ====================
 @routes.get('/api/admin/user/search')
 async def admin_search_users(request):
-    """Search users by ID, username, or full name - for admin panel"""
+    """Search users by ID, username, or full name - for admin panel - FIXED"""
     try:
         query = request.query.get('q', '').strip()
         search_type = request.query.get('type', 'all')  # all, id, username, name
@@ -4202,7 +4226,7 @@ async def admin_search_users(request):
                         SELECT 
                             user_id, username, full_name, balance, 
                             created_at, status,
-                            (SELECT COUNT(*) FROM player_cards WHERE user_id = users.user_id) as games_played,
+                            (SELECT COUNT(*) FROM player_cards WHERE user_id = users.user_id AND is_active = 1) as games_played,
                             (SELECT COUNT(*) FROM games WHERE winner_id = users.user_id) as wins,
                             (SELECT COALESCE(SUM(prize_pool), 0) FROM games WHERE winner_id = users.user_id) as total_winnings
                         FROM users 
@@ -4215,7 +4239,7 @@ async def admin_search_users(request):
                         SELECT 
                             user_id, username, full_name, balance, 
                             created_at, status,
-                            (SELECT COUNT(*) FROM player_cards WHERE user_id = users.user_id) as games_played,
+                            (SELECT COUNT(*) FROM player_cards WHERE user_id = users.user_id AND is_active = 1) as games_played,
                             (SELECT COUNT(*) FROM games WHERE winner_id = users.user_id) as wins,
                             (SELECT COALESCE(SUM(prize_pool), 0) FROM games WHERE winner_id = users.user_id) as total_winnings
                         FROM users 
@@ -4228,7 +4252,7 @@ async def admin_search_users(request):
                     SELECT 
                         user_id, username, full_name, balance, 
                         created_at, status,
-                        (SELECT COUNT(*) FROM player_cards WHERE user_id = users.user_id) as games_played,
+                        (SELECT COUNT(*) FROM player_cards WHERE user_id = users.user_id AND is_active = 1) as games_played,
                         (SELECT COUNT(*) FROM games WHERE winner_id = users.user_id) as wins,
                         (SELECT COALESCE(SUM(prize_pool), 0) FROM games WHERE winner_id = users.user_id) as total_winnings
                     FROM users 
@@ -4241,7 +4265,7 @@ async def admin_search_users(request):
                     SELECT 
                         user_id, username, full_name, balance, 
                         created_at, status,
-                        (SELECT COUNT(*) FROM player_cards WHERE user_id = users.user_id) as games_played,
+                        (SELECT COUNT(*) FROM player_cards WHERE user_id = users.user_id AND is_active = 1) as games_played,
                         (SELECT COUNT(*) FROM games WHERE winner_id = users.user_id) as wins,
                         (SELECT COALESCE(SUM(prize_pool), 0) FROM games WHERE winner_id = users.user_id) as total_winnings
                     FROM users 
@@ -4254,7 +4278,7 @@ async def admin_search_users(request):
                     SELECT 
                         user_id, username, full_name, balance, 
                         created_at, status,
-                        (SELECT COUNT(*) FROM player_cards WHERE user_id = users.user_id) as games_played,
+                        (SELECT COUNT(*) FROM player_cards WHERE user_id = users.user_id AND is_active = 1) as games_played,
                         (SELECT COUNT(*) FROM games WHERE winner_id = users.user_id) as wins,
                         (SELECT COALESCE(SUM(prize_pool), 0) FROM games WHERE winner_id = users.user_id) as total_winnings
                     FROM users 
@@ -4307,7 +4331,7 @@ async def admin_search_users(request):
         return web.json_response({
             'success': False,
             'message': str(e)
-        }, status-500)
+        }, status=500)
 
 
 # ==================== GET SINGLE USER DETAILS (already exists but improved) ====================
@@ -4739,9 +4763,9 @@ async def calculate_server_countdown(game: dict) -> int:
                     except:
                         return 30
                     
-                now = datetime.now()
-                remaining = (purchase_end - now).total_seconds()
-                return max(0, int(remaining))
+                    now = datetime.now()
+                    remaining = (purchase_end - now).total_seconds()
+                    return max(0, int(remaining))
             
             # Fallback to countdown_remaining
             countdown = game.get('countdown_remaining')
@@ -4761,9 +4785,9 @@ async def calculate_server_countdown(game: dict) -> int:
                     except:
                         return 5
                     
-                now = datetime.now()
-                elapsed = (now - winner_display_start).total_seconds()
-                return max(0, 5 - int(elapsed))
+                    now = datetime.now()
+                    elapsed = (now - winner_display_start).total_seconds()
+                    return max(0, 5 - int(elapsed))
             
             return 5  # Default
         
@@ -4953,7 +4977,7 @@ async def get_active_game(request):
         return web.json_response({
             'success': False,
             'message': f'Error getting active game: {str(e)}'
-        }, status-500)
+        }, status=500)
         
 
 # ==================== FIXED USER GAME STATE ENDPOINT ====================
@@ -5053,7 +5077,7 @@ async def get_user_game_state(request):
         return web.json_response({
             'success': False,
             'message': f'Error getting user game state: {str(e)}'
-        }, status-500)
+        }, status=500)
 
 
 # ==================== CARD PURCHASE API ====================
@@ -5263,7 +5287,7 @@ async def claim_bingo_lightning_fast(request):
         return web.json_response({
             'success': False,
             'message': f'Error claiming bingo: {str(e)}'
-        }, status-500)
+        }, status=500)
 
 
 # ==================== DEBUG BINGO VERIFICATION ENDPOINT ====================
@@ -7543,6 +7567,13 @@ async def admin_html(request):
                                     <button class="btn btn-primary" onclick="loadTransactions()"><i class="fas fa-sync"></i> Refresh</button>
                                 </div>
                             </div>
+                            <div class="tab-nav">
+                                <button class="tab-link" onclick="showTransactionTab('all')">All</button>
+                                <button class="tab-link active" onclick="showTransactionTab('deposit')">Deposits</button>
+                                <button class="tab-link" onclick="showTransactionTab('withdrawal')">Withdrawals</button>
+                                <button class="tab-link" onclick="showTransactionTab('game')">Game</button>
+                                <button class="tab-link" onclick="showTransactionTab('admin')">Admin</button>
+                            </div>
                             <div class="search-box">
                                 <input type="text" id="transactionSearch" placeholder="Search transactions..." onkeyup="searchTransactions()">
                                 <i class="fas fa-search"></i>
@@ -7721,6 +7752,7 @@ async def admin_html(request):
                         paymentsPage: 1,
                         withdrawalsPage: 1,
                         transactionsPage: 1,
+                        transactionFilter: 'all',
                         paymentStatus: 'pending',
                         withdrawalStatus: 'pending'
                     };
@@ -7858,7 +7890,7 @@ async def admin_html(request):
                                 loadWithdrawals();
                                 break;
                             case 'transactions':
-                                loadTransactions();
+                                loadTransactions(1, adminState.transactionFilter);
                                 break;
                             case 'system':
                                 loadSystemStatus();
@@ -8227,11 +8259,22 @@ async def admin_html(request):
                         }
                     }
                     
-                    // Load transactions
-                    async function loadTransactions(page = 1) {
+                    // Load transactions with filtering
+                    async function loadTransactions(page = 1, typeFilter = 'all') {
                         try {
                             adminState.transactionsPage = page;
-                            const response = await fetch(`/api/admin/transactions?page=${page}&limit=20`);
+                            adminState.transactionFilter = typeFilter;
+                            
+                            // Update active tab
+                            document.querySelectorAll('#transactions .tab-link').forEach(tab => {
+                                tab.classList.remove('active');
+                                if (tab.textContent.toLowerCase().includes(typeFilter) || 
+                                    (typeFilter === 'all' && tab.textContent.toLowerCase().includes('all'))) {
+                                    tab.classList.add('active');
+                                }
+                            });
+                            
+                            const response = await fetch(`/api/admin/transactions?page=${page}&limit=20&type=${typeFilter}`);
                             const data = await response.json();
                             
                             if (data.success) {
@@ -8257,13 +8300,20 @@ async def admin_html(request):
                                 `;
                                 
                                 data.transactions.forEach(transaction => {
+                                    let typeClass = 'status-pending';
+                                    if (transaction.transaction_type.includes('winning') || transaction.transaction_type.includes('deposit')) {
+                                        typeClass = 'status-active';
+                                    } else if (transaction.transaction_type.includes('withdrawal')) {
+                                        typeClass = 'status-completed';
+                                    }
+                                    
                                     html += `
                                         <tr>
                                             <td>${transaction.id}</td>
                                             <td>${transaction.username || `User ${transaction.user_id}`}</td>
-                                            <td><span class="status-badge ${transaction.transaction_type === 'winning' ? 'status-active' : transaction.transaction_type === 'deposit' ? 'status-completed' : 'status-pending'}">${transaction.transaction_type}</span></td>
+                                            <td><span class="status-badge ${typeClass}">${transaction.transaction_type}</span></td>
                                             <td>${parseFloat(transaction.amount).toFixed(2)} birr</td>
-                                            <td>${transaction.description}</td>
+                                            <td>${transaction.description || ''}</td>
                                             <td>${new Date(transaction.created_at).toLocaleDateString()}</td>
                                         </tr>
                                     `;
@@ -8278,6 +8328,11 @@ async def admin_html(request):
                         } catch (error) {
                             console.error('Error loading transactions:', error);
                         }
+                    }
+                    
+                    // Show transaction tab
+                    function showTransactionTab(type) {
+                        loadTransactions(1, type);
                     }
                     
                     // Show payment tab
@@ -8304,18 +8359,18 @@ async def admin_html(request):
                         let html = '';
                         
                         if (pagination.page > 1) {
-                            html += `<button class="page-link" onclick="${elementId.replace('Pagination', '')}(${pagination.page - 1})">Previous</button>`;
+                            html += `<button class="page-link" onclick="load${elementId.replace('Pagination', '')}(${pagination.page - 1})">Previous</button>`;
                         }
                         
                         const startPage = Math.max(1, pagination.page - 2);
                         const endPage = Math.min(pagination.pages, pagination.page + 2);
                         
                         for (let i = startPage; i <= endPage; i++) {
-                            html += `<button class="page-link ${i === pagination.page ? 'active' : ''}" onclick="${elementId.replace('Pagination', '')}(${i})">${i}</button>`;
+                            html += `<button class="page-link ${i === pagination.page ? 'active' : ''}" onclick="load${elementId.replace('Pagination', '')}(${i})">${i}</button>`;
                         }
                         
                         if (pagination.page < pagination.pages) {
-                            html += `<button class="page-link" onclick="${elementId.replace('Pagination', '')}(${pagination.page + 1})">Next</button>`;
+                            html += `<button class="page-link" onclick="load${elementId.replace('Pagination', '')}(${pagination.page + 1})">Next</button>`;
                         }
                         
                         container.innerHTML = html;
@@ -8764,7 +8819,7 @@ async def admin_html(request):
                                     admin_id: 'admin',
                                     reason: reason
                                 })
-                                                        });
+                            });
                             
                             const data = await response.json();
                             if (data.success) {

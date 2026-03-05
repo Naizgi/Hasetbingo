@@ -1680,6 +1680,39 @@
             animation: fadeIn 0.5s ease;
         }
 
+        /* FIXED: Transaction type tabs styling */
+        .transaction-tabs {
+            display: flex;
+            background: var(--primary-color);
+            overflow-x: auto;
+            margin-bottom: 20px;
+            border-radius: var(--border-radius);
+        }
+
+        .transaction-tab-btn {
+            padding: 12px 20px;
+            background: none;
+            border: none;
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: var(--transition);
+            white-space: nowrap;
+            flex: 1;
+            text-align: center;
+        }
+
+        .transaction-tab-btn:hover {
+            color: white;
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .transaction-tab-btn.active {
+            color: white;
+            background: rgba(255, 255, 255, 0.2);
+        }
+
         .commission-tabs {
             display: flex;
             background: var(--primary-color);
@@ -2097,6 +2130,19 @@
         }
         
         body.theme-dark .payment-tab-btn.active {
+            background: var(--primary-color);
+            color: white;
+        }
+        
+        body.theme-dark .transaction-tabs {
+            background: #2d2d2d;
+        }
+        
+        body.theme-dark .transaction-tab-btn {
+            color: #aaaaaa;
+        }
+        
+        body.theme-dark .transaction-tab-btn.active {
             background: var(--primary-color);
             color: white;
         }
@@ -2563,6 +2609,30 @@
                     
                     <!-- Transactions Tab -->
                     <div class="tab-pane" id="transactions-tab">
+                        <!-- FIXED: Transaction Type Tabs -->
+                        <div class="transaction-tabs">
+                            <button class="transaction-tab-btn active" data-transaction-type="all">
+                                <i class="fas fa-list"></i>
+                                <span>All</span>
+                            </button>
+                            <button class="transaction-tab-btn" data-transaction-type="deposit">
+                                <i class="fas fa-arrow-down"></i>
+                                <span>Deposits</span>
+                            </button>
+                            <button class="transaction-tab-btn" data-transaction-type="withdrawal">
+                                <i class="fas fa-arrow-up"></i>
+                                <span>Withdrawals</span>
+                            </button>
+                            <button class="transaction-tab-btn" data-transaction-type="game">
+                                <i class="fas fa-gamepad"></i>
+                                <span>Game</span>
+                            </button>
+                            <button class="transaction-tab-btn" data-transaction-type="admin">
+                                <i class="fas fa-cog"></i>
+                                <span>Admin</span>
+                            </button>
+                        </div>
+                        
                         <div class="search-filter">
                             <div class="search-box">
                                 <i class="fas fa-search"></i>
@@ -3286,6 +3356,7 @@
     let autoRefreshTime = 30000;
     let panelLoadedTime = new Date();
     let currentPaymentType = 'deposits';
+    let currentTransactionType = 'all'; // FIXED: Track transaction filter type
     let gameResetAttempts = 0;
     
     // Pagination state
@@ -3782,7 +3853,7 @@
         closeModal('reset-game-modal');
     }
 
-    // ==================== USER SEARCH FUNCTIONS ====================
+    // ==================== USER SEARCH FUNCTIONS - FIXED ====================
     async function searchUsers() {
         const searchInput = document.getElementById('user-search');
         if (!searchInput) {
@@ -3790,7 +3861,7 @@
             return;
         }
         
-        const searchType = document.getElementById('user-search-type');
+        const searchTypeSelect = document.getElementById('user-search-type');
         const query = searchInput.value.trim();
         
         if (!query || query.length < 2) {
@@ -3799,12 +3870,16 @@
         }
         
         userSearchQuery = query;
-        userSearchType = searchType ? searchType.value : 'all';
+        userSearchType = searchTypeSelect ? searchTypeSelect.value : 'all';
         isSearchMode = true;
+        
+        // Show loading
+        document.getElementById('users-table-body').innerHTML = '<tr><td colspan="8" class="loading">Searching...</td></tr>';
         
         try {
             showNotification(`Searching for "${query}"...`, 'info');
             
+            // Build URL with proper encoding
             const url = `/api/admin/user/search?q=${encodeURIComponent(query)}&type=${userSearchType}&limit=50`;
             console.log('Search URL:', url);
             
@@ -3813,7 +3888,7 @@
             if (!response.ok) {
                 const errorText = await response.text();
                 console.error('Search error response:', errorText);
-                throw new Error(`HTTP error ${response.status}: ${errorText}`);
+                throw new Error(`HTTP error ${response.status}: ${errorText.substring(0, 100)}`);
             }
             
             const data = await response.json();
@@ -4140,14 +4215,6 @@
         try {
             usersPage = page;
             
-            // Get elements with null checks
-            const statusFilterEl = document.getElementById('user-status-filter');
-            const searchInput = document.getElementById('user-search');
-            const resultsInfo = document.getElementById('search-results-info');
-            
-            const statusFilter = statusFilterEl ? statusFilterEl.value : 'all';
-            const searchTerm = searchInput ? searchInput.value : '';
-            
             // If in search mode, don't load regular users
             if (isSearchMode) {
                 const pagination = document.getElementById('users-pagination');
@@ -4158,8 +4225,6 @@
             }
             
             let url = `/api/admin/users?page=${usersPage}&limit=${usersPageSize}`;
-            if (statusFilter !== 'all') url += `&status=${statusFilter}`;
-            if (searchTerm) url += `&search=${encodeURIComponent(searchTerm)}`;
             
             console.log('Fetching users from:', url);
             
@@ -4229,10 +4294,6 @@
                                             <span class="win-label">Winnings:</span>
                                             <span class="win-value">${formatCurrency(user.total_winnings || 0)}</span>
                                         </div>
-                                        <div class="win-stat-item">
-                                            <span class="win-label">Win Rate:</span>
-                                            <span class="win-value">${user.games_played ? ((user.wins || 0) / user.games_played * 100).toFixed(1) : 0}%</span>
-                                        </div>
                                     </div>
                                 </td>
                                 <td><span class="status-badge ${statusClass}">${statusText}</span></td>
@@ -4246,11 +4307,6 @@
                         `;
                     });
                     tbody.innerHTML = html;
-                    
-                    // Clear search results info
-                    if (resultsInfo) {
-                        resultsInfo.innerHTML = '';
-                    }
                     
                     const pagination = document.getElementById('users-pagination');
                     if (pagination) {
@@ -4469,13 +4525,24 @@
         }
     }
 
-    async function loadTransactions(page = transactionsPage) {
+    // FIXED: Load transactions with filtering
+    async function loadTransactions(page = transactionsPage, typeFilter = currentTransactionType) {
         try {
             transactionsPage = page;
+            currentTransactionType = typeFilter;
+            
+            // Update active tab
+            document.querySelectorAll('.transaction-tab-btn').forEach(tab => {
+                tab.classList.remove('active');
+                if (tab.dataset.transactionType === typeFilter) {
+                    tab.classList.add('active');
+                }
+            });
+            
             const searchInput = document.getElementById('transaction-search');
             const searchTerm = searchInput ? searchInput.value : '';
             
-            let url = `/api/admin/transactions?page=${transactionsPage}&limit=${transactionsPageSize}`;
+            let url = `/api/admin/transactions?page=${transactionsPage}&limit=${transactionsPageSize}&type=${typeFilter}`;
             if (searchTerm) url += `&search=${encodeURIComponent(searchTerm)}`;
             
             console.log('Fetching transactions from:', url);
@@ -4531,7 +4598,7 @@
                         document.getElementById('transactions-next-page').disabled = transactionsPage === transactionsTotalPages || transactionsTotalPages === 0;
                         document.getElementById('transactions-last-page').disabled = transactionsPage === transactionsTotalPages || transactionsTotalPages === 0;
                         
-                        updatePaginationNumbers('transactions', transactionsPage, transactionsTotalPages, loadTransactions);
+                        updatePaginationNumbers('transactions', transactionsPage, transactionsTotalPages, (page) => loadTransactions(page, currentTransactionType));
                     }
                 } else {
                     tbody.innerHTML = '<tr><td colspan="6" style="text-align: center;">No transactions found</td></tr>';
@@ -5307,10 +5374,10 @@
     function withdrawalsNextPage() { if (withdrawalsPage < withdrawalsTotalPages) loadWithdrawals(withdrawalsPage + 1); }
     function withdrawalsLastPage() { loadWithdrawals(withdrawalsTotalPages); }
     
-    function transactionsFirstPage() { loadTransactions(1); }
-    function transactionsPrevPage() { if (transactionsPage > 1) loadTransactions(transactionsPage - 1); }
-    function transactionsNextPage() { if (transactionsPage < transactionsTotalPages) loadTransactions(transactionsPage + 1); }
-    function transactionsLastPage() { loadTransactions(transactionsTotalPages); }
+    function transactionsFirstPage() { loadTransactions(1, currentTransactionType); }
+    function transactionsPrevPage() { if (transactionsPage > 1) loadTransactions(transactionsPage - 1, currentTransactionType); }
+    function transactionsNextPage() { if (transactionsPage < transactionsTotalPages) loadTransactions(transactionsPage + 1, currentTransactionType); }
+    function transactionsLastPage() { loadTransactions(transactionsTotalPages, currentTransactionType); }
 
     // ==================== INITIALIZATION ====================
     function init() {
@@ -5329,7 +5396,7 @@
         loadUsers();
         loadDeposits();
         loadWithdrawals();
-        loadTransactions();
+        loadTransactions(1, 'all');
         loadGameStatus();
         
         document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -5349,7 +5416,15 @@
                     if (currentPaymentType === 'deposits') loadDeposits();
                     else loadWithdrawals();
                 }
-                else if (this.dataset.tab === 'transactions') loadTransactions();
+                else if (this.dataset.tab === 'transactions') loadTransactions(1, currentTransactionType);
+            });
+        });
+        
+        // FIXED: Transaction type tabs
+        document.querySelectorAll('.transaction-tab-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const type = this.dataset.transactionType;
+                loadTransactions(1, type);
             });
         });
         
@@ -5435,7 +5510,7 @@
         });
         document.getElementById('refresh-deposits')?.addEventListener('click', loadDeposits);
         document.getElementById('refresh-withdrawals')?.addEventListener('click', loadWithdrawals);
-        document.getElementById('refresh-transactions')?.addEventListener('click', loadTransactions);
+        document.getElementById('refresh-transactions')?.addEventListener('click', () => loadTransactions(1, currentTransactionType));
         document.getElementById('refresh-weekly-commission')?.addEventListener('click', loadWeeklyCommission);
         document.getElementById('view-commission-details')?.addEventListener('click', () => {
             loadCommissionDetails();
@@ -5494,7 +5569,7 @@
         document.getElementById('transactions-page-size')?.addEventListener('change', (e) => {
             transactionsPageSize = parseInt(e.target.value);
             transactionsPage = 1;
-            loadTransactions();
+            loadTransactions(1, currentTransactionType);
         });
         
         document.getElementById('game-status-filter')?.addEventListener('change', () => {
@@ -5506,13 +5581,6 @@
             if (e.key === 'Enter') {
                 gamesPage = 1;
                 loadGames();
-            }
-        });
-        
-        document.getElementById('user-status-filter')?.addEventListener('change', () => {
-            if (!isSearchMode) {
-                usersPage = 1;
-                loadUsers();
             }
         });
         
@@ -5543,7 +5611,7 @@
         document.getElementById('transaction-search')?.addEventListener('keyup', (e) => {
             if (e.key === 'Enter') {
                 transactionsPage = 1;
-                loadTransactions();
+                loadTransactions(1, currentTransactionType);
             }
         });
         
@@ -5748,7 +5816,7 @@
                 if (currentPaymentType === 'deposits') loadDeposits();
                 else loadWithdrawals();
             }
-            else if (activeTab === 'transactions-tab') loadTransactions();
+            else if (activeTab === 'transactions-tab') loadTransactions(transactionsPage, currentTransactionType);
             loadStats();
             loadGameStatus();
         }, 30000);
