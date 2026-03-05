@@ -3955,6 +3955,75 @@ class Database:
         except Exception as e:
             logger.error(f"Error getting total transactions: {e}")
             return 0
+        
+        
+        # Add these methods to the Database class in database/db.py
+
+@classmethod
+async def get_admin_transactions_filtered(cls, limit: int = 20, offset: int = 0, transaction_types: List[str] = None) -> List[Dict]:
+    """
+    Get transactions with filtering by type
+    """
+    try:
+        with cls.get_cursor() as cursor:
+            if transaction_types and len(transaction_types) > 0:
+                placeholders = ','.join(['?'] * len(transaction_types))
+                cursor.execute(f"""
+                    SELECT t.*, u.username 
+                    FROM transactions t
+                    LEFT JOIN users u ON t.user_id = u.user_id
+                    WHERE t.transaction_type IN ({placeholders})
+                    ORDER BY t.created_at DESC
+                    LIMIT ? OFFSET ?
+                """, (*transaction_types, limit, offset))
+            else:
+                cursor.execute("""
+                    SELECT t.*, u.username 
+                    FROM transactions t
+                    LEFT JOIN users u ON t.user_id = u.user_id
+                    ORDER BY t.created_at DESC
+                    LIMIT ? OFFSET ?
+                """, (limit, offset))
+            
+            rows = cursor.fetchall()
+            transactions = []
+            for row in rows:
+                transaction = dict(row)
+                if isinstance(transaction.get('amount'), decimal.Decimal):
+                    transaction['amount'] = float(transaction['amount'])
+                transactions.append(transaction)
+            
+            return transactions
+    except Exception as e:
+        logger.error(f"Error getting filtered admin transactions: {e}")
+        return []
+
+@classmethod
+async def get_total_transactions_filtered(cls, transaction_types: List[str] = None) -> int:
+    """
+    Get total count of transactions with filtering by type
+    """
+    try:
+        with cls.get_cursor() as cursor:
+            if transaction_types and len(transaction_types) > 0:
+                placeholders = ','.join(['?'] * len(transaction_types))
+                cursor.execute(f"""
+                    SELECT COUNT(*) as total 
+                    FROM transactions 
+                    WHERE transaction_type IN ({placeholders})
+                """, transaction_types)
+            else:
+                cursor.execute("SELECT COUNT(*) as total FROM transactions")
+            
+            row = cursor.fetchone()
+            return row[0] if row else 0
+    except Exception as e:
+        logger.error(f"Error getting filtered total transactions: {e}")
+        return 0
+        
+        
+        
+        
     
     @classmethod
     async def get_payment(cls, payment_id: int) -> Optional[Dict]:

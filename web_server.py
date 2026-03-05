@@ -2573,13 +2573,13 @@ async def admin_transactions(request):
         if type_filter == 'all':
             transaction_types = []  # All types
         elif type_filter == 'deposit':
-            transaction_types = ['deposit']  # Only deposits
+            transaction_types = ['deposit', 'initial_deposit']  # Only deposits
         elif type_filter == 'withdrawal':
-            transaction_types = ['withdrawal_approved', 'withdrawal_rejected', 'withdrawal_requested']  # Withdrawal related
+            transaction_types = ['withdrawal_approved', 'withdrawal_rejected', 'withdrawal_requested', 'withdrawal_refund']  # Withdrawal related
         elif type_filter == 'game':
-            transaction_types = ['card_purchase', 'winning', 'card_refund']  # Game related
+            transaction_types = ['card_purchase', 'winning', 'card_refund', 'bingo_win']  # Game related
         elif type_filter == 'admin':
-            transaction_types = ['admin_add', 'admin_deduct']  # Admin actions
+            transaction_types = ['admin_add', 'admin_deduct', 'system_refund']  # Admin actions
         else:
             transaction_types = [type_filter]  # Specific type
         
@@ -2592,6 +2592,9 @@ async def admin_transactions(request):
         # Get total count for pagination
         total_transactions = await Database.get_total_transactions_filtered(transaction_types if transaction_types else None)
         
+        # Calculate total pages
+        total_pages = (total_transactions + limit - 1) // limit if total_transactions > 0 else 0
+        
         result = {
             'success': True,
             'transactions': transactions,
@@ -2599,7 +2602,7 @@ async def admin_transactions(request):
                 'page': page,
                 'limit': limit,
                 'total': total_transactions,
-                'pages': (total_transactions + limit - 1) // limit if total_transactions > 0 else 0
+                'pages': total_pages
             },
             'filters': {
                 'type': type_filter,
@@ -2618,7 +2621,6 @@ async def admin_transactions(request):
             'success': False,
             'message': str(e)
         }, status=500)
-
 
 @routes.post('/api/admin/startgame')
 async def admin_start_game(request):
