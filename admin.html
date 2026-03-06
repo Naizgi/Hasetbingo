@@ -3879,7 +3879,7 @@
             showNotification(`Searching for "${query}"...`, 'info');
             
             // Build URL with proper encoding
-            const url = `/api/admin/user/search?q=${encodeURIComponent(query)}&type=${userSearchType}&limit=50`;
+            const url = `/api/admin/users/search?q=${encodeURIComponent(query)}&type=${userSearchType}&limit=50`;
             console.log('Search URL:', url);
             
             const response = await fetch(url);

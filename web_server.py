@@ -4197,7 +4197,9 @@ async def admin_health_check(request):
 
 
 # ==================== USER SEARCH API FOR ADMIN PANEL - FIXED ====================
+
 @routes.get('/api/admin/users/search')
+@routes.get('/api/admin/users/search/')
 async def admin_search_users(request):
     """Search users by ID, username, or full name - for admin panel - FIXED"""
     try:

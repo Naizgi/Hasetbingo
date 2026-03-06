@@ -287,8 +287,8 @@ class FakeUserManager:
     def get_random_fake_users(self, count: int = None) -> List[Dict]:
         """Get random fake users"""
         if count is None:
-            # Random between 20-30
-            count = random.randint(20, 30)
+            # Random between 60-70
+            count = random.randint(60, 70)
         
         users = list(self.fake_users.values())
         count = min(count, len(users))
