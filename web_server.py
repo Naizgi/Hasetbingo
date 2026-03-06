@@ -2573,7 +2573,7 @@ async def admin_transactions(request):
         if type_filter == 'all':
             transaction_types = []  # All types
         elif type_filter == 'deposit':
-            transaction_types = ['deposit', 'initial_deposit']  # Only deposits
+            transaction_types = ['deposit']  # Only deposits
         elif type_filter == 'withdrawal':
             transaction_types = ['withdrawal_approved', 'withdrawal_rejected', 'withdrawal_requested', 'withdrawal_refund']  # Withdrawal related
         elif type_filter == 'game':
