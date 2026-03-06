@@ -576,8 +576,10 @@ class Database:
     async def init_db(cls):
         """Initialize database (public method for bot.py)"""
         try:
-            cls.get_connection()
-            return True
+           cls.get_connection()
+           # Run migration to fix missing columns
+           await cls.fix_missing_created_at_column()
+           return True
         except Exception as e:
             logger.error(f"Database initialization failed: {e}")
             return False
@@ -1042,6 +1044,30 @@ class Database:
             raise
         finally:
             cursor.close()
+            
+            
+            
+            
+    @classmethod
+    async def fix_missing_created_at_column(cls):
+        """Force add created_at column to player_cards if missing"""
+        try:
+            with cls.get_cursor() as cursor:
+                # Check if created_at column exists
+                cursor.execute("PRAGMA table_info(player_cards)")
+                columns = [column[1] for column in cursor.fetchall()]
+            
+                if 'created_at' not in columns:
+                    logger.info("Adding created_at column to player_cards table...")
+                    cursor.execute("ALTER TABLE player_cards ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+                    logger.info("✅ created_at column added to player_cards table")
+                    return True
+                else:
+                    logger.info("✅ created_at column already exists in player_cards")
+                    return True
+        except Exception as e:
+            logger.error(f"Error fixing created_at column: {e}")
+            return False
     
     # ==================== CRITICAL FIX: PLAYER COUNT METHODS ====================
     
