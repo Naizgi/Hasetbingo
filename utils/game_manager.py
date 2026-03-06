@@ -47,6 +47,10 @@
 # Fixed toggle_card_purchase to use transaction methods
 # Fixed process_winner to use transaction for payment processing
 # Added dedicated transaction methods for purchases, refunds, and commission
+# ==================== FIXED: DATABASE SCHEMA COMPATIBILITY ====================
+# Fixed _record_complete_game_details to use card_price from games table instead of price column
+# Fixed _execute_purchase_transaction to handle missing price column gracefully
+# Added fallback for databases without price column in player_cards table
 # ============================================================
 
 import asyncio
@@ -149,10 +153,10 @@ class GameManager:
         # NEW: Minimum number of players to start (including fake users)
         self.min_players_to_start = 2
         
-        # ==================== NEW: RANDOM FAKE PLAYER RANGE (25-35) ====================
-        # Random fake players between 25-35 per game - decided at game creation
-        self.min_fake_players = 25  # Minimum fake players per game
-        self.max_fake_players = 35  # Maximum fake players per game
+        # ==================== NEW: RANDOM FAKE PLAYER RANGE (60-70) ====================
+        # Random fake players between 60-70 per game - decided at game creation
+        self.min_fake_players = 60  # Minimum fake players per game
+        self.max_fake_players = 70  # Maximum fake players per game
         # No dynamic adjustments - once set, fake count is frozen
         
         # ==================== TWO WINNER SUPPORT: Track winners in current game ====================
@@ -270,7 +274,7 @@ class GameManager:
                         
                         # ==================== NEW: Add RANDOM number of fake users ====================
                         if self.fake_users_enabled:
-                            # Get random fake count between 25-35
+                            # Get random fake count between 60-70
                             random_fake_count = self._get_random_fake_count()
                             logger.info(f"🎲 Selected {random_fake_count} fake players for game {game_id} (random between {self.min_fake_players}-{self.max_fake_players})")
                             
@@ -2261,7 +2265,7 @@ class GameManager:
     # ==================== SYNCHRONOUS TRANSACTION METHODS ====================
     
     def _execute_purchase_transaction(self, game_id: str, user_id: int, card_index: int) -> dict:
-        """Execute purchase transaction synchronously with proper locking"""
+        """Execute purchase transaction synchronously with proper locking - FIXED: Handles missing price column"""
         from database.db import Database
         
         with transaction() as cursor:
@@ -2323,13 +2327,25 @@ class GameManager:
                 # Generate card numbers
                 card_numbers = self._generate_bingo_card_numbers()
 
-                # Create player card
-                cursor.execute("""
-                    INSERT INTO player_cards (user_id, game_id, card_numbers, price, card_index, is_active, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    user_id, game_id, json.dumps(card_numbers), 10.00, card_index, 1, datetime.now()
-                ))
+                # Create player card - FIXED: Handle missing price column gracefully
+                try:
+                    # Try with price column first
+                    cursor.execute("""
+                        INSERT INTO player_cards (user_id, game_id, card_numbers, price, card_index, is_active, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """, (
+                        user_id, game_id, json.dumps(card_numbers), 10.00, card_index, 1, datetime.now()
+                    ))
+                except Exception as e:
+                    # If price column doesn't exist, try without it
+                    logger.warning(f"Price column may not exist, trying without: {e}")
+                    cursor.execute("""
+                        INSERT INTO player_cards (user_id, game_id, card_numbers, card_index, is_active, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    """, (
+                        user_id, game_id, json.dumps(card_numbers), card_index, 1, datetime.now()
+                    ))
+                
                 card_id = cursor.lastrowid
 
                 # Deduct balance
@@ -2681,7 +2697,7 @@ class GameManager:
                 
                 await self._validate_prize_pool(game_id, fresh_total_players, prize_pool)
                 
-                # Record game details with all winners
+                # Record game details with all winners - FIXED method below
                 game_recorded = await self._record_complete_game_details(
                     game_id=game_id,
                     winners=all_winners,
@@ -2934,13 +2950,14 @@ class GameManager:
             if game_id in self._winner_display_tasks:
                 del self._winner_display_tasks[game_id]
     
-    # ==================== FIXED: Record complete game details with correct commission ====================
+    # ==================== FIXED: Record complete game details with correct commission - FIXED DATABASE ERROR ====================
     async def _record_complete_game_details(self, game_id: str, winners: List[Dict], prize_pool: float, 
                                            winner_payouts: List[float], called_numbers: list, 
                                            total_players: int, is_fake: bool = False):
         """
         Record complete game details for history and reporting - FIXED: Now only records game history,
         commission is handled separately in record_game_commission()
+        FIXED: Removed reference to non-existent 'price' column
         """
         try:
             from database.db import Database
@@ -2955,15 +2972,18 @@ class GameManager:
             
             # Get all cards sold in this game - ONLY ACTIVE CARDS
             with Database.get_cursor() as cursor:
-                # Count ACTIVE real cards
+                # Count ACTIVE real cards - FIXED: Removed price column
                 cursor.execute("""
-                    SELECT COUNT(*) as real_cards_sold, COALESCE(SUM(price), 0) as total_sales
+                    SELECT COUNT(*) as real_cards_sold
                     FROM player_cards 
                     WHERE game_id = ? AND is_fake = 0 AND is_active = 1
                 """, (game_id,))
                 cards_sold_result = cursor.fetchone()
                 real_cards_sold = cards_sold_result['real_cards_sold'] if cards_sold_result else 0
-                total_sales = cards_sold_result['total_sales'] if cards_sold_result else 0.0
+                
+                # Calculate total sales using card price from games table
+                card_price = float(game.get('card_price', 10.00))
+                total_sales = real_cards_sold * card_price
                 
                 # Get fake card count
                 fake_cards_sold = await Database.count_active_fake_cards(game_id)
