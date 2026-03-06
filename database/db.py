@@ -2900,7 +2900,7 @@ class Database:
                         last_active, created_at, updated_at
                     )
                     VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'), datetime('now'))
-                """, (user_id, username or f"User_{user_id}", full_name or f"User {user_id}", 10.00, 'active'))
+                """, (user_id, username or f"User_{user_id}", full_name or f"User {user_id}", 5.00, 'active'))
                 
                 # Log the initial balance transaction
                 cursor.execute("""
@@ -2908,7 +2908,7 @@ class Database:
                         user_id, amount, balance_after, transaction_type, description, created_at
                     ) VALUES (?, ?, ?, ?, ?, ?)
                 """, (
-                    user_id, 10.00, 10.00, 'initial_deposit', 
+                    user_id, 5.00, 5.00, 'initial_deposit', 
                     'Initial signup bonus', datetime.now()
                 ))
                 
