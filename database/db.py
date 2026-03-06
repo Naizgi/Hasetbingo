@@ -3839,55 +3839,122 @@ class Database:
         
     @staticmethod
     async def verify_admin_login(username, password):
-        """Verify admin login credentials"""
+        """Verify admin login credentials using admin_credentials table with hashed passwords"""
         try:
+            import hashlib
+            # Hash the provided password
+            password_hash = hashlib.sha256(password.encode()).hexdigest()
+        
             with Database.get_cursor() as cursor:
-                # Check if admins table exists
+                # Use the admin_credentials table
                 cursor.execute("""
-                    SELECT name FROM sqlite_master 
-                    WHERE type='table' AND name='admins'
-                """)
-                if not cursor.fetchone():
-                    # Create admins table if it doesn't exist
-                    cursor.execute("""
-                        CREATE TABLE admins (
-                            id INTEGER PRIMARY KEY AUTOINCREMENT,
-                            username TEXT UNIQUE NOT NULL,
-                            password TEXT NOT NULL,
-                            phone TEXT,
-                            full_name TEXT,
-                            email TEXT,
-                            role TEXT DEFAULT 'admin',
-                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                        )
-                    """)
-                    # Insert default admin
-                    cursor.execute("""
-                        INSERT INTO admins (username, password, full_name, role)
-                        VALUES (?, ?, ?, ?)
-                    """, ('admin', 'admin123', 'Administrator', 'super_admin'))
-            
-                # Now try to verify
-                cursor.execute("""
-                   SELECT * FROM admins 
-                   WHERE username = ? AND password = ? AND role IN ('admin', 'super_admin')
-                """, (username, password))
+                    SELECT * FROM admin_credentials 
+                    WHERE username = ? AND password_hash = ? AND is_active = 1
+                """, (username, password_hash))
             
                 row = cursor.fetchone()
                 if row:
+                    # Convert row to dict using column names
+                    columns = [description[0] for description in cursor.description]
+                    admin_data = dict(zip(columns, row))
+                
+                    # Update last login
+                    cursor.execute("""
+                        UPDATE admin_credentials 
+                        SET last_login = ?, updated_at = ?
+                        WHERE id = ?
+                    """, (datetime.now(), datetime.now(), admin_data['id']))
+                
+                    # Return admin data without password hash
                     return {
-                       'id': row[0],
-                       'username': row[1],
-                       'full_name': row[4] or row[1],
-                        'phone': row[3],
-                        'email': row[5],
-                        'role': row[6]
+                       'id': admin_data['id'],
+                        'username': admin_data['username'],
+                       'full_name': admin_data['full_name'] or admin_data['username'],
+                       'phone': admin_data['phone'],
+                       'email': admin_data['email'],
+                       'role': admin_data['role']
                     }
+            
+                # Fallback: Check the old admins table for backward compatibility
+                cursor.execute("""
+                   SELECT name FROM sqlite_master 
+                   WHERE type='table' AND name='admins'
+                """)
+                if cursor.fetchone():
+                    cursor.execute("""
+                       SELECT * FROM admins 
+                       WHERE username = ? AND password = ? AND role IN ('admin', 'super_admin')
+                    """, (username, password))
+                
+                    old_row = cursor.fetchone()
+                    if old_row:
+                        # Migrate this admin to the new table
+                        new_password_hash = hashlib.sha256(password.encode()).hexdigest()
+                        cursor.execute("""
+                           INSERT OR IGNORE INTO admin_credentials 
+                           (username, password_hash, phone, full_name, email, role, created_at, updated_at)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        """, (
+                            old_row[1], new_password_hash, old_row[3], old_row[4], 
+                            old_row[5], old_row[6], datetime.now(), datetime.now()
+                        ))
+                    
+                        return {
+                           'id': old_row[0],
+                           'username': old_row[1],
+                           'full_name': old_row[4] or old_row[1],
+                           'phone': old_row[3],
+                           'email': old_row[5],
+                           'role': old_row[6]
+                        }
+            
                 return None
+            
         except Exception as e:
             logger.error(f"Error verifying admin login: {e}")
             return None
         
+        
+        
+        
+        
+    @staticmethod
+    async def verify_admin_login_by_phone(phone, password):
+        """Verify admin login by phone number"""
+        try:
+            import hashlib
+            password_hash = hashlib.sha256(password.encode()).hexdigest()
+        
+            with Database.get_cursor() as cursor:
+                cursor.execute("""
+                   SELECT * FROM admin_credentials 
+                   WHERE phone = ? AND password_hash = ? AND is_active = 1
+                """, (phone, password_hash))
+            
+                row = cursor.fetchone()
+                if row:
+                    columns = [description[0] for description in cursor.description]
+                    admin_data = dict(zip(columns, row))
+                
+                    # Update last login
+                    cursor.execute("""
+                        UPDATE admin_credentials 
+                        SET last_login = ?, updated_at = ?
+                        WHERE id = ?
+                    """, (datetime.now(), datetime.now(), admin_data['id']))
+                
+                    return {
+                        'id': admin_data['id'],
+                        'username': admin_data['username'],
+                        'full_name': admin_data['full_name'] or admin_data['username'],
+                        'phone': admin_data['phone'],
+                        'email': admin_data['email'],
+                        'role': admin_data['role']
+                    }
+                return None
+        except Exception as e:
+            logger.error(f"Error verifying admin login by phone: {e}")
+            return None
         
     
     @classmethod
