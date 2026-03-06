@@ -2137,31 +2137,33 @@ async def admin_reject_withdrawal(request):
             'message': str(e)
         }, status=500)
 
-
 # ==================== FIXED: Add endpoint to get commission details from commission_records ====================
 @routes.get('/api/admin/commission-details')
 async def admin_commission_details(request):
-    """Get detailed commission breakdown by game - FIXED: Uses commission_records table"""
+    """Get detailed commission breakdown by game - FIXED: Uses commission_records table with proper data"""
     try:
         from database.db import Database
         
-        # Get page and limit parameters
+        # Get page and limit parameters (optional)
         page = int(request.query.get('page', 1))
-        limit = int(request.query.get('limit', 20))
+        limit = int(request.query.get('limit', 50))
         offset = (page - 1) * limit
         
         with Database.get_cursor() as cursor:
+            # Get games with commission data - FIXED: Use correct column names
             cursor.execute("""
                 SELECT 
                     cr.game_id,
-                    g.round_number,
+                    cr.round_number,
                     cr.recorded_at as game_date,
                     cr.real_players_count as real_players,
                     cr.commission_amount as commission,
                     cr.status as commission_status,
                     g.total_cards_sold,
                     g.prize_pool,
-                    (g.total_cards_sold * g.card_price) as total_sales
+                    g.card_price,
+                    (SELECT COUNT(*) FROM player_cards WHERE game_id = cr.game_id AND is_fake = 0 AND is_active = 1) as real_cards_sold,
+                    (SELECT COUNT(*) FROM player_cards WHERE game_id = cr.game_id AND is_fake = 1 AND is_active = 1) as fake_cards_sold
                 FROM commission_records cr
                 LEFT JOIN games g ON cr.game_id = g.game_id
                 ORDER BY cr.recorded_at DESC
@@ -2172,16 +2174,20 @@ async def admin_commission_details(request):
             commission_games = []
             
             for row in rows:
+                # Convert row to dictionary with proper column access
                 game_data = {
                     'game_id': row[0],
-                    'round_number': row[1],
-                    'game_date': row[2],
+                    'round_number': row[1] or 1,
+                    'game_date': row[2].isoformat() if row[2] else None,
                     'real_players': row[3] or 0,
                     'commission': float(row[4] or 0),
-                    'commission_status': row[5],
+                    'commission_status': row[5] or 'recorded',
                     'total_cards_sold': row[6] or 0,
                     'prize_pool': float(row[7] or 0),
-                    'total_sales': float(row[8] or 0)
+                    'card_price': float(row[8] or 10.00),
+                    'real_cards_sold': row[9] or 0,
+                    'fake_cards_sold': row[10] or 0,
+                    'total_sales': (row[9] or 0) * float(row[8] or 10.00)  # real_cards_sold * card_price
                 }
                 commission_games.append(game_data)
             
@@ -2206,7 +2212,7 @@ async def admin_commission_details(request):
                 daily_data.append({
                     'date': row[0],
                     'games_count': row[1] or 0,
-                    'total_players': row[2] or 0,
+                    'real_players': row[2] or 0,
                     'total_commission': float(row[3] or 0),
                     'total_cards_sold': row[4] or 0,
                     'total_sales': float(row[5] or 0)
@@ -2233,7 +2239,7 @@ async def admin_commission_details(request):
                 monthly_data.append({
                     'month': row[0],
                     'games_count': row[1] or 0,
-                    'total_players': row[2] or 0,
+                    'real_players': row[2] or 0,
                     'total_commission': float(row[3] or 0),
                     'total_cards_sold': row[4] or 0,
                     'total_sales': float(row[5] or 0)
@@ -2260,12 +2266,14 @@ async def admin_commission_details(request):
             })
             
     except Exception as e:
-        logger.error(f"Error getting commission details: {e}")
+        logger.error(f"❌ Error getting commission details: {e}", exc_info=True)
         return web.json_response({
             'success': False,
-            'message': str(e)
+            'message': str(e),
+            'games': [],
+            'daily': [],
+            'monthly': []
         }, status=500)
-
 
 # ==================== TEST COMMISSION ENDPOINT ====================
 @routes.post('/api/admin/test-commission')
