@@ -156,29 +156,29 @@ class GameManager:
         logger.info(f"GameManager initialized with RANDOM FAKE PLAYERS ({self.min_fake_players}-{self.max_fake_players}) per game")
     
     # ==================== DATABASE TRANSACTION CONTEXT MANAGER - FIXED ====================
-class transaction:
-    """Context manager for database transactions - FIXED to work correctly"""
-    def __init__(self):
-        from database.db import Database
-        self.db = Database
-        self.cursor = None
-        
-    async def __aenter__(self):
-        from database.db import Database
-        # Get cursor using the existing get_cursor method
-        self.cursor = Database.get_cursor()
-        # Begin transaction
-        self.cursor.execute("BEGIN IMMEDIATE TRANSACTION")
-        return self.cursor
-        
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        if exc_type is None:
-            self.cursor.execute("COMMIT")
-        else:
-            self.cursor.execute("ROLLBACK")
-            logger.error(f"Transaction rolled back due to: {exc_val}")
-        # Close the cursor (the context manager from get_cursor will handle the actual close)
-        self.cursor.close()
+    class transaction:
+        """Context manager for database transactions - FIXED to work correctly"""
+        def __init__(self):
+            from database.db import Database
+            self.db = Database
+            self.cursor = None
+            
+        async def __aenter__(self):
+            from database.db import Database
+            # Get cursor using the existing get_cursor method
+            self.cursor = Database.get_cursor()
+            # Begin transaction
+            self.cursor.execute("BEGIN IMMEDIATE TRANSACTION")
+            return self.cursor
+            
+        async def __aexit__(self, exc_type, exc_val, exc_tb):
+            if exc_type is None:
+                self.cursor.execute("COMMIT")
+            else:
+                self.cursor.execute("ROLLBACK")
+                logger.error(f"Transaction rolled back due to: {exc_val}")
+            # Close the cursor
+            self.cursor.close()
     
     # ==================== SAFE BROADCAST HELPER WITH SEQUENCE NUMBERS ====================
     async def _safe_broadcast(self, message: dict, game_id: str = None):
