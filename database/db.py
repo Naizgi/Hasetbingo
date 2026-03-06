@@ -3835,6 +3835,60 @@ class Database:
         except Exception as e:
             logger.error(f"Error getting admin by user ID {user_id}: {e}")
             return None
+        
+        
+    @staticmethod
+    async def verify_admin_login(username, password):
+        """Verify admin login credentials"""
+        try:
+            with Database.get_cursor() as cursor:
+                # Check if admins table exists
+                cursor.execute("""
+                    SELECT name FROM sqlite_master 
+                    WHERE type='table' AND name='admins'
+                """)
+                if not cursor.fetchone():
+                    # Create admins table if it doesn't exist
+                    cursor.execute("""
+                        CREATE TABLE admins (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            username TEXT UNIQUE NOT NULL,
+                            password TEXT NOT NULL,
+                            phone TEXT,
+                            full_name TEXT,
+                            email TEXT,
+                            role TEXT DEFAULT 'admin',
+                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        )
+                    """)
+                    # Insert default admin
+                    cursor.execute("""
+                        INSERT INTO admins (username, password, full_name, role)
+                        VALUES (?, ?, ?, ?)
+                    """, ('admin', 'admin123', 'Administrator', 'super_admin'))
+            
+                # Now try to verify
+                cursor.execute("""
+                   SELECT * FROM admins 
+                   WHERE username = ? AND password = ? AND role IN ('admin', 'super_admin')
+                """, (username, password))
+            
+                row = cursor.fetchone()
+                if row:
+                    return {
+                       'id': row[0],
+                       'username': row[1],
+                       'full_name': row[4] or row[1],
+                        'phone': row[3],
+                        'email': row[5],
+                        'role': row[6]
+                    }
+                return None
+        except Exception as e:
+            logger.error(f"Error verifying admin login: {e}")
+            return None
+        
+        
     
     @classmethod
     async def record_admin_transaction(cls, admin_id: str, action: str, 
