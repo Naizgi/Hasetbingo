@@ -164,12 +164,16 @@ class GameManager:
             self.cursor = None
             
         async def __aenter__(self):
-            from database.db import Database
-            # Get cursor using the existing get_cursor method
-            self.cursor = Database.get_cursor()
-            # Begin transaction
-            self.cursor.execute("BEGIN IMMEDIATE TRANSACTION")
-            return self.cursor
+             from database.db import Database
+
+            # Enter the cursor context manager
+             self._cursor_ctx = Database.get_cursor()
+             self.cursor = self._cursor_ctx.__enter__()
+
+             # Begin transaction
+             self.cursor.execute("BEGIN IMMEDIATE TRANSACTION")
+
+             return self.cursor
             
         async def __aexit__(self, exc_type, exc_val, exc_tb):
             if exc_type is None:
@@ -241,7 +245,7 @@ class GameManager:
                 await Database.migrate_db()
                 
                 # FIX: Get active game with proper locking and transaction
-                async with self.transaction() as cursor:
+                with self.transaction() as cursor:
                     # Get active game with lock
                     cursor.execute("""
                         SELECT * FROM games 
