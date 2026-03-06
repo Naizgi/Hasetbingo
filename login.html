@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Haset Bingo - Admin Login</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .login-container {
+            max-width: 400px;
+            width: 100%;
+        }
+
+        .login-card {
+            background: white;
+            border-radius: 15px;
+            padding: 40px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+            animation: slideUp 0.5s ease;
+        }
+
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .logo {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .logo-img {
+            width: 100px;
+            height: 100px;
+            border-radius: 50%;
+            overflow: hidden;
+            margin: 0 auto 15px;
+            border: 3px solid var(--primary-color);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+        }
+
+        .logo-img img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .logo h1 {
+            color: #1a237e;
+            font-size: 24px;
+            margin-bottom: 5px;
+        }
+
+        .logo p {
+            color: #666;
+            font-size: 14px;
+        }
+
+        .login-tabs {
+            display: flex;
+            background: #f5f5f5;
+            border-radius: 10px;
+            padding: 5px;
+            margin-bottom: 25px;
+        }
+
+        .tab-btn {
+            flex: 1;
+            padding: 12px;
+            border: none;
+            background: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            color: #666;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .tab-btn.active {
+            background: #1a237e;
+            color: white;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #555;
+            font-size: 14px;
+        }
+
+        .input-wrapper {
+            position: relative;
+            display: flex;
+            align-items: center;
+        }
+
+        .input-wrapper i {
+            position: absolute;
+            left: 15px;
+            color: #999;
+            font-size: 16px;
+        }
+
+        .input-wrapper input {
+            width: 100%;
+            padding: 14px 15px 14px 45px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 15px;
+            transition: all 0.3s;
+        }
+
+        .input-wrapper input:focus {
+            border-color: #1a237e;
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(26, 35, 126, 0.1);
+        }
+
+        .toggle-password {
+            position: absolute;
+            right: 15px;
+            background: none;
+            border: none;
+            color: #999;
+            cursor: pointer;
+            font-size: 16px;
+        }
+
+        .toggle-password:hover {
+            color: #1a237e;
+        }
+
+        .login-btn {
+            width: 100%;
+            padding: 16px;
+            background: linear-gradient(135deg, #1a237e, #534bae);
+            border: none;
+            border-radius: 10px;
+            color: white;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-top: 10px;
+        }
+
+        .login-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(26, 35, 126, 0.3);
+        }
+
+        .login-btn:disabled {
+            opacity: 0.7;
+            cursor: not-allowed;
+        }
+
+        .error-message {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            border-left: 4px solid #f5c6cb;
+        }
+
+        .success-message {
+            background: #d4edda;
+            color: #155724;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            border-left: 4px solid #c3e6cb;
+        }
+
+        .info-message {
+            background: #d1ecf1;
+            color: #0c5460;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            border-left: 4px solid #bee5eb;
+        }
+
+        .remember-me {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 20px;
+        }
+
+        .remember-me input {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+        }
+
+        .remember-me label {
+            color: #666;
+            font-size: 14px;
+            cursor: pointer;
+        }
+
+        .footer-links {
+            text-align: center;
+            margin-top: 25px;
+            padding-top: 20px;
+            border-top: 1px solid #eee;
+        }
+
+        .footer-links a {
+            color: #666;
+            text-decoration: none;
+            font-size: 13px;
+            transition: color 0.3s;
+        }
+
+        .footer-links a:hover {
+            color: #1a237e;
+        }
+
+        .loader {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #1a237e;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+            margin-right: 8px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        @media (max-width: 480px) {
+            .login-card {
+                padding: 30px 20px;
+            }
+
+            .logo h1 {
+                font-size: 20px;
+            }
+        }
+    </style>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="login-container">
+        <div class="login-card">
+            <div class="logo">
+                <div class="logo-img">
+                    <img src="static/haset_logo.jpg" alt="Haset Bingo Logo">
+                </div>
+                <h1>Haset Bingo Admin</h1>
+                <p>Secure Admin Access</p>
+            </div>
+
+            <div class="login-tabs">
+                <button class="tab-btn active" data-login-type="username">
+                    <i class="fas fa-user"></i> Username
+                </button>
+                <button class="tab-btn" data-login-type="phone">
+                    <i class="fas fa-phone"></i> Phone
+                </button>
+            </div>
+
+            <div id="message-container"></div>
+
+            <form id="login-form">
+                <div class="form-group" id="username-field">
+                    <label for="username">Username</label>
+                    <div class="input-wrapper">
+                        <i class="fas fa-user"></i>
+                        <input type="text" id="username" name="username" placeholder="Enter your username" autocomplete="off">
+                    </div>
+                </div>
+
+                <div class="form-group" id="phone-field" style="display: none;">
+                    <label for="phone">Phone Number</label>
+                    <div class="input-wrapper">
+                        <i class="fas fa-phone"></i>
+                        <input type="tel" id="phone" name="phone" placeholder="Enter your phone number" autocomplete="off">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="password">Password</label>
+                    <div class="input-wrapper">
+                        <i class="fas fa-lock"></i>
+                        <input type="password" id="password" name="password" placeholder="Enter your password">
+                        <button type="button" class="toggle-password" onclick="togglePassword()">
+                            <i class="fas fa-eye"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="remember-me">
+                    <input type="checkbox" id="remember" name="remember">
+                    <label for="remember">Remember me</label>
+                </div>
+
+                <button type="submit" class="login-btn" id="login-btn">
+                    <span>Login to Dashboard</span>
+                </button>
+            </form>
+
+            <div class="footer-links">
+                <a href="#" onclick="showInfo()">Forgot Password?</a> • 
+                <a href="/">Back to Home</a>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentLoginType = 'username';
+
+        // Tab switching
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+                this.classList.add('active');
+                
+                currentLoginType = this.dataset.loginType;
+                
+                if (currentLoginType === 'username') {
+                    document.getElementById('username-field').style.display = 'block';
+                    document.getElementById('phone-field').style.display = 'none';
+                    document.getElementById('username').required = true;
+                    document.getElementById('phone').required = false;
+                } else {
+                    document.getElementById('username-field').style.display = 'none';
+                    document.getElementById('phone-field').style.display = 'block';
+                    document.getElementById('username').required = false;
+                    document.getElementById('phone').required = true;
+                }
+            });
+        });
+
+        // Toggle password visibility
+        function togglePassword() {
+            const passwordInput = document.getElementById('password');
+            const icon = document.querySelector('.toggle-password i');
+            
+            if (passwordInput.type === 'password') {
+                passwordInput.type = 'text';
+                icon.classList.remove('fa-eye');
+                icon.classList.add('fa-eye-slash');
+            } else {
+                passwordInput.type = 'password';
+                icon.classList.remove('fa-eye-slash');
+                icon.classList.add('fa-eye');
+            }
+        }
+
+        // Show message
+        function showMessage(message, type) {
+            const container = document.getElementById('message-container');
+            const icon = type === 'success' ? 'fa-check-circle' :
+                        type === 'error' ? 'fa-exclamation-circle' :
+                        'fa-info-circle';
+            
+            container.innerHTML = `
+                <div class="${type}-message">
+                    <i class="fas ${icon}"></i>
+                    <span>${message}</span>
+                </div>
+            `;
+            
+            setTimeout(() => {
+                container.innerHTML = '';
+            }, 5000);
+        }
+
+        // Show info for forgot password
+        function showInfo() {
+            showMessage('Please contact the system administrator to reset your password.', 'info');
+        }
+
+        // Handle login form submission
+        document.getElementById('login-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const loginBtn = document.getElementById('login-btn');
+            const originalText = loginBtn.innerHTML;
+            
+            // Get credentials based on login type
+            const username = currentLoginType === 'username' ? document.getElementById('username').value : document.getElementById('phone').value;
+            const password = document.getElementById('password').value;
+            const remember = document.getElementById('remember').checked;
+            
+            if (!username || !password) {
+                showMessage('Please enter both username/phone and password', 'error');
+                return;
+            }
+            
+            // Show loading
+            loginBtn.disabled = true;
+            loginBtn.innerHTML = '<span class="loader"></span> Logging in...';
+            
+            try {
+                const response = await fetch('/api/admin/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        username: username,
+                        password: password,
+                        login_type: currentLoginType
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    // Store admin data
+                    localStorage.setItem('admin_token', data.token);
+                    localStorage.setItem('admin_data', JSON.stringify(data.admin));
+                    
+                    if (remember) {
+                        localStorage.setItem('remember_admin', 'true');
+                    }
+                    
+                    showMessage('Login successful! Redirecting...', 'success');
+                    
+                    // Redirect to admin panel
+                    setTimeout(() => {
+                        window.location.href = '/admin.html?auth=true';
+                    }, 1000);
+                } else {
+                    showMessage(data.message || 'Invalid credentials', 'error');
+                    loginBtn.disabled = false;
+                    loginBtn.innerHTML = originalText;
+                }
+            } catch (error) {
+                console.error('Login error:', error);
+                showMessage('Connection error. Please try again.', 'error');
+                loginBtn.disabled = false;
+                loginBtn.innerHTML = originalText;
+            }
+        });
+
+        // Check if already logged in
+        if (localStorage.getItem('admin_token')) {
+            // Verify token (optional)
+            fetch('/api/admin/check-session', {
+                headers: {
+                    'Authorization': `Bearer ${localStorage.getItem('admin_token')}`
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.valid) {
+                    window.location.href = '/admin.html?auth=true';
+                }
+            })
+            .catch(() => {});
+        }
+    </script>
+</body>
+</html>

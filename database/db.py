@@ -6,6 +6,8 @@
 # CRITICAL FIX: Added get_last_number_call_time method
 # CRITICAL FIX: Added commission_records table for separate commission tracking
 # FIXED: Added missing fake_players table for admin panel balance calculation
+# ADDED: Admin credentials table for authentication
+# ADDED: Player card created_at column for better tracking
 
 import sqlite3
 import logging
@@ -135,7 +137,7 @@ class Database:
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_games_created ON games (created_at)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_games_type ON games (game_type)")
             
-            # 3. PLAYER_CARDS TABLE - ADDED is_fake COLUMN
+            # 3. PLAYER_CARDS TABLE - ADDED is_fake COLUMN AND created_at COLUMN
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS player_cards (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -149,6 +151,7 @@ class Database:
                     prize_won REAL DEFAULT 0.00,
                     bingo_claimed_at TIMESTAMP DEFAULT NULL,
                     purchase_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     is_active INTEGER DEFAULT 1,
                     is_fake INTEGER DEFAULT 0,
                     refunded_at TIMESTAMP DEFAULT NULL,
@@ -165,6 +168,7 @@ class Database:
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_player_cards_card_index ON player_cards (game_id, card_index)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_player_cards_fake ON player_cards (is_fake)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_player_cards_active ON player_cards (is_active)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_player_cards_created ON player_cards (created_at)")
             
             # 4. TRANSACTIONS TABLE
             cursor.execute("""
@@ -523,6 +527,42 @@ class Database:
             
             logger.info("✅ fake_players table created successfully")
             
+            # ============ NEW: ADMIN_CREDENTIALS TABLE FOR AUTHENTICATION ============
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS admin_credentials (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username TEXT UNIQUE NOT NULL,
+                    password_hash TEXT NOT NULL,
+                    phone TEXT UNIQUE NOT NULL,
+                    full_name TEXT,
+                    email TEXT,
+                    role TEXT DEFAULT 'admin',
+                    is_active INTEGER DEFAULT 1,
+                    last_login TIMESTAMP,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            
+            # Create indexes for admin_credentials
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_admin_credentials_username ON admin_credentials (username)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_admin_credentials_phone ON admin_credentials (phone)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_admin_credentials_active ON admin_credentials (is_active)")
+            
+            # Insert default admin if not exists
+            cursor.execute("SELECT COUNT(*) as count FROM admin_credentials")
+            result = cursor.fetchone()
+            if result and result[0] == 0:
+                # Default admin: username: admin, password: admin123
+                # In production, change this password immediately
+                import hashlib
+                default_password_hash = hashlib.sha256("admin123".encode()).hexdigest()
+                cursor.execute("""
+                    INSERT INTO admin_credentials (username, password_hash, phone, full_name, email, role)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, ('admin', default_password_hash, '+251911223344', 'System Administrator', 'admin@hasetbingo.com', 'super_admin'))
+                logger.info("✅ Default admin created (username: admin, password: admin123)")
+            
             conn.commit()
             logger.info("All database tables created/verified successfully")
             
@@ -753,6 +793,44 @@ class Database:
                 conn.commit()
                 logger.info("✅ fake_players table created successfully")
             
+            # ============ CREATE ADMIN_CREDENTIALS TABLE IF NOT EXISTS ============
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='admin_credentials'")
+            if not cursor.fetchone():
+                logger.info("Creating admin_credentials table...")
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS admin_credentials (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        username TEXT UNIQUE NOT NULL,
+                        password_hash TEXT NOT NULL,
+                        phone TEXT UNIQUE NOT NULL,
+                        full_name TEXT,
+                        email TEXT,
+                        role TEXT DEFAULT 'admin',
+                        is_active INTEGER DEFAULT 1,
+                        last_login TIMESTAMP,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_admin_credentials_username ON admin_credentials (username)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_admin_credentials_phone ON admin_credentials (phone)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_admin_credentials_active ON admin_credentials (is_active)")
+                
+                # Insert default admin if not exists
+                cursor.execute("SELECT COUNT(*) as count FROM admin_credentials")
+                result = cursor.fetchone()
+                if result and result[0] == 0:
+                    import hashlib
+                    default_password_hash = hashlib.sha256("admin123".encode()).hexdigest()
+                    cursor.execute("""
+                        INSERT INTO admin_credentials (username, password_hash, phone, full_name, email, role)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    """, ('admin', default_password_hash, '+251911223344', 'System Administrator', 'admin@hasetbingo.com', 'super_admin'))
+                    logger.info("✅ Default admin created in migration")
+                
+                conn.commit()
+                logger.info("✅ admin_credentials table created successfully")
+            
             # ============ ADD IS_FAKE COLUMN TO PLAYER_CARDS TABLE ============
             cursor.execute("PRAGMA table_info(player_cards)")
             player_cards_columns = [column[1] for column in cursor.fetchall()]
@@ -763,6 +841,13 @@ class Database:
                 cursor.execute("ALTER TABLE player_cards ADD COLUMN is_fake INTEGER DEFAULT 0")
                 conn.commit()
                 logger.info("✅ is_fake column added to player_cards table")
+            
+            # Add created_at column if it doesn't exist
+            if 'created_at' not in player_cards_columns:
+                logger.info("Adding created_at column to player_cards table...")
+                cursor.execute("ALTER TABLE player_cards ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+                conn.commit()
+                logger.info("✅ created_at column added to player_cards table")
             
             # Add refunded_at column if it doesn't exist
             if 'refunded_at' not in player_cards_columns:
@@ -1560,17 +1645,18 @@ class Database:
                 'marked_numbers': []
             }
             card_data_json = json.dumps(card_data)
+            now = datetime.now()
             
             with cls.get_cursor() as cursor:
                 cursor.execute("""
                     INSERT INTO player_cards (
                         game_id, user_id, card_index, card_numbers, 
-                        card_data, purchase_price, purchase_time,
+                        card_data, purchase_price, purchase_time, created_at,
                         is_active, is_fake
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     game_id, user_id, card_index, card_numbers_json,
-                    card_data_json, price, datetime.now(),
+                    card_data_json, price, now, now,
                     is_active, is_fake
                 ))
                 
@@ -3170,6 +3256,227 @@ class Database:
             logger.error(f"Error adding user balance: {e}")
             return 0.00
     
+    # ==================== ADMIN CREDENTIALS METHODS ====================
+
+    @classmethod
+    async def create_admin_credential(cls, username: str, password: str, phone: str, 
+                                      full_name: str = None, email: str = None, 
+                                      role: str = 'admin') -> Optional[int]:
+        """Create a new admin credential"""
+        try:
+            import hashlib
+            password_hash = hashlib.sha256(password.encode()).hexdigest()
+            
+            with cls.get_cursor() as cursor:
+                cursor.execute("""
+                    INSERT INTO admin_credentials 
+                    (username, password_hash, phone, full_name, email, role, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, (username, password_hash, phone, full_name, email, role, 
+                      datetime.now(), datetime.now()))
+                
+                admin_id = cursor.lastrowid
+                logger.info(f"✅ Created admin credential: {username} (ID: {admin_id})")
+                return admin_id
+        except Exception as e:
+            logger.error(f"Error creating admin credential: {e}")
+            return None
+
+    @classmethod
+    async def verify_admin_login(cls, username: str, password: str) -> Optional[Dict]:
+        """Verify admin login credentials"""
+        try:
+            import hashlib
+            password_hash = hashlib.sha256(password.encode()).hexdigest()
+            
+            with cls.get_cursor() as cursor:
+                cursor.execute("""
+                    SELECT * FROM admin_credentials 
+                    WHERE username = ? AND password_hash = ? AND is_active = 1
+                """, (username, password_hash))
+                
+                row = cursor.fetchone()
+                if row:
+                    admin = dict(row)
+                    # Update last login
+                    cursor.execute("""
+                        UPDATE admin_credentials 
+                        SET last_login = ?, updated_at = ?
+                        WHERE id = ?
+                    """, (datetime.now(), datetime.now(), admin['id']))
+                    
+                    # Remove password hash from response
+                    admin.pop('password_hash', None)
+                    logger.info(f"✅ Admin logged in: {username}")
+                    return admin
+                return None
+        except Exception as e:
+            logger.error(f"Error verifying admin login: {e}")
+            return None
+
+    @classmethod
+    async def verify_admin_login_by_phone(cls, phone: str, password: str) -> Optional[Dict]:
+        """Verify admin login by phone number"""
+        try:
+            import hashlib
+            password_hash = hashlib.sha256(password.encode()).hexdigest()
+            
+            with cls.get_cursor() as cursor:
+                cursor.execute("""
+                    SELECT * FROM admin_credentials 
+                    WHERE phone = ? AND password_hash = ? AND is_active = 1
+                """, (phone, password_hash))
+                
+                row = cursor.fetchone()
+                if row:
+                    admin = dict(row)
+                    # Update last login
+                    cursor.execute("""
+                        UPDATE admin_credentials 
+                        SET last_login = ?, updated_at = ?
+                        WHERE id = ?
+                    """, (datetime.now(), datetime.now(), admin['id']))
+                    
+                    # Remove password hash from response
+                    admin.pop('password_hash', None)
+                    logger.info(f"✅ Admin logged in via phone: {phone}")
+                    return admin
+                return None
+        except Exception as e:
+            logger.error(f"Error verifying admin login by phone: {e}")
+            return None
+
+    @classmethod
+    async def get_admin_by_id(cls, admin_id: int) -> Optional[Dict]:
+        """Get admin by ID"""
+        try:
+            with cls.get_cursor() as cursor:
+                cursor.execute("""
+                    SELECT id, username, phone, full_name, email, role, is_active, 
+                           last_login, created_at, updated_at
+                    FROM admin_credentials 
+                    WHERE id = ? AND is_active = 1
+                """, (admin_id,))
+                
+                row = cursor.fetchone()
+                if row:
+                    return dict(row)
+                return None
+        except Exception as e:
+            logger.error(f"Error getting admin by ID: {e}")
+            return None
+
+    @classmethod
+    async def update_admin_password(cls, admin_id: int, old_password: str, new_password: str) -> bool:
+        """Update admin password"""
+        try:
+            import hashlib
+            old_hash = hashlib.sha256(old_password.encode()).hexdigest()
+            new_hash = hashlib.sha256(new_password.encode()).hexdigest()
+            
+            with cls.get_cursor() as cursor:
+                # Verify old password
+                cursor.execute("""
+                    SELECT id FROM admin_credentials 
+                    WHERE id = ? AND password_hash = ?
+                """, (admin_id, old_hash))
+                
+                if not cursor.fetchone():
+                    return False
+                
+                # Update to new password
+                cursor.execute("""
+                    UPDATE admin_credentials 
+                    SET password_hash = ?, updated_at = ?
+                    WHERE id = ?
+                """, (new_hash, datetime.now(), admin_id))
+                
+                return cursor.rowcount > 0
+        except Exception as e:
+            logger.error(f"Error updating admin password: {e}")
+            return False
+
+    @classmethod
+    async def update_admin_profile(cls, admin_id: int, **kwargs) -> bool:
+        """Update admin profile information"""
+        try:
+            allowed_fields = ['phone', 'full_name', 'email']
+            updates = []
+            values = []
+            
+            for field in allowed_fields:
+                if field in kwargs:
+                    updates.append(f"{field} = ?")
+                    values.append(kwargs[field])
+            
+            if not updates:
+                return False
+            
+            updates.append("updated_at = ?")
+            values.append(datetime.now())
+            values.append(admin_id)
+            
+            with cls.get_cursor() as cursor:
+                cursor.execute(f"""
+                    UPDATE admin_credentials 
+                    SET {', '.join(updates)}
+                    WHERE id = ?
+                """, values)
+                
+                return cursor.rowcount > 0
+        except Exception as e:
+            logger.error(f"Error updating admin profile: {e}")
+            return False
+
+    @classmethod
+    async def get_all_admins(cls) -> List[Dict]:
+        """Get all active admins"""
+        try:
+            with cls.get_cursor() as cursor:
+                cursor.execute("""
+                    SELECT id, username, phone, full_name, email, role, is_active, 
+                           last_login, created_at
+                    FROM admin_credentials 
+                    WHERE is_active = 1
+                    ORDER BY created_at DESC
+                """)
+                
+                rows = cursor.fetchall()
+                return [dict(row) for row in rows]
+        except Exception as e:
+            logger.error(f"Error getting all admins: {e}")
+            return []
+
+    @classmethod
+    async def deactivate_admin(cls, admin_id: int) -> bool:
+        """Deactivate an admin account"""
+        try:
+            with cls.get_cursor() as cursor:
+                cursor.execute("""
+                    UPDATE admin_credentials 
+                    SET is_active = 0, updated_at = ?
+                    WHERE id = ?
+                """, (datetime.now(), admin_id))
+                return cursor.rowcount > 0
+        except Exception as e:
+            logger.error(f"Error deactivating admin: {e}")
+            return False
+
+    @classmethod
+    async def activate_admin(cls, admin_id: int) -> bool:
+        """Activate an admin account"""
+        try:
+            with cls.get_cursor() as cursor:
+                cursor.execute("""
+                    UPDATE admin_credentials 
+                    SET is_active = 1, updated_at = ?
+                    WHERE id = ?
+                """, (datetime.now(), admin_id))
+                return cursor.rowcount > 0
+        except Exception as e:
+            logger.error(f"Error activating admin: {e}")
+            return False
+    
     # ==================== TRANSACTION METHODS ====================
     
     @classmethod
@@ -4019,10 +4326,6 @@ class Database:
              logger.error(f"Error getting filtered total transactions: {e}")
              return 0
         
-        
-        
-        
-    
     @classmethod
     async def get_payment(cls, payment_id: int) -> Optional[Dict]:
         """Get payment by ID"""

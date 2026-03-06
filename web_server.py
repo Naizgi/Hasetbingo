@@ -2274,7 +2274,253 @@ async def admin_commission_details(request):
             'daily': [],
             'monthly': []
         }, status=500)
+        
+        
+        
+        # ==================== ADMIN AUTHENTICATION ENDPOINTS ====================
 
+@routes.post('/api/admin/login')
+async def admin_login(request):
+    """Admin login endpoint"""
+    try:
+        data = await request.json()
+        username = data.get('username')
+        password = data.get('password')
+        login_type = data.get('login_type', 'username')  # 'username' or 'phone'
+        
+        if not username or not password:
+            return web.json_response({
+                'success': False,
+                'message': 'Username and password are required'
+            }, status=400)
+        
+        from database.db import Database
+        
+        # Verify credentials
+        if login_type == 'phone':
+            admin = await Database.verify_admin_login_by_phone(username, password)
+        else:
+            admin = await Database.verify_admin_login(username, password)
+        
+        if admin:
+            # Create session token (simple for now - in production use JWT)
+            import hashlib
+            import uuid
+            token = hashlib.sha256(f"{admin['id']}:{uuid.uuid4().hex}".encode()).hexdigest()
+            
+            # Store session (you might want to add a sessions table)
+            # For now, we'll just return the token
+            
+            response_data = {
+                'success': True,
+                'message': 'Login successful',
+                'admin': admin,
+                'token': token,
+                'redirect': '/admin.html?auth=true'
+            }
+            
+            logger.info(f"✅ Admin login successful: {admin.get('username')}")
+            return web.json_response(response_data)
+        else:
+            logger.warning(f"❌ Failed admin login attempt for: {username}")
+            return web.json_response({
+                'success': False,
+                'message': 'Invalid credentials'
+            }, status=401)
+            
+    except Exception as e:
+        logger.error(f"Error in admin login: {e}")
+        return web.json_response({
+            'success': False,
+            'message': 'Server error'
+        }, status=500)
+
+@routes.post('/api/admin/change-password')
+async def admin_change_password(request):
+    """Change admin password"""
+    try:
+        data = await request.json()
+        admin_id = data.get('admin_id')
+        old_password = data.get('old_password')
+        new_password = data.get('new_password')
+        
+        if not admin_id or not old_password or not new_password:
+            return web.json_response({
+                'success': False,
+                'message': 'Missing required fields'
+            }, status=400)
+        
+        from database.db import Database
+        
+        success = await Database.update_admin_password(admin_id, old_password, new_password)
+        
+        if success:
+            logger.info(f"✅ Password changed for admin ID: {admin_id}")
+            return web.json_response({
+                'success': True,
+                'message': 'Password changed successfully'
+            })
+        else:
+            return web.json_response({
+                'success': False,
+                'message': 'Current password is incorrect'
+            }, status=401)
+            
+    except Exception as e:
+        logger.error(f"Error changing password: {e}")
+        return web.json_response({
+            'success': False,
+            'message': 'Server error'
+        }, status=500)
+
+@routes.post('/api/admin/update-profile')
+async def admin_update_profile(request):
+    """Update admin profile"""
+    try:
+        data = await request.json()
+        admin_id = data.get('admin_id')
+        
+        if not admin_id:
+            return web.json_response({
+                'success': False,
+                'message': 'admin_id is required'
+            }, status=400)
+        
+        from database.db import Database
+        
+        # Extract updatable fields
+        update_data = {}
+        if 'phone' in data:
+            update_data['phone'] = data['phone']
+        if 'full_name' in data:
+            update_data['full_name'] = data['full_name']
+        if 'email' in data:
+            update_data['email'] = data['email']
+        
+        success = await Database.update_admin_profile(admin_id, **update_data)
+        
+        if success:
+            # Get updated admin data
+            admin = await Database.get_admin_by_id(admin_id)
+            logger.info(f"✅ Profile updated for admin ID: {admin_id}")
+            return web.json_response({
+                'success': True,
+                'message': 'Profile updated successfully',
+                'admin': admin
+            })
+        else:
+            return web.json_response({
+                'success': False,
+                'message': 'Failed to update profile'
+            }, status=400)
+            
+    except Exception as e:
+        logger.error(f"Error updating profile: {e}")
+        return web.json_response({
+            'success': False,
+            'message': 'Server error'
+        }, status=500)
+
+@routes.get('/api/admin/profile/{admin_id}')
+async def admin_get_profile(request):
+    """Get admin profile"""
+    try:
+        admin_id = int(request.match_info['admin_id'])
+        
+        from database.db import Database
+        
+        admin = await Database.get_admin_by_id(admin_id)
+        
+        if admin:
+            return web.json_response({
+                'success': True,
+                'admin': admin
+            })
+        else:
+            return web.json_response({
+                'success': False,
+                'message': 'Admin not found'
+            }, status=404)
+            
+    except Exception as e:
+        logger.error(f"Error getting admin profile: {e}")
+        return web.json_response({
+            'success': False,
+            'message': 'Server error'
+        }, status=500)
+
+@routes.get('/api/admin/check-session')
+async def admin_check_session(request):
+    """Check if session is valid"""
+    # This is a placeholder - implement proper session validation
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    
+    if token:
+        # Validate token (implement your token validation logic)
+        return web.json_response({
+            'success': True,
+            'valid': True
+        })
+    else:
+        return web.json_response({
+            'success': False,
+            'valid': False
+        })
+
+
+
+
+
+@routes.get('/login.html')
+async def login_html(request):
+    """Serve the login page"""
+    try:
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        
+        possible_paths = [
+            os.path.join(current_dir, 'login.html'),
+            os.path.join(current_dir, 'templates', 'login.html'),
+            os.path.join(current_dir, 'static', 'login.html'),
+            os.path.join(current_dir, 'html', 'login.html'),
+            'login.html',
+            './login.html'
+        ]
+        
+        html_content = None
+        
+        for path in possible_paths:
+            try:
+                if os.path.exists(path):
+                    with open(path, 'r', encoding='utf-8') as f:
+                        html_content = f.read()
+                    logger.info(f"Successfully served login.html from: {path}")
+                    break
+            except Exception as e:
+                logger.debug(f"Failed to read {path}: {e}")
+                continue
+        
+        if html_content is None:
+            # Return embedded login page
+            html_content = """
+            <!DOCTYPE html>
+            <html>
+            <head><title>Login - Haset Bingo Admin</title></head>
+            <body><h1>Login page not found</h1></body>
+            </html>
+            """
+        
+        return web.Response(
+            text=html_content,
+            content_type='text/html',
+            headers={
+                'Cache-Control': 'no-cache, no-store, must-revalidate',
+                'Pragma': 'no-cache',
+                'Expires': '0'
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error serving login.html: {e}")
+        return web.Response(text="Error loading login page", status=500)
 # ==================== TEST COMMISSION ENDPOINT ====================
 @routes.post('/api/admin/test-commission')
 async def admin_test_commission(request):
