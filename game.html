@@ -1957,7 +1957,7 @@
         </div>
     </div>
 
-<script>
+   <script>
     // ==================== CONFIGURATION ====================
     const API_BASE_URL = `${window.location.protocol}//${window.location.host}/api`;
     const WS_BASE_URL = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}`;
@@ -2040,9 +2040,6 @@
         winners: [],
         isLoadingCards: false,
         
-        // IMPORTANT: State version for preventing desync
-        stateVersion: 0,
-        
         cardsCache: {
             soldCards: new Set(),
             ownedCardIndex: null,
@@ -2101,7 +2098,7 @@
     }
     window.showNotification = showNotification;
 
-    // ==================== PHASE VALIDATION FUNCTION ====================
+    // ==================== FIXED: Phase Validation Function ====================
     function validateGamePhase(expectedPhase, action) {
         if (gameState.gamePhase !== expectedPhase && gameState.gameStatus !== expectedPhase) {
             console.warn(`Phase mismatch: Expected ${expectedPhase}, got ${gameState.gamePhase}/${gameState.gameStatus} for action: ${action}`);
@@ -2129,262 +2126,6 @@
             return false;
         }
         return true;
-    }
-
-    // ==================== PHASE CHANGE HANDLER ====================
-    function handlePhaseChange(phase, gameData) {
-        console.log(`🔄 PHASE CHANGE: ${gameState.gamePhase} → ${phase}`);
-        
-        // Update all critical state immediately
-        gameState.gamePhase = phase;
-        gameState.gameStatus = phase;
-        gameState.lastConfirmedPhase = phase;
-        gameState.purchasePhaseActive = (phase === 'card_purchase');
-        
-        // Update prize pool and player counts immediately
-        if (gameData.prize_pool !== undefined) {
-            gameState.prizePool = parseFloat(gameData.prize_pool);
-        }
-        if (gameData.real_players !== undefined) {
-            gameState.realPlayers = gameData.real_players;
-        }
-        if (gameData.fake_players !== undefined) {
-            gameState.fakePlayers = gameData.fake_players;
-        }
-        if (gameData.total_players !== undefined) {
-            gameState.totalPlayers = gameData.total_players;
-        }
-        if (gameData.countdown_remaining !== undefined) {
-            gameState.countdown = gameData.countdown_remaining;
-            gameState.countdownTotal = gameData.countdown_remaining;
-            updateCountdownDisplay(gameState.countdown);
-        }
-        
-        // Update wallet balance immediately
-        if (gameData.wallet_balance !== undefined) {
-            gameState.walletBalance = parseFloat(gameData.wallet_balance);
-        }
-        
-        // Update UI immediately
-        updateGameStats();
-        
-        // Handle specific phase transitions
-        if (phase === 'card_purchase') {
-            // Game just ended, new round starting
-            console.log('📱 New card purchase phase started - resetting UI');
-            
-            // Reset for new round but keep cards visible
-            gameState.gameActive = false;
-            gameState.hasCard = false;
-            gameState.selectedCardIndex = null;
-            gameState.selectedCardNumbers = [];
-            gameState.markedNumbers.clear();
-            gameState.calledNumbers = gameData.called_numbers || [];
-            
-            // Show waiting screen immediately
-            showScreen('waiting-screen');
-            document.getElementById('selected-card-info').style.display = 'none';
-            renderEmptyPlayerCard();
-            
-            // Update called numbers display
-            updateCalledNumbersDisplay();
-            updateCurrentCalledDisplay('--');
-            updateBingoGrid();
-            
-            // Ensure cards are visible and updated
-            if (document.getElementById('cards-grid').children.length === 0) {
-                loadCardsGrid();
-            } else {
-                // Update card statuses based on sold cards
-                if (gameData.sold_cards) {
-                    gameData.sold_cards.forEach(cardIndex => {
-                        instantCardUpdate(cardIndex, 'sold');
-                    });
-                }
-            }
-            
-            // Start countdown
-            startServerCoordinatedCountdown();
-            
-        } else if (phase === 'active') {
-            // Game started
-            console.log('🎮 Game started - switching to game screen');
-            gameState.gameActive = true;
-            
-            // Show game screen immediately
-            showScreen('game-screen');
-            
-            // Update game display
-            updateCalledNumbersDisplay();
-            updateBingoGrid();
-            
-            if (gameState.hasCard) {
-                renderPlayerCard();
-            } else {
-                renderEmptyPlayerCard();
-            }
-            
-            // Update current called number if any
-            if (gameState.calledNumbers.length > 0) {
-                updateCurrentCalledDisplay(gameState.calledNumbers[gameState.calledNumbers.length - 1]);
-            }
-            
-            updateBingoButton();
-            
-        } else if (phase === 'winner_display') {
-            // Winner display handled separately
-            console.log('🏆 Winner display phase');
-        }
-    }
-
-    // ==================== MAIN GAME STATE HANDLER ====================
-    function handleGameState(data) {
-        console.log('📊 Game state received:', data);
-        
-        // Check state version to prevent desync
-        if (data.state_version !== undefined) {
-            if (data.state_version < gameState.stateVersion) {
-                console.log('Ignoring outdated state update');
-                return;
-            }
-            gameState.stateVersion = data.state_version;
-        }
-        
-        // Check for game ID change (new round)
-        if (data.game_id && data.game_id !== gameState.gameId) {
-            console.log('🆕 New game ID detected:', data.game_id);
-            resetForNewGame();
-            gameState.gameId = data.game_id;
-        }
-        
-        // Handle phase change
-        const newPhase = data.game_phase || data.status;
-        if (newPhase && newPhase !== gameState.gamePhase) {
-            handlePhaseChange(newPhase, data);
-        }
-        
-        // Update all game stats
-        if (data.prize_pool !== undefined) {
-            gameState.prizePool = parseFloat(data.prize_pool);
-        }
-        if (data.real_players !== undefined) {
-            gameState.realPlayers = data.real_players;
-        }
-        if (data.fake_players !== undefined) {
-            gameState.fakePlayers = data.fake_players;
-        }
-        if (data.total_players !== undefined) {
-            gameState.totalPlayers = data.total_players;
-        }
-        if (data.player_count !== undefined) {
-            gameState.playerCount = data.player_count;
-        }
-        if (data.round_number !== undefined) {
-            gameState.currentRound = data.round_number;
-            document.getElementById('current-round-number').textContent = gameState.currentRound;
-        }
-        
-        // Update called numbers
-        if (data.called_numbers && Array.isArray(data.called_numbers)) {
-            gameState.calledNumbers = data.called_numbers;
-            updateCalledNumbersDisplay();
-            if (data.called_numbers.length > 0) {
-                updateCurrentCalledDisplay(data.called_numbers[data.called_numbers.length - 1]);
-            }
-            updateBingoGrid();
-        }
-        
-        // Update wallet balance
-        if (data.wallet_balance !== undefined) {
-            gameState.walletBalance = parseFloat(data.wallet_balance);
-        }
-        
-        // Update countdown
-        if (data.countdown_remaining !== undefined) {
-            gameState.countdown = data.countdown_remaining;
-            gameState.countdownTotal = data.countdown_remaining;
-            updateCountdownDisplay(gameState.countdown);
-            updateCountdownStatusText(gameState.countdown);
-        }
-        
-        // Check for user's card
-        if (data.user_has_card !== undefined) {
-            gameState.hasCard = data.user_has_card;
-            if (data.user_card) {
-                gameState.selectedCardIndex = data.user_card.card_index;
-                gameState.selectedCardNumbers = data.user_card.card_numbers || [];
-                document.getElementById('selected-card-id').textContent = `#${data.user_card.card_index || '0'}`;
-                document.getElementById('player-card-id').textContent = data.user_card.card_index || '0';
-                
-                if (gameState.gamePhase === 'active') {
-                    renderPlayerCard();
-                } else if (gameState.gamePhase === 'card_purchase') {
-                    showCardPreview();
-                    document.getElementById('selected-card-info').style.display = 'block';
-                }
-            }
-        }
-        
-        // Update UI
-        updateGameStats();
-    }
-
-    // ==================== RESET FOR NEW GAME ====================
-    function resetForNewGame() {
-        console.log('🔄 Resetting UI for new game');
-        
-        // Clear all game state
-        gameState.calledNumbers = [];
-        gameState.markedNumbers.clear();
-        gameState.hasCard = false;
-        gameState.selectedCardIndex = null;
-        gameState.selectedCardNumbers = [];
-        gameState.prizePool = 0;
-        gameState.totalPlayers = 0;
-        gameState.realPlayers = 0;
-        gameState.fakePlayers = 0;
-        gameState.winnerAnnounced = false;
-        gameState.gameComplete = false;
-        gameState.isWinnerDisplayActive = false;
-        gameState.winnerData = null;
-        gameState.winners = [];
-        gameState.hasClaimedBingo = false;
-        gameState.bingoClaimInProgress = false;
-        
-        // Reset UI
-        const winnerAnnouncement = document.getElementById('winner-announcement');
-        if (winnerAnnouncement) {
-            winnerAnnouncement.style.display = 'none';
-        }
-        
-        showScreen('waiting-screen');
-        document.getElementById('selected-card-info').style.display = 'none';
-        
-        updateCalledNumbersDisplay();
-        updateCurrentCalledDisplay('--');
-        updateBingoGrid();
-        renderEmptyPlayerCard();
-        updateGameStats();
-    }
-
-    // ==================== COUNTDOWN END DETECTION ====================
-    function checkCountdownEnd() {
-        if (gameState.gamePhase === 'card_purchase' && gameState.countdown <= 0) {
-            console.log('⏰ Countdown ended - game should start');
-            
-            // Update UI to show "Game starting..."
-            const statusElement = document.getElementById('countdown-status-text');
-            if (statusElement) {
-                statusElement.textContent = 'Game starting...';
-            }
-            
-            // Force sync to get new phase from server
-            setTimeout(() => {
-                if (!gameState.fullSyncInProgress) {
-                    getCompleteGameState();
-                }
-            }, 200);
-        }
     }
 
     // ==================== AUDIO MANAGEMENT ====================
@@ -2728,7 +2469,8 @@
         return 'O';
     }
 
-    // ==================== FAKE CARDS UPDATE ====================
+    // ==================== REMOVED: STAGGERED ANIMATION ====================
+    // Now showing all fake cards at once for a natural feel
     function updateFakeCardsImmediately(fakeCardIndices) {
         if (!fakeCardIndices || fakeCardIndices.length === 0) return;
         
@@ -2780,7 +2522,7 @@
             return;
         }
         
-        // Validate game phase
+        // FIXED: Validate game phase
         if (!validateGamePhase('active', 'claimBingo')) {
             showNotification('Can only claim bingo during active game play', 'error');
             return;
@@ -2946,7 +2688,7 @@
             return;
         }
         
-        // Check game phase properly
+        // FIXED: Check game phase properly
         if (gameState.gamePhase !== 'active' && gameState.gameStatus !== 'active') {
             btn.innerHTML = `<i class="fas fa-shopping-cart"></i> Buy Card to Play`;
             btn.className = 'bingo-btn bingo-btn-inactive';
@@ -3246,7 +2988,6 @@
                     timestamp: Date.now()
                 });
                 
-                // Request full game state after reconnect
                 setTimeout(() => {
                     if (gameState.gameId) {
                         console.log('Requesting full game state after reconnect');
@@ -3329,7 +3070,495 @@
         }
     }
 
-    // ==================== WEBSOCKET MESSAGE HANDLER ====================
+    // ==================== INSTANT CARD UPDATE FUNCTION (NEVER REBUILDS GRID) ====================
+    function instantCardUpdate(cardIndex, newStatus, cardData = null) {
+        console.log(`Instantly updating card ${cardIndex} to ${newStatus}`);
+        
+        const cardElement = gameState.cardsCache.cardElements[cardIndex];
+        if (!cardElement) {
+            console.warn(`Card ${cardIndex} not found in cache - grid may not be loaded yet`);
+            return;
+        }
+        
+        cardElement.classList.remove('available', 'sold', 'owned', 'selected', 'purchasing');
+        
+        switch(newStatus) {
+            case 'sold':
+                cardElement.classList.add('sold');
+                cardElement.onclick = null;
+                cardElement.title = 'Sold to another player';
+                gameState.cardsSold.add(cardIndex);
+                gameState.cardsCache.soldCards.add(cardIndex);
+                break;
+                
+            case 'owned':
+                cardElement.classList.add('owned');
+                cardElement.onclick = () => handleCardSelection(cardIndex, cardElement);
+                cardElement.title = 'Your card';
+                gameState.cardsSold.add(cardIndex);
+                gameState.cardsCache.soldCards.add(cardIndex);
+                gameState.cardsCache.ownedCardIndex = cardIndex;
+                
+                if (cardData && cardData.numbers) {
+                    gameState.selectedCardNumbers = cardData.numbers;
+                    gameState.selectedCardIndex = cardIndex;
+                    gameState.hasCard = true;
+                    
+                    document.getElementById('selected-card-id').textContent = `#${cardIndex}`;
+                    document.getElementById('player-card-id').textContent = cardIndex;
+                    document.getElementById('selected-card-info').style.display = 'block';
+                    showCardPreview();
+                    
+                    if (gameState.gamePhase === 'active' || gameState.gameStatus === 'active') {
+                        renderPlayerCard();
+                    }
+                }
+                break;
+                
+            case 'available':
+                cardElement.classList.add('available');
+                cardElement.onclick = () => handleCardSelection(cardIndex, cardElement);
+                cardElement.title = 'Available to buy';
+                gameState.cardsSold.delete(cardIndex);
+                gameState.cardsCache.soldCards.delete(cardIndex);
+                break;
+                
+            case 'selected':
+                cardElement.classList.add('selected');
+                cardElement.onclick = () => handleCardSelection(cardIndex, cardElement);
+                cardElement.title = 'Selected';
+                gameState.uiSelectedCardIndex = cardIndex;
+                break;
+        }
+        
+        if (cardData) {
+            if (cardData.prize_pool !== undefined) gameState.prizePool = cardData.prize_pool;
+            if (cardData.total_players !== undefined) gameState.totalPlayers = cardData.total_players;
+            if (cardData.wallet_balance !== undefined) gameState.walletBalance = cardData.wallet_balance;
+            if (cardData.real_players !== undefined) gameState.realPlayers = cardData.real_players;
+            if (cardData.fake_players !== undefined) gameState.fakePlayers = cardData.fake_players;
+            updateGameStats();
+        }
+    }
+
+    // ==================== RESET CARDS FOR NEW ROUND (NO REBUILD) ====================
+    function resetCardsForNewRound() {
+        console.log('Resetting cards for new round - no grid rebuild');
+        
+        const grid = document.getElementById('cards-grid');
+        if (!grid) return;
+        
+        // Stop any ongoing staggered animation (if any)
+        if (gameState.staggeredAnimationInterval) {
+            clearInterval(gameState.staggeredAnimationInterval);
+            gameState.staggeredAnimationInterval = null;
+        }
+        gameState.pendingFakeCardIndices = [];
+        
+        // Reset cards loaded flag for new round
+        gameState.cardsLoaded = false;
+        gameState.cardsLoadAttempted = false;
+        
+        // If grid is empty, load it first
+        if (grid.children.length === 0) {
+            loadCardsGrid();
+            return;
+        }
+        
+        // Reset all existing cards to available
+        for (let i = 1; i <= 400; i++) {
+            const cardElement = gameState.cardsCache.cardElements[i];
+            if (cardElement) {
+                cardElement.classList.remove('available', 'sold', 'owned', 'selected', 'purchasing');
+                cardElement.classList.add('available');
+                cardElement.onclick = () => handleCardSelection(i, cardElement);
+                cardElement.title = 'Available to buy';
+            }
+        }
+        
+        // Clear all sold/owned tracking
+        gameState.cardsSold.clear();
+        gameState.cardsCache.soldCards.clear();
+        gameState.cardsCache.ownedCardIndex = null;
+        gameState.selectedCardIndex = null;
+        gameState.hasCard = false;
+        gameState.uiSelectedCardIndex = null;
+        
+        document.getElementById('selected-card-info').style.display = 'none';
+    }
+
+    // ==================== GET COMPLETE GAME STATE ====================
+    async function getCompleteGameState() {
+        if (!gameState.gameId) {
+            console.log('No game ID for complete state fetch');
+            return false;
+        }
+        
+        if (gameState.fullSyncInProgress) {
+            console.log('Full sync already in progress');
+            return false;
+        }
+        
+        gameState.fullSyncInProgress = true;
+        
+        try {
+            console.log(`Fetching complete game state for game ${gameState.gameId}, user ${gameState.userId}`);
+            
+            const response = await fetch(`${API_BASE_URL}/game/${gameState.gameId}/complete-state/${gameState.userId}`);
+            
+            if (!response.ok) {
+                if (response.status === 404) {
+                    console.log('Game not found for complete state');
+                    return false;
+                }
+                throw new Error(`HTTP ${response.status}`);
+            }
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                console.log('Complete game state received:', data);
+                console.log('📊 Game state from database:');
+                console.log(`   Real players: ${data.real_players || 0}`);
+                console.log(`   Fake players: ${data.fake_players || 0}`);
+                console.log(`   Total players: ${data.total_players || 0}`);
+                console.log(`   Prize pool: ${data.prize_pool || 0} birr`);
+                console.log(`   Winners: ${data.winners_count || 0}`);
+                console.log(`   Game phase: ${data.game_phase}`);
+                
+                const previousPhase = gameState.gamePhase;
+                const previousCalledCount = gameState.calledNumbers.length;
+                
+                gameState.gameId = data.game_id;
+                gameState.gamePhase = data.game_phase;
+                gameState.gameStatus = data.game_status;
+                gameState.lastConfirmedPhase = data.game_phase;
+                gameState.currentRound = data.round_number || gameState.currentRound;
+                
+                gameState.prizePool = parseFloat(data.prize_pool || 0);
+                gameState.realPlayers = data.real_players || 0;
+                gameState.fakePlayers = data.fake_players || 0;
+                gameState.totalPlayers = data.total_players || (gameState.realPlayers + gameState.fakePlayers);
+                
+                gameState.maxWinners = data.max_winners || 2;
+                gameState.winnersCount = data.winners_count || 0;
+                gameState.winners = data.winners || [];
+                
+                if (data.called_numbers && Array.isArray(data.called_numbers)) {
+                    gameState.calledNumbers = data.called_numbers;
+                    console.log(`Synced ${gameState.calledNumbers.length} called numbers`);
+                }
+                
+                if (data.countdown_remaining !== undefined) {
+                    if (Math.abs(data.countdown_remaining - gameState.countdown) > 2 || gameState.countdownInterval === null) {
+                        console.log(`Countdown updated from server: ${gameState.countdown} -> ${data.countdown_remaining}`);
+                        gameState.countdown = data.countdown_remaining;
+                        gameState.countdownTotal = data.countdown_remaining;
+                        updateCountdownDisplay(gameState.countdown);
+                        updateCountdownStatusText(gameState.countdown);
+                        
+                        if (gameState.gamePhase === 'card_purchase') {
+                            startServerCoordinatedCountdown();
+                        }
+                    }
+                }
+                
+                if (data.user_has_card && data.user_card) {
+                    console.log('User has card in this game');
+                    gameState.hasCard = true;
+                    gameState.selectedCardId = data.user_card.card_id;
+                    gameState.selectedCardIndex = data.user_card.card_index;
+                    
+                    if (data.user_card.card_numbers) {
+                        try {
+                            if (typeof data.user_card.card_numbers === 'string') {
+                                gameState.selectedCardNumbers = JSON.parse(data.user_card.card_numbers);
+                            } else {
+                                gameState.selectedCardNumbers = data.user_card.card_numbers;
+                            }
+                        } catch (e) {
+                            console.error('Error parsing card numbers:', e);
+                            gameState.selectedCardNumbers = generateFallbackCardNumbers();
+                        }
+                    } else if (data.user_card.card_data) {
+                        try {
+                            let cardData = data.user_card.card_data;
+                            if (typeof cardData === 'string') {
+                                cardData = JSON.parse(cardData);
+                            }
+                            if (Array.isArray(cardData)) {
+                                gameState.selectedCardNumbers = cardData;
+                            } else if (cardData.numbers) {
+                                gameState.selectedCardNumbers = cardData.numbers;
+                            }
+                        } catch (e) {
+                            console.error('Error parsing card data:', e);
+                            gameState.selectedCardNumbers = generateFallbackCardNumbers();
+                        }
+                    } else {
+                        gameState.selectedCardNumbers = generateFallbackCardNumbers();
+                    }
+                    
+                    document.getElementById('selected-card-id').textContent = `#${data.user_card.card_index || '0'}`;
+                    document.getElementById('player-card-id').textContent = data.user_card.card_index || '0';
+                } else {
+                    console.log('User has no card in this game');
+                    gameState.hasCard = false;
+                    gameState.selectedCardIndex = null;
+                    gameState.selectedCardNumbers = [];
+                    gameState.markedNumbers.clear();
+                }
+                
+                if (data.winners && data.winners.length > 0) {
+                    console.log(`Game has ${data.winners.length} winner(s)`);
+                    gameState.winners = data.winners;
+                    gameState.winnersCount = data.winners_count || data.winners.length;
+                    gameState.maxWinners = data.max_winners || 2;
+                    
+                    const lastWinner = data.winners[data.winners.length - 1];
+                    
+                    let winningPattern = lastWinner.winning_pattern || lastWinner.marked_numbers || [];
+                    if (typeof winningPattern === 'string') {
+                        try {
+                            winningPattern = JSON.parse(winningPattern);
+                        } catch (e) {
+                            console.error('Error parsing winning pattern:', e);
+                            winningPattern = [];
+                        }
+                    }
+                    
+                    let cardNumbers = lastWinner.card_numbers || [];
+                    if ((!cardNumbers || cardNumbers.length === 0) && data.card_numbers) {
+                        cardNumbers = data.card_numbers;
+                    }
+                    
+                    gameState.winnerData = {
+                        user_id: lastWinner.user_id,
+                        username: lastWinner.username,
+                        full_name: lastWinner.full_name,
+                        prize_amount: parseFloat(lastWinner.prize_amount || 0),
+                        card_index: lastWinner.card_index,
+                        card_numbers: cardNumbers,
+                        winning_pattern: winningPattern,
+                        pattern_type: lastWinner.pattern_type || 'BINGO',
+                        prize_pool: data.prize_pool,
+                        game_id: data.game_id,
+                        winner_number: lastWinner.winner_number || (data.winners.indexOf(lastWinner) + 1),
+                        total_winners: data.winners.length,
+                        all_winners: data.winners,
+                        is_final_winner: data.winners_count >= data.max_winners,
+                        corner_details: lastWinner.corner_details || null,
+                        column_details: lastWinner.column_details || null
+                    };
+                    
+                    console.log('Winner data from complete state:', gameState.winnerData);
+                    
+                    gameState.winnerAnnounced = true;
+                    gameState.gameComplete = data.winners_count >= data.max_winners;
+                } else {
+                    gameState.winnerAnnounced = false;
+                    gameState.gameComplete = false;
+                }
+                
+                updateCalledNumbersDisplay();
+                if (gameState.calledNumbers.length > 0) {
+                    updateCurrentCalledDisplay(gameState.calledNumbers[gameState.calledNumbers.length - 1]);
+                } else {
+                    updateCurrentCalledDisplay('--');
+                }
+                updateBingoGrid();
+                updateGameStats();
+                
+                // FIXED: Update purchase phase active flag based on server phase
+                gameState.purchasePhaseActive = (gameState.gamePhase === 'card_purchase');
+                
+                if (gameState.gamePhase === 'card_purchase') {
+                    showScreen('waiting-screen');
+                    if (gameState.hasCard) {
+                        showCardPreview();
+                        document.getElementById('selected-card-info').style.display = 'block';
+                    } else {
+                        document.getElementById('selected-card-info').style.display = 'none';
+                    }
+                    
+                    // Load cards immediately
+                    if (!gameState.cardsLoaded && !gameState.cardsLoadAttempted) {
+                        gameState.cardsLoadAttempted = true;
+                        if (document.getElementById('cards-grid').children.length === 0) {
+                            setTimeout(() => {
+                                loadCardsGrid().then(() => {
+                                    gameState.cardsLoaded = true;
+                                    console.log('✅ Cards loaded and will remain visible throughout countdown');
+                                });
+                            }, 100);
+                        } else {
+                            updateCardsGridInstant();
+                            gameState.cardsLoaded = true;
+                        }
+                    }
+                } else if (gameState.gamePhase === 'active' || gameState.gameStatus === 'active') {
+                    gameState.gameActive = true;
+                    gameState.gameStartConfirmed = true;
+                    showScreen('game-screen');
+                    if (gameState.hasCard) {
+                        renderPlayerCard();
+                    } else {
+                        renderEmptyPlayerCard();
+                    }
+                } else if (gameState.gamePhase === 'winner_display' && gameState.winnerData) {
+                    showWinnerAnnouncementScreen(gameState.winnerData);
+                }
+                
+                updateBingoButton();
+                
+                gameState.lastFullSyncTime = Date.now();
+                console.log('Complete game state sync successful');
+                return true;
+            } else {
+                console.warn('Complete game state fetch failed:', data.message);
+                return false;
+            }
+        } catch (error) {
+            console.error('Error fetching complete game state:', error);
+            return false;
+        } finally {
+            gameState.fullSyncInProgress = false;
+        }
+    }
+    window.getCompleteGameState = getCompleteGameState;
+
+    // ==================== UPDATE GAME STATS ====================
+    function updateGameStats() {
+        document.getElementById('card-price').textContent = `${CARD_PRICE.toFixed(2)} birr`;
+        document.getElementById('wallet-balance').textContent = `${gameState.walletBalance.toFixed(2)} birr`;
+        
+        document.getElementById('game-prize-pool').textContent = `${gameState.prizePool.toFixed(2)} birr`;
+        
+        if (gameState.totalPlayers > 0) {
+            document.getElementById('game-player-count').textContent = gameState.totalPlayers;
+        } else {
+            document.getElementById('game-player-count').textContent = gameState.realPlayers + gameState.fakePlayers;
+        }
+        
+        document.getElementById('called-numbers-stat').textContent = gameState.calledNumbers.length;
+        document.getElementById('called-count').textContent = gameState.calledNumbers.length;
+        
+        document.getElementById('current-round-number').textContent = gameState.currentRound;
+    }
+
+    function verifyGameData() {
+        console.log('=== VERIFYING GAME DATA FROM BACKEND ===');
+        console.log('Game ID:', gameState.gameId);
+        console.log('Real players:', gameState.realPlayers);
+        console.log('Fake players:', gameState.fakePlayers);
+        console.log('Total players:', gameState.totalPlayers);
+        console.log('Prize pool from server:', gameState.prizePool, 'birr');
+        console.log('Called numbers:', gameState.calledNumbers.length);
+        console.log('Winners:', gameState.winnersCount);
+        console.log('Game phase:', gameState.gamePhase);
+        console.log('='.repeat(40));
+    }
+    window.verifyGameData = verifyGameData;
+
+    // ==================== FIXED: COUNTDOWN FUNCTIONS - FRONTEND AS FOLLOWER ====================
+    function startServerCoordinatedCountdown() {
+        console.log('Starting server-coordinated countdown - frontend is follower');
+        
+        if (gameState.countdownInterval) {
+            clearInterval(gameState.countdownInterval);
+            gameState.countdownInterval = null;
+        }
+        
+        if (gameState.gamePhase !== 'card_purchase') {
+            console.log('Not in card purchase phase, not starting countdown');
+            return;
+        }
+        
+        // Ensure cards are loaded
+        if (!gameState.cardsLoaded && !gameState.cardsLoadAttempted) {
+            console.log('Countdown started - loading cards immediately');
+            gameState.cardsLoadAttempted = true;
+            gameState.countdownStartTime = Date.now();
+            
+            // Load cards immediately
+            if (document.getElementById('cards-grid').children.length === 0) {
+                loadCardsGrid().then(() => {
+                    gameState.cardsLoaded = true;
+                    console.log('✅ Cards loaded at countdown start');
+                });
+            } else {
+                updateCardsGridInstant();
+                gameState.cardsLoaded = true;
+                console.log('✅ Cards already loaded at countdown start');
+            }
+        }
+        
+        // Display the current countdown from server
+        updateCountdownDisplay(gameState.countdown);
+        updateCountdownStatusText(gameState.countdown);
+        
+        gameState.lastCountdownSync = Date.now();
+        
+        // Set up interval to sync with server (request fresh countdown every 2 seconds)
+        gameState.countdownInterval = setInterval(async () => {
+            try {
+                // Request current server countdown via sync
+                const response = await fetch(`${API_BASE_URL}/game/${gameState.gameId}/sync`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        user_id: gameState.userId,
+                        game_phase: gameState.gamePhase,
+                        countdown: gameState.countdown,
+                        timestamp: Date.now(),
+                        need_countdown_only: true  // Signal we only need countdown
+                    })
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.server_state && data.server_state.countdown_remaining !== undefined) {
+                        const serverCountdown = data.server_state.countdown_remaining;
+                        
+                        // Update display with server countdown
+                        if (serverCountdown !== gameState.countdown) {
+                            console.log(`📡 Countdown synced: local=${gameState.countdown} → server=${serverCountdown}`);
+                            gameState.countdown = serverCountdown;
+                            updateCountdownDisplay(gameState.countdown);
+                            updateCountdownStatusText(gameState.countdown);
+                        }
+                        
+                        // If countdown reached 0, trigger game start
+                        if (serverCountdown <= 0) {
+                            clearInterval(gameState.countdownInterval);
+                            gameState.countdownInterval = null;
+                            
+                            const statusElement = document.getElementById('countdown-status-text');
+                            if (statusElement) {
+                                statusElement.textContent = 'Game starting...';
+                            }
+                            
+                            // Wait for server to confirm game start
+                            setTimeout(() => getCompleteGameState(), 500);
+                        }
+                    }
+                }
+            } catch (error) {
+                console.warn('Countdown sync error:', error);
+                // Fallback: gentle local decrement only if sync fails and we have reasonable countdown
+                if (gameState.countdown > 0 && gameState.gamePhase === 'card_purchase') {
+                    gameState.countdown--;
+                    updateCountdownDisplay(gameState.countdown);
+                    updateCountdownStatusText(gameState.countdown);
+                }
+            }
+        }, 2000); // Sync every 2 seconds (more than frequent enough)
+        
+        // Also listen for WebSocket countdown updates
+        // This will be handled in the WebSocket message handler
+    }
+
+    // ==================== WEBSOCKET HANDLERS ====================
     function handleWebSocketMessage(data) {
         console.log('WebSocket message received:', data.type, data);
         
@@ -3338,120 +3567,10 @@
         // Always update game ID if present in message
         if (data.game_id) {
             gameState.gameId = data.game_id;
-        }
-        
-        // Check state version to prevent desync
-        if (data.state_version !== undefined) {
-            if (data.state_version < gameState.stateVersion) {
-                console.log('Ignoring outdated WebSocket message');
-                return;
-            }
-            gameState.stateVersion = data.state_version;
-        }
-        
-        // Check for game ID change (new round)
-        if (data.game_id && data.game_id !== gameState.gameId) {
-            console.log('🆕 New game ID detected via WebSocket');
-            resetForNewGame();
-            gameState.gameId = data.game_id;
-        }
-        
-        // Check for phase changes in ANY message type
-        const newPhase = data.phase || data.game_phase || data.status;
-        if (newPhase && newPhase !== gameState.gamePhase && !gameState.isWinnerDisplayActive) {
-            console.log(`⚡ PHASE CHANGE DETECTED in ${data.type} message: ${gameState.gamePhase} → ${newPhase}`);
-            handlePhaseChange(newPhase, data);
+            console.log('✅ Game ID updated from message:', gameState.gameId);
         }
         
         switch (data.type) {
-            case 'game_state':
-                console.log('Processing game_state message');
-                handleGameState(data);
-                break;
-                
-            case 'phase_change':
-                console.log('Processing phase_change message');
-                handlePhaseChange(data.phase, data);
-                break;
-                
-            case 'game_update':
-                console.log('Processing game_update message');
-                if (data.data) {
-                    if (data.data.status) {
-                        handlePhaseChange(data.data.status, data.data);
-                    }
-                    if (data.data.prize_pool !== undefined) {
-                        gameState.prizePool = parseFloat(data.data.prize_pool);
-                    }
-                    if (data.data.total_players !== undefined) {
-                        gameState.totalPlayers = data.data.total_players;
-                    }
-                    if (data.data.called_numbers) {
-                        gameState.calledNumbers = data.data.called_numbers;
-                        updateCalledNumbersDisplay();
-                        updateBingoGrid();
-                    }
-                    updateGameStats();
-                }
-                break;
-                
-            case 'new_game_started':
-            case 'new_round_started':
-                console.log('New round started - immediate transition');
-                resetForNewGame();
-                
-                // Update game ID and round
-                if (data.game_id) gameState.gameId = data.game_id;
-                if (data.round_number) {
-                    gameState.currentRound = data.round_number;
-                    document.getElementById('current-round-number').textContent = gameState.currentRound;
-                }
-                if (data.countdown_seconds) {
-                    gameState.countdown = data.countdown_seconds;
-                    gameState.countdownTotal = data.countdown_seconds;
-                    updateCountdownDisplay(gameState.countdown);
-                }
-                
-                // Start countdown
-                startServerCoordinatedCountdown();
-                break;
-                
-            case 'game_completed':
-                console.log('Game completed - waiting for new round');
-                gameState.gameComplete = true;
-                gameState.winnerAnnounced = false;
-                
-                // Hide winner announcement if showing
-                const winnerAnnouncement = document.getElementById('winner-announcement');
-                if (winnerAnnouncement) {
-                    winnerAnnouncement.style.display = 'none';
-                }
-                break;
-                
-            case 'winner_display_completed':
-                console.log('Winner display completed - new round starting');
-                handleWinnerDisplayCompleted(data);
-                break;
-                
-            case 'card_purchased':
-                if (data.prize_pool !== undefined) {
-                    gameState.prizePool = data.prize_pool;
-                    updateGameStats();
-                }
-                if (data.total_players !== undefined) {
-                    gameState.totalPlayers = data.total_players;
-                    gameState.realPlayers = data.real_players || gameState.realPlayers;
-                    gameState.fakePlayers = data.fake_players || gameState.fakePlayers;
-                    updateGameStats();
-                }
-                if (gameState.gamePhase === 'card_purchase' && data.card_index) {
-                    const cardIndex = data.card_index;
-                    if (cardIndex !== gameState.selectedCardIndex) {
-                        instantCardUpdate(cardIndex, 'sold');
-                    }
-                }
-                break;
-                
             case 'winner_confirmed':
                 console.log('Processing winner_confirmed message:', data);
                 stopAllAudio();
@@ -3478,9 +3597,31 @@
                 }
                 break;
                 
+            case 'winner_display_completed':
+                console.log('Winner display completed:', data);
+                handleWinnerDisplayCompleted(data);
+                break;
+                
+            case 'game_completed':
+                console.log('Game completed:', data);
+                const winnerAnnouncement = document.getElementById('winner-announcement');
+                if (winnerAnnouncement) {
+                    winnerAnnouncement.style.display = 'none';
+                }
+                gameState.gameComplete = true;
+                gameState.winnerAnnounced = false;
+                gameState.isWinnerDisplayActive = false;
+                break;
+                
             case 'existing_game_resumed':
                 console.log('Existing game resumed:', data);
                 handleExistingGameResumed(data);
+                break;
+                
+            case 'new_game_started':
+                console.log('New game started message received');
+                handleNewRoundStarted(data);
+                setTimeout(() => getCompleteGameState(), 1000);
                 break;
                 
             case 'bingo_claim_verified':
@@ -3519,6 +3660,28 @@
                 }
                 break;
                 
+            case 'card_purchased':
+                if (data.prize_pool !== undefined) {
+                    gameState.prizePool = data.prize_pool;
+                    updateGameStats();
+                }
+                
+                if (data.total_players !== undefined) {
+                    gameState.totalPlayers = data.total_players;
+                    gameState.realPlayers = data.real_players || gameState.realPlayers;
+                    gameState.fakePlayers = data.fake_players || gameState.fakePlayers;
+                    updateGameStats();
+                }
+                
+                if (gameState.gamePhase === 'card_purchase' && data.card_index) {
+                    const cardIndex = data.card_index;
+                    if (cardIndex !== gameState.selectedCardIndex) {
+                        // Real player purchase - instant update
+                        instantCardUpdate(cardIndex, 'sold');
+                    }
+                }
+                break;
+                
             case 'number_called':
                 if (data.game_id === gameState.gameId && data.number) {
                     handleServerNumberCalled(
@@ -3528,76 +3691,21 @@
                 }
                 break;
                 
-            case 'fake_card_purchased':
-                console.log('🎭 Fake card purchased:', data);
-                if (data.prize_pool !== undefined) gameState.prizePool = data.prize_pool;
-                if (data.total_players !== undefined) gameState.totalPlayers = data.total_players;
-                if (data.fake_players !== undefined) gameState.fakePlayers = data.fake_players;
-                if (data.real_players !== undefined) gameState.realPlayers = data.real_players;
-                updateGameStats();
-                
-                if (data.card_index) {
-                    instantCardUpdate(data.card_index, 'sold');
-                    console.log(`🎭 Fake player bought card #${data.card_index} - marked sold instantly`);
-                }
-                break;
-                
-            case 'fake_users_added':
-                console.log('Fake users added to game:', data);
-                if (data.prize_pool !== undefined) gameState.prizePool = data.prize_pool;
-                if (data.total_players !== undefined) gameState.totalPlayers = data.total_players;
-                if (data.total_fake_players !== undefined) gameState.fakePlayers = data.total_fake_players;
-                if (data.real_players !== undefined) gameState.realPlayers = data.real_players;
-                updateGameStats();
-                
-                if (data.fake_card_indices && Array.isArray(data.fake_card_indices)) {
-                    updateFakeCardsImmediately(data.fake_card_indices);
-                }
-                break;
-                
-            case 'early_state_update':
-                console.log('Early state update received:', data);
-                if (data.prize_pool !== undefined) gameState.prizePool = data.prize_pool;
-                if (data.total_players !== undefined) gameState.totalPlayers = data.total_players;
-                if (data.fake_players !== undefined) gameState.fakePlayers = data.fake_players;
-                if (data.real_players !== undefined) gameState.realPlayers = data.real_players;
-                if (data.countdown !== undefined) {
-                    gameState.countdown = data.countdown;
-                    updateCountdownDisplay(gameState.countdown);
-                    updateCountdownStatusText(gameState.countdown);
-                }
-                updateGameStats();
-                
-                if (data.fake_card_indices && Array.isArray(data.fake_card_indices)) {
-                    updateFakeCardsImmediately(data.fake_card_indices);
-                }
-                break;
-                
-            case 'countdown_update':
-                if (data.countdown_remaining !== undefined) {
-                    console.log(`📡 Countdown update: ${data.countdown_remaining}s`);
-                    gameState.countdown = data.countdown_remaining;
-                    updateCountdownDisplay(gameState.countdown);
-                    updateCountdownStatusText(gameState.countdown);
-                    
-                    if (data.countdown_remaining <= 0 && gameState.gamePhase === 'card_purchase') {
-                        checkCountdownEnd();
+            case 'game_update':
+                if (data.data) {
+                    console.log('Game update received:', data.data);
+                    if (data.data.status === 'winner_display' && gameState.winnerAnnounced) {
+                        console.log('Ignoring winner_display phase change, winner already announced');
+                        return;
                     }
+                    handleCriticalGameUpdate(data.data);
                 }
                 break;
                 
-            case 'countdown_reset':
-                if (data.new_countdown !== undefined) {
-                    console.log(`Countdown reset to ${data.new_countdown} seconds`);
-                    gameState.countdown = data.new_countdown;
-                    gameState.countdownTotal = data.new_countdown;
-                    updateCountdownDisplay(gameState.countdown);
-                    updateCountdownStatusText(gameState.countdown);
-                    
-                    if (gameState.gamePhase === 'card_purchase') {
-                        startServerCoordinatedCountdown();
-                    }
-                }
+            case 'new_round_started':
+                console.log('New round started received');
+                handleNewRoundStarted(data);
+                setTimeout(() => getCompleteGameState(), 1000);
                 break;
                 
             case 'sync_response':
@@ -3617,12 +3725,201 @@
                 updateConnectionStatus('Connected', 'green');
                 break;
                 
-            case 'full_state_update':
-                console.log('Full state update received');
-                handleGameState(data.game_state || data);
+            case 'countdown_reset':
+                if (data.new_countdown !== undefined) {
+                    console.log(`Countdown reset to ${data.new_countdown} seconds`);
+                    gameState.countdown = data.new_countdown;
+                    gameState.countdownTotal = data.new_countdown;
+                    updateCountdownDisplay(gameState.countdown);
+                    updateCountdownStatusText(gameState.countdown);
+                    
+                    if (gameState.gamePhase === 'card_purchase') {
+                        startServerCoordinatedCountdown();
+                    }
+                }
+                break;
+                
+            case 'countdown_update':
+                if (data.countdown_remaining !== undefined) {
+                    console.log(`📡 WebSocket countdown update: ${data.countdown_remaining}s`);
+                    gameState.countdown = data.countdown_remaining;
+                    updateCountdownDisplay(gameState.countdown);
+                    updateCountdownStatusText(gameState.countdown);
+                    
+                    // If countdown reached 0, trigger game start
+                    if (data.countdown_remaining <= 0 && gameState.gamePhase === 'card_purchase') {
+                        if (gameState.countdownInterval) {
+                            clearInterval(gameState.countdownInterval);
+                            gameState.countdownInterval = null;
+                        }
+                        
+                        const statusElement = document.getElementById('countdown-status-text');
+                        if (statusElement) {
+                            statusElement.textContent = 'Game starting...';
+                        }
+                        
+                        setTimeout(() => getCompleteGameState(), 500);
+                    }
+                }
+                break;
+                
+            // Single handler for fake_card_purchased
+            case 'fake_card_purchased':
+                console.log('🎭 Fake card purchased:', data);
+                
+                // Update stats
+                if (data.prize_pool !== undefined) gameState.prizePool = data.prize_pool;
+                if (data.total_players !== undefined) gameState.totalPlayers = data.total_players;
+                if (data.fake_players !== undefined) gameState.fakePlayers = data.fake_players;
+                if (data.real_players !== undefined) gameState.realPlayers = data.real_players;
+                updateGameStats();
+                
+                // Mark the card as sold instantly (same as real player)
+                if (data.card_index) {
+                    instantCardUpdate(data.card_index, 'sold');
+                    console.log(`🎭 Fake player bought card #${data.card_index} - marked sold instantly`);
+                }
+                break;
+                
+            case 'fake_users_added':
+                console.log('Fake users added to game:', data);
+                
+                if (data.prize_pool !== undefined) {
+                    gameState.prizePool = data.prize_pool;
+                }
+                if (data.total_players !== undefined) {
+                    gameState.totalPlayers = data.total_players;
+                }
+                if (data.total_fake_players !== undefined) {
+                    gameState.fakePlayers = data.total_fake_players;
+                }
+                if (data.real_players !== undefined) {
+                    gameState.realPlayers = data.real_players;
+                }
+                updateGameStats();
+                
+                // Show all fake cards at once
+                if (data.fake_card_indices && Array.isArray(data.fake_card_indices) && data.fake_card_indices.length > 0) {
+                    console.log(`Received ${data.fake_card_indices.length} fake card indices`);
+                    
+                    // Check if grid is loaded
+                    if (!gameState.cardsLoaded && document.getElementById('cards-grid').children.length === 0) {
+                        console.log('🔄 Grid not loaded yet, loading cards first...');
+                        // Load grid first, then update cards
+                        loadCardsGrid().then(() => {
+                            console.log('✅ Grid loaded, now updating fake cards');
+                            updateFakeCardsImmediately(data.fake_card_indices);
+                        });
+                    } else {
+                        // Grid is already loaded, update directly
+                        updateFakeCardsImmediately(data.fake_card_indices);
+                    }
+                }
+                break;
+                
+            case 'early_state_update':
+                console.log('Early state update received:', data);
+                
+                if (data.prize_pool !== undefined) {
+                    gameState.prizePool = data.prize_pool;
+                }
+                if (data.total_players !== undefined) {
+                    gameState.totalPlayers = data.total_players;
+                }
+                if (data.fake_players !== undefined) {
+                    gameState.fakePlayers = data.fake_players;
+                }
+                if (data.real_players !== undefined) {
+                    gameState.realPlayers = data.real_players;
+                }
+                if (data.countdown !== undefined) {
+                    gameState.countdown = data.countdown;
+                    updateCountdownDisplay(gameState.countdown);
+                    updateCountdownStatusText(gameState.countdown);
+                }
+                updateGameStats();
+                
+                // Show all fake cards at once
+                if (data.fake_card_indices && Array.isArray(data.fake_card_indices) && data.fake_card_indices.length > 0) {
+                    console.log(`Showing ${data.fake_card_indices.length} early fake cards immediately at once`);
+                    
+                    // Check if grid is loaded
+                    if (!gameState.cardsLoaded && document.getElementById('cards-grid').children.length === 0) {
+                        console.log('🔄 Grid not loaded yet for early update, loading cards first...');
+                        loadCardsGrid().then(() => {
+                            updateFakeCardsImmediately(data.fake_card_indices);
+                        });
+                    } else {
+                        updateFakeCardsImmediately(data.fake_card_indices);
+                    }
+                }
                 break;
                 
             case 'pong':
+                break;
+                
+            case 'full_state_update':
+                console.log('Full state update received');
+                
+                // Don't reset if we're in card purchase with cards loaded
+                if (gameState.gamePhase === 'card_purchase' && gameState.cardsLoaded) {
+                    console.log('Already in card purchase with cards loaded, ignoring full_state_update to prevent wipe');
+                    // Still update stats if provided
+                    if (data.game_state) {
+                        if (data.game_state.prize_pool !== undefined) {
+                            gameState.prizePool = data.game_state.prize_pool;
+                        }
+                        if (data.game_state.real_players !== undefined) {
+                            gameState.realPlayers = data.game_state.real_players;
+                        }
+                        if (data.game_state.fake_players !== undefined) {
+                            gameState.fakePlayers = data.game_state.fake_players;
+                        }
+                        if (data.game_state.total_players !== undefined) {
+                            gameState.totalPlayers = data.game_state.total_players;
+                        }
+                        if (data.game_state.player_count !== undefined) {
+                            gameState.playerCount = data.game_state.player_count;
+                        }
+                        if (data.game_state.game_phase) {
+                            gameState.gamePhase = data.game_state.game_phase;
+                            gameState.gameStatus = data.game_state.game_phase;
+                            gameState.lastConfirmedPhase = data.game_state.game_phase;
+                        }
+                        updateGameStats();
+                    }
+                    break;
+                }
+                
+                if (data.game_state) {
+                    if (data.game_state.called_numbers) {
+                        gameState.calledNumbers = data.game_state.called_numbers;
+                        updateCalledNumbersDisplay();
+                        updateBingoGrid();
+                    }
+                    if (data.game_state.prize_pool !== undefined) {
+                        gameState.prizePool = data.game_state.prize_pool;
+                    }
+                    if (data.game_state.real_players !== undefined) {
+                        gameState.realPlayers = data.game_state.real_players;
+                    }
+                    if (data.game_state.fake_players !== undefined) {
+                        gameState.fakePlayers = data.game_state.fake_players;
+                    }
+                    if (data.game_state.total_players !== undefined) {
+                        gameState.totalPlayers = data.game_state.total_players;
+                    }
+                    if (data.game_state.player_count !== undefined) {
+                        gameState.playerCount = data.game_state.player_count;
+                    }
+                    if (data.game_state.game_phase) {
+                        gameState.gamePhase = data.game_state.game_phase;
+                        gameState.gameStatus = data.game_state.game_phase;
+                        gameState.lastConfirmedPhase = data.game_state.game_phase;
+                    }
+                    updateGameStats();
+                    updateGameUI();
+                }
                 break;
                 
             default:
@@ -4303,6 +4600,7 @@
         
         if (serverState.countdown_remaining !== undefined) {
             // Only correct countdown if difference is more than 2 seconds AND we're not near the end
+            // This prevents corrections at 5s, 4s, 3s from wiping the view
             const diff = Math.abs(serverState.countdown_remaining - gameState.countdown);
             if (diff > 2 && serverState.countdown_remaining > 5) {
                 console.log(`Countdown synced: local=${gameState.countdown}, server=${serverState.countdown_remaining}`);
@@ -4439,10 +4737,6 @@
                         gameState.countdown = serverState.countdown_remaining;
                         updateCountdownDisplay(gameState.countdown);
                         updateCountdownStatusText(gameState.countdown);
-                        
-                        if (serverState.countdown_remaining <= 0 && gameState.gamePhase === 'card_purchase') {
-                            checkCountdownEnd();
-                        }
                     }
                 }
                 
@@ -4526,7 +4820,7 @@
     }
 
     function showCardSelection() {
-        // Validate phase before showing card selection
+        // FIXED: Validate phase before showing card selection
         if (!validateGamePhase('card_purchase', 'showCardSelection')) {
             return;
         }
@@ -4659,11 +4953,6 @@
         if (progressBar && gameState.countdownTotal > 0) {
             const progress = ((gameState.countdownTotal - seconds) / gameState.countdownTotal) * 100;
             progressBar.style.width = `${Math.min(100, Math.max(0, progress))}%`;
-        }
-        
-        // Check for countdown end
-        if (seconds <= 0 && gameState.gamePhase === 'card_purchase') {
-            checkCountdownEnd();
         }
     }
 
@@ -4969,7 +5258,7 @@
     async function handleCardSelection(cardIndex, element) {
         console.log('Card selection clicked:', cardIndex);
         
-        // Validate phase before allowing card purchase
+        // FIXED: Validate phase before allowing card purchase
         if (!validateGamePhase('card_purchase', 'handleCardSelection')) {
             showNotification('Card purchase is only available during purchase phase. The game may have already started.', 'error');
             return;
@@ -5144,7 +5433,7 @@
     async function toggleCardPurchase(cardIndex, element, action) {
         console.log(`${action} card:`, cardIndex);
         
-        // Validate phase before allowing card purchase
+        // FIXED: Validate phase before allowing card purchase
         if (!validateGamePhase('card_purchase', 'toggleCardPurchase')) {
             showNotification('Card purchase is only available during purchase phase. The game may have already started.', 'error');
             if (element) {
@@ -5271,277 +5560,6 @@
         }
     }
     window.toggleCardPurchase = toggleCardPurchase;
-
-    // ==================== INSTANT CARD UPDATE FUNCTION ====================
-    function instantCardUpdate(cardIndex, newStatus, cardData = null) {
-        console.log(`Instantly updating card ${cardIndex} to ${newStatus}`);
-        
-        const cardElement = gameState.cardsCache.cardElements[cardIndex];
-        if (!cardElement) {
-            console.warn(`Card ${cardIndex} not found in cache - grid may not be loaded yet`);
-            return;
-        }
-        
-        cardElement.classList.remove('available', 'sold', 'owned', 'selected', 'purchasing');
-        
-        switch(newStatus) {
-            case 'sold':
-                cardElement.classList.add('sold');
-                cardElement.onclick = null;
-                cardElement.title = 'Sold to another player';
-                gameState.cardsSold.add(cardIndex);
-                gameState.cardsCache.soldCards.add(cardIndex);
-                break;
-                
-            case 'owned':
-                cardElement.classList.add('owned');
-                cardElement.onclick = () => handleCardSelection(cardIndex, cardElement);
-                cardElement.title = 'Your card';
-                gameState.cardsSold.add(cardIndex);
-                gameState.cardsCache.soldCards.add(cardIndex);
-                gameState.cardsCache.ownedCardIndex = cardIndex;
-                
-                if (cardData && cardData.numbers) {
-                    gameState.selectedCardNumbers = cardData.numbers;
-                    gameState.selectedCardIndex = cardIndex;
-                    gameState.hasCard = true;
-                    
-                    document.getElementById('selected-card-id').textContent = `#${cardIndex}`;
-                    document.getElementById('player-card-id').textContent = cardIndex;
-                    document.getElementById('selected-card-info').style.display = 'block';
-                    showCardPreview();
-                    
-                    if (gameState.gamePhase === 'active' || gameState.gameStatus === 'active') {
-                        renderPlayerCard();
-                    }
-                }
-                break;
-                
-            case 'available':
-                cardElement.classList.add('available');
-                cardElement.onclick = () => handleCardSelection(cardIndex, cardElement);
-                cardElement.title = 'Available to buy';
-                gameState.cardsSold.delete(cardIndex);
-                gameState.cardsCache.soldCards.delete(cardIndex);
-                break;
-                
-            case 'selected':
-                cardElement.classList.add('selected');
-                cardElement.onclick = () => handleCardSelection(cardIndex, cardElement);
-                cardElement.title = 'Selected';
-                gameState.uiSelectedCardIndex = cardIndex;
-                break;
-        }
-        
-        if (cardData) {
-            if (cardData.prize_pool !== undefined) gameState.prizePool = cardData.prize_pool;
-            if (cardData.total_players !== undefined) gameState.totalPlayers = cardData.total_players;
-            if (cardData.wallet_balance !== undefined) gameState.walletBalance = cardData.wallet_balance;
-            if (cardData.real_players !== undefined) gameState.realPlayers = cardData.real_players;
-            if (cardData.fake_players !== undefined) gameState.fakePlayers = cardData.fake_players;
-            updateGameStats();
-        }
-    }
-
-    // ==================== RESET CARDS FOR NEW ROUND ====================
-    function resetCardsForNewRound() {
-        console.log('Resetting cards for new round - no grid rebuild');
-        
-        const grid = document.getElementById('cards-grid');
-        if (!grid) return;
-        
-        // Stop any ongoing staggered animation (if any)
-        if (gameState.staggeredAnimationInterval) {
-            clearInterval(gameState.staggeredAnimationInterval);
-            gameState.staggeredAnimationInterval = null;
-        }
-        gameState.pendingFakeCardIndices = [];
-        
-        // Reset cards loaded flag for new round
-        gameState.cardsLoaded = false;
-        gameState.cardsLoadAttempted = false;
-        
-        // If grid is empty, load it first
-        if (grid.children.length === 0) {
-            loadCardsGrid();
-            return;
-        }
-        
-        // Reset all existing cards to available
-        for (let i = 1; i <= 400; i++) {
-            const cardElement = gameState.cardsCache.cardElements[i];
-            if (cardElement) {
-                cardElement.classList.remove('available', 'sold', 'owned', 'selected', 'purchasing');
-                cardElement.classList.add('available');
-                cardElement.onclick = () => handleCardSelection(i, cardElement);
-                cardElement.title = 'Available to buy';
-            }
-        }
-        
-        // Clear all sold/owned tracking
-        gameState.cardsSold.clear();
-        gameState.cardsCache.soldCards.clear();
-        gameState.cardsCache.ownedCardIndex = null;
-        gameState.selectedCardIndex = null;
-        gameState.hasCard = false;
-        gameState.uiSelectedCardIndex = null;
-        
-        document.getElementById('selected-card-info').style.display = 'none';
-    }
-
-    // ==================== GET COMPLETE GAME STATE ====================
-    async function getCompleteGameState() {
-        if (!gameState.gameId) {
-            console.log('No game ID for complete state fetch');
-            return false;
-        }
-        
-        if (gameState.fullSyncInProgress) {
-            console.log('Full sync already in progress');
-            return false;
-        }
-        
-        gameState.fullSyncInProgress = true;
-        
-        try {
-            console.log(`Fetching complete game state for game ${gameState.gameId}, user ${gameState.userId}`);
-            
-            const response = await fetch(`${API_BASE_URL}/game/${gameState.gameId}/complete-state/${gameState.userId}`);
-            
-            if (!response.ok) {
-                if (response.status === 404) {
-                    console.log('Game not found for complete state');
-                    return false;
-                }
-                throw new Error(`HTTP ${response.status}`);
-            }
-            
-            const data = await response.json();
-            
-            if (data.success) {
-                console.log('Complete game state received:', data);
-                
-                // Pass to main game state handler
-                handleGameState(data);
-                
-                gameState.lastFullSyncTime = Date.now();
-                return true;
-            } else {
-                console.warn('Complete game state fetch failed:', data.message);
-                return false;
-            }
-        } catch (error) {
-            console.error('Error fetching complete game state:', error);
-            return false;
-        } finally {
-            gameState.fullSyncInProgress = false;
-        }
-    }
-    window.getCompleteGameState = getCompleteGameState;
-
-    // ==================== UPDATE GAME STATS ====================
-    function updateGameStats() {
-        document.getElementById('card-price').textContent = `${CARD_PRICE.toFixed(2)} birr`;
-        document.getElementById('wallet-balance').textContent = `${(gameState.walletBalance || 0).toFixed(2)} birr`;
-        
-        document.getElementById('game-prize-pool').textContent = `${(gameState.prizePool || 0).toFixed(2)} birr`;
-        
-        if (gameState.totalPlayers > 0) {
-            document.getElementById('game-player-count').textContent = gameState.totalPlayers;
-        } else {
-            document.getElementById('game-player-count').textContent = (gameState.realPlayers || 0) + (gameState.fakePlayers || 0);
-        }
-        
-        document.getElementById('called-numbers-stat').textContent = gameState.calledNumbers.length;
-        document.getElementById('called-count').textContent = gameState.calledNumbers.length;
-        
-        document.getElementById('current-round-number').textContent = gameState.currentRound || 1;
-    }
-
-    // ==================== FIXED: COUNTDOWN FUNCTIONS ====================
-    function startServerCoordinatedCountdown() {
-        console.log('Starting server-coordinated countdown - frontend is follower');
-        
-        if (gameState.countdownInterval) {
-            clearInterval(gameState.countdownInterval);
-            gameState.countdownInterval = null;
-        }
-        
-        if (gameState.gamePhase !== 'card_purchase') {
-            console.log('Not in card purchase phase, not starting countdown');
-            return;
-        }
-        
-        // Ensure cards are loaded
-        if (!gameState.cardsLoaded && !gameState.cardsLoadAttempted) {
-            console.log('Countdown started - loading cards immediately');
-            gameState.cardsLoadAttempted = true;
-            gameState.countdownStartTime = Date.now();
-            
-            // Load cards immediately
-            if (document.getElementById('cards-grid').children.length === 0) {
-                loadCardsGrid().then(() => {
-                    gameState.cardsLoaded = true;
-                    console.log('✅ Cards loaded at countdown start');
-                });
-            } else {
-                updateCardsGridInstant();
-                gameState.cardsLoaded = true;
-                console.log('✅ Cards already loaded at countdown start');
-            }
-        }
-        
-        // Display the current countdown from server
-        updateCountdownDisplay(gameState.countdown);
-        updateCountdownStatusText(gameState.countdown);
-        
-        gameState.lastCountdownSync = Date.now();
-        
-        // Set up interval to sync with server (request fresh countdown every 2 seconds)
-        gameState.countdownInterval = setInterval(async () => {
-            try {
-                const response = await fetch(`${API_BASE_URL}/game/${gameState.gameId}/sync`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        user_id: gameState.userId,
-                        game_phase: gameState.gamePhase,
-                        countdown: gameState.countdown,
-                        timestamp: Date.now(),
-                        need_countdown_only: true
-                    })
-                });
-                
-                if (response.ok) {
-                    const data = await response.json();
-                    
-                    // Check for phase change in response
-                    if (data.server_state && data.server_state.game_phase !== gameState.gamePhase) {
-                        console.log(`📡 Phase change detected in countdown sync: ${gameState.gamePhase} → ${data.server_state.game_phase}`);
-                        handlePhaseChange(data.server_state.game_phase, data.server_state);
-                    }
-                    
-                    if (data.server_state && data.server_state.countdown_remaining !== undefined) {
-                        const serverCountdown = data.server_state.countdown_remaining;
-                        
-                        if (serverCountdown !== gameState.countdown) {
-                            console.log(`📡 Countdown synced: ${gameState.countdown} → ${serverCountdown}`);
-                            gameState.countdown = serverCountdown;
-                            updateCountdownDisplay(gameState.countdown);
-                            updateCountdownStatusText(gameState.countdown);
-                        }
-                        
-                        // Check if countdown ended
-                        if (serverCountdown <= 0) {
-                            checkCountdownEnd();
-                        }
-                    }
-                }
-            } catch (error) {
-                console.warn('Countdown sync error:', error);
-            }
-        }, 2000);
-    }
 
     // ==================== OTHER FUNCTIONS ====================
     function startSyncInterval() {
@@ -5702,37 +5720,6 @@
         return isNaN(num) ? '0.00 birr' : num.toFixed(2) + ' birr';
     }
 
-    // ==================== NEW: State Change Listeners ====================
-    function addStateChangeListeners() {
-        // Listen for visibility change (tab becomes active)
-        document.addEventListener('visibilitychange', function() {
-            if (!document.hidden && gameState.gameId) {
-                console.log('Tab became visible - checking game state');
-                getCompleteGameState();
-            }
-        });
-        
-        // Listen for online/offline events
-        window.addEventListener('online', function() {
-            console.log('Network online - reconnecting and syncing');
-            if (!gameState.isConnected) {
-                gameState.isReconnecting = true;
-                initWebSocket();
-            }
-            setTimeout(() => getCompleteGameState(), 500);
-        });
-        
-        // Check for countdown end every second
-        setInterval(() => {
-            if (gameState.gamePhase === 'card_purchase' && gameState.countdown > 0) {
-                // Gentle countdown check
-                if (gameState.countdown <= 0) {
-                    checkCountdownEnd();
-                }
-            }
-        }, 1000);
-    }
-
     // ==================== INITIALIZATION ====================
     async function initGame() {
         console.log('Initializing Habesha Bingo (Server-Coordinated)...');
@@ -5757,9 +5744,9 @@
             console.log('Active game found:', gameData.game_id);
             gameState.gameId = gameData.game_id;
             gameState.gameType = gameData.game_type || 'round_based';
-            gameState.gameStatus = data.status || 'unknown';
-            gameState.gamePhase = data.status || 'card_purchase';
-            gameState.lastConfirmedPhase = data.status || 'card_purchase';
+            gameState.gameStatus = gameData.status || 'unknown';
+            gameState.gamePhase = gameData.status || 'card_purchase';
+            gameState.lastConfirmedPhase = gameData.status || 'card_purchase';
             
             gameState.prizePool = parseFloat(gameData.prize_pool || 0);
             gameState.totalPlayers = gameData.total_players || 0;
@@ -5772,7 +5759,7 @@
             gameState.countdownTotal = gameData.countdown_remaining || 30;
             gameState.calledNumbers = gameData.numbers_called || [];
             
-            // Set purchase phase flag
+            // FIXED: Set purchase phase flag
             gameState.purchasePhaseActive = (gameState.gamePhase === 'card_purchase');
             
             console.log(`Initial countdown from server: ${gameState.countdown}s`);
@@ -5837,9 +5824,6 @@
             }
         }, 300000);
         
-        // Add state change listeners
-        addStateChangeListeners();
-        
         updateConnectionStatus('Connected', 'green');
         updateGameUI();
         
@@ -5903,6 +5887,29 @@
                     getCompleteGameState();
                 }
             }, 10000);
+            
+            document.addEventListener('visibilitychange', function() {
+                if (!document.hidden && gameState.gameId) {
+                    console.log('Tab became visible, syncing...');
+                    getCompleteGameState();
+                }
+            });
+            
+            window.addEventListener('online', function() {
+                console.log('Network online, reconnecting...');
+                if (!gameState.isConnected) {
+                    gameState.isReconnecting = true;
+                    initWebSocket();
+                }
+                if (gameState.gameId) {
+                    setTimeout(() => getCompleteGameState(), 1000);
+                }
+            });
+            
+            window.addEventListener('offline', function() {
+                console.log('Network offline');
+                updateConnectionStatus('Offline - waiting for network...', 'red');
+            });
             
         } catch (error) {
             console.error('Failed to initialize game:', error);
