@@ -3513,17 +3513,17 @@ class Database:
         amount: float,
         description: str,
         game_id: str = None
-    ) -> int:
+     ) -> int:
         """
         Add a transaction record
-    
+
         Args:
             user_id: Telegram user ID
             transaction_type: Type of transaction ('deposit', 'withdrawal', 'purchase', 'winning')
             amount: Transaction amount (positive for deposit/winning, negative for purchase)
             description: Transaction description
             game_id: Associated game ID (optional)
-    
+
         Returns:
             Transaction ID
         """
@@ -3532,8 +3532,8 @@ class Database:
                 # Get current balance BEFORE the transaction
                 cursor.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,))
                 result = cursor.fetchone()
-                current_balance = result[0] if result and len(result) > 0 else 0.00
-               
+                current_balance = float(result[0]) if result and result[0] is not None else 0.00
+            
                 # Calculate new balance
                 if transaction_type in ['deposit', 'winning', 'initial_deposit', 'withdrawal_refund']:
                     new_balance = current_balance + amount
@@ -3548,25 +3548,25 @@ class Database:
                         (new_balance, user_id)
                     )
                 else:
-                   new_balance = current_balance
-               
-               # FIXED: Use correct column name 'transaction_type' instead of 'type'
+                    new_balance = current_balance
+             
+                # FIXED: Use correct column name 'transaction_type' and ensure balance_after is NOT NULL
                 cursor.execute(
-                   """
+                    """
                     INSERT INTO transactions 
                     (user_id, transaction_type, amount, balance_after, description, game_id, created_at)
                     VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
                     """,
                     (user_id, transaction_type, amount, new_balance, description, game_id)
                 )
-            
+               
                 transaction_id = cursor.lastrowid
-            
+                
                 logger.info(f"Added transaction {transaction_id} for user {user_id}: "
-                        f"{transaction_type} ${amount:.2f} - {description}")
+                           f"{transaction_type} {amount:.2f} birr - {description}")
               
                 return transaction_id
-            
+              
         except Exception as e:
             logger.error(f"Error adding transaction for user {user_id}: {e}")
             return 0
@@ -5380,55 +5380,49 @@ class Database:
             logger.error(f"Error counting active real cards: {e}")
             return 0
     
-    
-    
-    
-    
-    
-    # Add these methods to your Database class in db.py
-
-    # ==================== CRITICAL FIX: CARD PURCHASE METHODS ====================
+  
+     # ==================== CRITICAL FIX: CARD PURCHASE METHODS ====================
     
     @classmethod
     async def buy_card(cls, user_id: int, game_id: str, card_index: int) -> Dict[str, Any]:
-        """
-        Buy a card with full transaction handling, proper cursor management,
-        and comprehensive error checking.
-        
-        Returns:
+         """
+         Buy a card with full transaction handling, proper cursor management,
+         and comprehensive error checking.
+    
+         Returns:
             Dict with success status, message, and updated data
-        """
-        # Create a new connection and cursor for this operation
-        conn = None
-        cursor = None
-        
-        try:
+         """
+         # Create a new connection and cursor for this operation
+         conn = None
+         cursor = None
+    
+         try:
             conn = cls.get_connection()
             cursor = conn.cursor()
-            
+        
             # Start transaction
             cursor.execute("BEGIN TRANSACTION")
-            
+           
             # ===== STEP 1: Validate game exists and is in purchase phase =====
             cursor.execute("""
                 SELECT status, round_number, card_price, prize_pool 
                 FROM games 
                 WHERE game_id = ?
             """, (game_id,))
-            
+           
             game = cursor.fetchone()
             if not game:
                 cursor.execute("ROLLBACK")
                 logger.error(f"Game {game_id} not found for user {user_id}")
                 return {
-                    'success': False, 
+                   'success': False, 
                     'message': 'Game not found',
                     'code': 'GAME_NOT_FOUND'
                 }
-            
+          
             game_status, round_number, card_price, current_prize_pool = game
             card_price = float(card_price) if card_price else 10.00
-            
+          
             # Check game phase
             if game_status != 'card_purchase':
                 cursor.execute("ROLLBACK")
@@ -5439,7 +5433,7 @@ class Database:
                     'code': 'WRONG_PHASE',
                     'current_phase': game_status
                 }
-            
+         
             # ===== STEP 2: Check if card index is valid =====
             if card_index < 1 or card_index > 400:
                 cursor.execute("ROLLBACK")
@@ -5449,13 +5443,13 @@ class Database:
                     'message': f'Invalid card index {card_index}',
                     'code': 'INVALID_INDEX'
                 }
-            
+         
             # ===== STEP 3: Check if card is already sold =====
             cursor.execute("""
                 SELECT id, user_id FROM player_cards 
                 WHERE game_id = ? AND card_index = ? AND is_active = 1
             """, (game_id, card_index))
-            
+         
             existing_card = cursor.fetchone()
             if existing_card:
                 cursor.execute("ROLLBACK")
@@ -5466,13 +5460,13 @@ class Database:
                     'code': 'CARD_SOLD',
                     'card_index': card_index
                 }
-            
+           
             # ===== STEP 4: Check if user already has a card =====
             cursor.execute("""
-                SELECT id, card_index FROM player_cards 
+                 SELECT id, card_index FROM player_cards 
                 WHERE game_id = ? AND user_id = ? AND is_active = 1
             """, (game_id, user_id))
-            
+           
             user_card = cursor.fetchone()
             if user_card:
                 cursor.execute("ROLLBACK")
@@ -5488,7 +5482,7 @@ class Database:
             # ===== STEP 5: Check user balance =====
             cursor.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,))
             user = cursor.fetchone()
-            
+           
             if not user:
                 cursor.execute("ROLLBACK")
                 logger.error(f"User {user_id} not found")
@@ -5497,7 +5491,7 @@ class Database:
                     'message': 'User not found',
                     'code': 'USER_NOT_FOUND'
                 }
-            
+          
             user_balance = float(user[0])
             if user_balance < card_price:
                 cursor.execute("ROLLBACK")
@@ -5509,7 +5503,7 @@ class Database:
                     'required': card_price,
                     'available': user_balance
                 }
-            
+          
             # ===== STEP 6: Generate card numbers =====
             card_numbers = cls._generate_bingo_numbers()
             
@@ -5553,13 +5547,13 @@ class Database:
                     total_sales = total_sales + ?,
                     real_cards_sold = real_cards_sold + 1,
                     total_players = (
-                        SELECT COUNT(DISTINCT user_id) 
-                        FROM player_cards 
+                       SELECT COUNT(DISTINCT user_id) 
+                       FROM player_cards 
                         WHERE game_id = ? AND is_active = 1 AND is_fake = 0
                     ),
                     updated_at = ?
                 WHERE game_id = ?
-            """, (prize_pool_contribution, card_price, game_id, now, game_id))
+             """, (prize_pool_contribution, card_price, game_id, now, game_id))
             
             # ===== STEP 9: Update user balance =====
             new_balance = user_balance - card_price
@@ -5589,7 +5583,7 @@ class Database:
             cursor.execute("""
                 SELECT 
                     prize_pool,
-                    (SELECT COUNT(DISTINCT user_id) FROM player_cards 
+                     (SELECT COUNT(DISTINCT user_id) FROM player_cards 
                      WHERE game_id = ? AND is_active = 1 AND is_fake = 0) as real_players,
                     (SELECT COUNT(DISTINCT user_id) FROM player_cards 
                      WHERE game_id = ? AND is_active = 1 AND is_fake = 1) as fake_players,
@@ -5599,12 +5593,12 @@ class Database:
             """, (game_id, game_id, game_id))
             
             updated = cursor.fetchone()
-            
+           
             # Commit the transaction
             cursor.execute("COMMIT")
-            
+           
             logger.info(f"✅ User {user_id} successfully purchased card #{card_index} in game {game_id}")
-            
+         
             return {
                 'success': True,
                 'message': 'Card purchased successfully',
@@ -5624,16 +5618,16 @@ class Database:
                 }
             }
             
-        except Exception as e:
+         except Exception as e:
             # Rollback on any error
             if cursor:
                 try:
                     cursor.execute("ROLLBACK")
                 except:
                     pass
-            
+           
             logger.error(f"❌ Error in buy_card for user {user_id}, game {game_id}, card {card_index}: {e}", exc_info=True)
-            
+           
             return {
                 'success': False,
                 'message': f'Database error: {str(e)}',
@@ -5641,15 +5635,17 @@ class Database:
                 'error': str(e)
             }
         
-        finally:
+         finally:
             # Always close cursor properly
             if cursor:
                 try:
                     cursor.close()
                 except:
                     pass
-            # Don't close the connection here - let the connection pool manage it
-
+            
+            
+            
+            
     @classmethod
     async def refund_card(cls, user_id: int, game_id: str, card_index: int) -> Dict[str, Any]:
         """
