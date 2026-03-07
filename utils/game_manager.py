@@ -2080,13 +2080,13 @@ class GameManager:
                 'message': str(e)
             }
     
-    # ==================== FIXED: Toggle card purchase with proper transaction handling ====================
+     # ==================== FIXED: Toggle card purchase with proper transaction handling ====================
     async def toggle_card_purchase(self, game_id: str, user_id: int, card_index: int, action: str = 'buy'):
-        """Toggle card purchase/refund - FIXED: Commission only added at game completion, proper transaction handling"""
+        """Toggle card purchase/refund - FIXED: With transaction helper and balance_after"""
         try:
             from database.db import Database
-            
-            # Validate game exists
+        
+             # Validate game exists
             game = await Database.get_game(game_id)
             if not game:
                 return {
@@ -2101,10 +2101,10 @@ class GameManager:
             # Check if game is in card purchase phase
             if current_phase != 'card_purchase' or current_status != 'card_purchase':
                 return {
-                    'success': False,
+                   'success': False,
                     'message': 'Card purchase is only available during purchase phase'
                 }
-
+ 
             # CRITICAL: Check if this is the current active game
             async with self._lock:
                 if self.active_game and self.active_game.get('game_id') != game_id:
@@ -2112,7 +2112,7 @@ class GameManager:
                         'success': False,
                         'message': 'This game is no longer active. Please purchase cards in the latest game.'
                     }
-
+ 
             # Check countdown
             countdown = await Database.calculate_purchase_countdown(game_id)
             if countdown <= 0:
@@ -2120,7 +2120,7 @@ class GameManager:
                     'success': False,
                     'message': 'Card purchase time has expired'
                 }
-
+ 
             if action == 'buy':
                 # Run purchase transaction in thread pool
                 purchase_result = await self._run_in_transaction(
@@ -2130,19 +2130,19 @@ class GameManager:
                 
                 if not purchase_result.get('success'):
                     return purchase_result
-                
+             
                 card_id = purchase_result['card_id']
                 card_numbers = purchase_result['card_numbers']
                 new_balance = purchase_result['new_balance']
-                
-                # ========== Handle real user join (NO fake player removal) ==========
+              
+                # Handle real user join
                 if self.fake_users_enabled:
                     await self.handle_real_user_join(game_id)
-
-                # Get updated player counts (using existing sync helper)
+   
+                # Get updated player counts
                 with Database.get_cursor() as cursor:
                     cursor.execute("""
-                        SELECT 
+                       SELECT 
                             COUNT(CASE WHEN is_fake = 0 AND is_active = 1 THEN 1 END) as real_players,
                             COUNT(CASE WHEN is_fake = 1 AND is_active = 1 THEN 1 END) as fake_players
                         FROM player_cards 
@@ -2152,12 +2152,12 @@ class GameManager:
                     real_players = row['real_players'] if row else 0
                     fake_players = row['fake_players'] if row else 0
                     total_players = real_players + fake_players
-                    
+                 
                     # Calculate correct prize pool based on total players
                     correct_prize_pool = total_players * 8.00
                     cursor.execute("UPDATE games SET prize_pool = ? WHERE game_id = ?", 
                                  (correct_prize_pool, game_id))
-
+  
                 # Broadcast purchase with full state
                 await self._safe_broadcast({
                     'type': 'card_purchased',
@@ -2171,10 +2171,10 @@ class GameManager:
                     'max_players': 400,
                     'timestamp': datetime.now().isoformat()
                 }, game_id)
-                
+             
                 # Broadcast full state update
                 await self._broadcast_full_game_state(game_id)
-
+  
                 return {
                     'success': True,
                     'message': f'Card #{card_index} purchased successfully!',
@@ -2188,24 +2188,24 @@ class GameManager:
                     'total_players': total_players,
                     'max_players': 400
                 }
-
+ 
             else:  # action == 'refund'
                 # Run refund transaction in thread pool
                 refund_result = await self._run_in_transaction(
                     self._execute_refund_transaction,
                     game_id, user_id, card_index
                 )
-                
+             
                 if not refund_result.get('success'):
                     return refund_result
-                
+             
                 refund_amount = refund_result['refund_amount']
                 new_balance = refund_result['new_balance']
-                
-                # ========== Handle real user refund (NO fake player addition) ==========
+              
+                # Handle real user refund
                 if self.fake_users_enabled:
                     await self.handle_real_user_refund(game_id)
-
+ 
                 # Get updated player counts
                 with Database.get_cursor() as cursor:
                     cursor.execute("""
@@ -2219,12 +2219,12 @@ class GameManager:
                     real_players = row['real_players'] if row else 0
                     fake_players = row['fake_players'] if row else 0
                     total_players = real_players + fake_players
-                    
+                  
                     # Calculate correct prize pool based on total players
                     correct_prize_pool = total_players * 8.00
                     cursor.execute("UPDATE games SET prize_pool = ? WHERE game_id = ?", 
                                  (correct_prize_pool, game_id))
-
+ 
                 # Broadcast refund with full state
                 await self._safe_broadcast({
                     'type': 'card_refunded',
@@ -2238,12 +2238,12 @@ class GameManager:
                     'max_players': 400,
                     'timestamp': datetime.now().isoformat()
                 }, game_id)
-                
+              
                 # Broadcast full state update
                 await self._broadcast_full_game_state(game_id)
-
+   
                 logger.info(f"REFUND DETAILS - Card #{card_index}: User refunded {refund_amount} birr, Prize pool: {correct_prize_pool}")
-
+   
                 return {
                     'success': True,
                     'message': f'Card #{card_index} refunded successfully!',
@@ -2261,6 +2261,36 @@ class GameManager:
                 'success': False,
                 'message': f'Server error: {str(e)}'
             }
+            
+            
+            
+            
+            
+    def _record_transaction(self, cursor, user_id: int, amount: float,transaction_type: str, description: str, game_id: str = None):
+        """Record financial transaction with correct balance_after"""
+    
+         # Get current balance
+        cursor.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,))
+        result = cursor.fetchone()
+        if not result:
+           raise Exception(f"User {user_id} not found")
+    
+        current_balance = float(result['balance'])
+    
+         # Insert transaction with balance_after
+        cursor.execute("""
+            INSERT INTO transactions 
+            (user_id, amount, balance_after, transaction_type, description, game_id, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+         """, (
+            user_id,
+            amount,
+            current_balance,
+            transaction_type,
+            description,
+            game_id,
+            datetime.now()
+        ))
     
     # ==================== SYNCHRONOUS TRANSACTION METHODS ====================
     
@@ -2385,7 +2415,7 @@ class GameManager:
     def _execute_refund_transaction(self, game_id: str, user_id: int, card_index: int) -> dict:
         """Execute refund transaction synchronously with proper locking"""
         from database.db import Database
-        
+    
         with transaction() as cursor:
             try:
                 # Get user's active card
@@ -2394,52 +2424,61 @@ class GameManager:
                     WHERE game_id = ? AND user_id = ? AND card_index = ? AND is_active = 1
                 """, (game_id, user_id, card_index))
                 card_row = cursor.fetchone()
-                
+            
                 if not card_row:
                     return {
                         'success': False,
                         'message': 'You do not own this card'
                     }
-                
+            
                 card_id = card_row['id']
+            
+                # Get current balance
+                cursor.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,))
+                user_row = cursor.fetchone()
+                current_balance = float(user_row['balance']) if user_row else 0.00
+            
+                # Calculate new balance after refund
+                new_balance = current_balance + 10.00
 
                 # Refund user (full 10 birr)
                 cursor.execute("""
-                    UPDATE users SET balance = balance + 10.00 WHERE user_id = ?
-                """, (user_id,))
-                
-                # Add transaction record
-                cursor.execute("""
-                    INSERT INTO transactions (user_id, amount, transaction_type, description, game_id, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                """, (
-                    user_id, 10.00, 'card_refund', 
-                    f'Refund for card #{card_index} (100% of 10 birr)', game_id, datetime.now()
-                ))
-
+                    UPDATE users SET balance = ? WHERE user_id = ?
+                """, (new_balance, user_id))
+             
+                # Record transaction using helper
+                self._record_transaction(
+                    cursor,
+                    user_id,
+                    10.00,
+                    'card_refund',
+                    f'Refund for card #{card_index} (100% of 10 birr)',
+                    game_id
+                )
+ 
                 # Remove from prize pool (8 birr)
                 cursor.execute("""
                     UPDATE games SET prize_pool = GREATEST(0, prize_pool - 8.00) WHERE game_id = ?
                 """, (game_id,))
-
+ 
                 # Mark card as inactive
                 cursor.execute("""
                     UPDATE player_cards SET is_active = 0 WHERE id = ?
                 """, (card_id,))
-
-                # Get new balance
+  
+                # Get final balance for return
                 cursor.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,))
-                new_balance = float(cursor.fetchone()['balance'])
-
+                final_balance = float(cursor.fetchone()['balance'])
+  
                 return {
                     'success': True,
                     'refund_amount': 10.00,
-                    'new_balance': new_balance
+                    'new_balance': final_balance
                 }
-                
+             
             except Exception as e:
                 logger.error(f"Error in refund transaction: {e}")
-                raise  # Let transaction manager handle rollback
+                raise
     
     # ==================== FIXED: process_winner with transaction handling ====================
     async def process_winner(self, game_id: str, user_id: int):
