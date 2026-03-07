@@ -3516,14 +3516,14 @@ class Database:
     ) -> int:
         """
         Add a transaction record
-        
+    
         Args:
             user_id: Telegram user ID
             transaction_type: Type of transaction ('deposit', 'withdrawal', 'purchase', 'winning')
             amount: Transaction amount (positive for deposit/winning, negative for purchase)
             description: Transaction description
             game_id: Associated game ID (optional)
-        
+    
         Returns:
             Transaction ID
         """
@@ -3533,7 +3533,7 @@ class Database:
                 cursor.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,))
                 result = cursor.fetchone()
                 current_balance = result[0] if result and len(result) > 0 else 0.00
-                
+               
                 # Calculate new balance
                 if transaction_type in ['deposit', 'winning', 'initial_deposit', 'withdrawal_refund']:
                     new_balance = current_balance + amount
@@ -3548,25 +3548,25 @@ class Database:
                         (new_balance, user_id)
                     )
                 else:
-                    new_balance = current_balance
-                
-                # Insert transaction record with balance_after
+                   new_balance = current_balance
+               
+               # FIXED: Use correct column name 'transaction_type' instead of 'type'
                 cursor.execute(
-                    """
+                   """
                     INSERT INTO transactions 
                     (user_id, transaction_type, amount, balance_after, description, game_id, created_at)
                     VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
                     """,
                     (user_id, transaction_type, amount, new_balance, description, game_id)
                 )
-                
+            
                 transaction_id = cursor.lastrowid
-                
+            
                 logger.info(f"Added transaction {transaction_id} for user {user_id}: "
-                          f"{transaction_type} ${amount:.2f} - {description}")
-                
+                        f"{transaction_type} ${amount:.2f} - {description}")
+              
                 return transaction_id
-                
+            
         except Exception as e:
             logger.error(f"Error adding transaction for user {user_id}: {e}")
             return 0
