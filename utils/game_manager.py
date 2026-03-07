@@ -2355,7 +2355,7 @@ class GameManager:
                 
                 # Add transaction record
                 cursor.execute("""
-                    INSERT INTO transactions (user_id, amount, type, description, game_id, created_at)
+                    INSERT INTO transactions (user_id, amount, transaction_type, description, game_id, created_at)
                     VALUES (?, ?, ?, ?, ?, ?)
                 """, (
                     user_id, -10.00, 'card_purchase', 
@@ -2410,7 +2410,7 @@ class GameManager:
                 
                 # Add transaction record
                 cursor.execute("""
-                    INSERT INTO transactions (user_id, amount, type, description, game_id, created_at)
+                    INSERT INTO transactions (user_id, amount, transaction_type, description, game_id, created_at)
                     VALUES (?, ?, ?, ?, ?, ?)
                 """, (
                     user_id, 10.00, 'card_refund', 
@@ -2801,7 +2801,7 @@ class GameManager:
                 
                 # Add transaction record
                 cursor.execute("""
-                    INSERT INTO transactions (user_id, amount, type, description, game_id, created_at)
+                    INSERT INTO transactions (user_id, amount, transaction_type, description, game_id, created_at)
                     VALUES (?, ?, ?, ?, ?, ?)
                 """, (
                     user_id, winner_payout, 'winning',
