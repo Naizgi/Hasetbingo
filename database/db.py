@@ -5380,6 +5380,855 @@ class Database:
             logger.error(f"Error counting active real cards: {e}")
             return 0
     
+    
+    
+    
+    
+    
+    # Add these methods to your Database class in db.py
+
+    # ==================== CRITICAL FIX: CARD PURCHASE METHODS ====================
+    
+    @classmethod
+    async def buy_card(cls, user_id: int, game_id: str, card_index: int) -> Dict[str, Any]:
+        """
+        Buy a card with full transaction handling, proper cursor management,
+        and comprehensive error checking.
+        
+        Returns:
+            Dict with success status, message, and updated data
+        """
+        # Create a new connection and cursor for this operation
+        conn = None
+        cursor = None
+        
+        try:
+            conn = cls.get_connection()
+            cursor = conn.cursor()
+            
+            # Start transaction
+            cursor.execute("BEGIN TRANSACTION")
+            
+            # ===== STEP 1: Validate game exists and is in purchase phase =====
+            cursor.execute("""
+                SELECT status, round_number, card_price, prize_pool 
+                FROM games 
+                WHERE game_id = ?
+            """, (game_id,))
+            
+            game = cursor.fetchone()
+            if not game:
+                cursor.execute("ROLLBACK")
+                logger.error(f"Game {game_id} not found for user {user_id}")
+                return {
+                    'success': False, 
+                    'message': 'Game not found',
+                    'code': 'GAME_NOT_FOUND'
+                }
+            
+            game_status, round_number, card_price, current_prize_pool = game
+            card_price = float(card_price) if card_price else 10.00
+            
+            # Check game phase
+            if game_status != 'card_purchase':
+                cursor.execute("ROLLBACK")
+                logger.warning(f"Game {game_id} is in {game_status} phase, not card_purchase")
+                return {
+                    'success': False, 
+                    'message': f'Cannot buy cards during {game_status} phase',
+                    'code': 'WRONG_PHASE',
+                    'current_phase': game_status
+                }
+            
+            # ===== STEP 2: Check if card index is valid =====
+            if card_index < 1 or card_index > 400:
+                cursor.execute("ROLLBACK")
+                logger.error(f"Invalid card index {card_index} for game {game_id}")
+                return {
+                    'success': False, 
+                    'message': f'Invalid card index {card_index}',
+                    'code': 'INVALID_INDEX'
+                }
+            
+            # ===== STEP 3: Check if card is already sold =====
+            cursor.execute("""
+                SELECT id, user_id FROM player_cards 
+                WHERE game_id = ? AND card_index = ? AND is_active = 1
+            """, (game_id, card_index))
+            
+            existing_card = cursor.fetchone()
+            if existing_card:
+                cursor.execute("ROLLBACK")
+                logger.warning(f"Card {card_index} in game {game_id} is already sold to user {existing_card[1]}")
+                return {
+                    'success': False, 
+                    'message': f'Card #{card_index} is already sold',
+                    'code': 'CARD_SOLD',
+                    'card_index': card_index
+                }
+            
+            # ===== STEP 4: Check if user already has a card =====
+            cursor.execute("""
+                SELECT id, card_index FROM player_cards 
+                WHERE game_id = ? AND user_id = ? AND is_active = 1
+            """, (game_id, user_id))
+            
+            user_card = cursor.fetchone()
+            if user_card:
+                cursor.execute("ROLLBACK")
+                logger.info(f"User {user_id} already has card #{user_card[1]} in game {game_id}")
+                return {
+                    'success': False, 
+                    'message': f'You already have card #{user_card[1]}',
+                    'code': 'ALREADY_HAS_CARD',
+                    'existing_card_index': user_card[1],
+                    'existing_card_id': user_card[0]
+                }
+            
+            # ===== STEP 5: Check user balance =====
+            cursor.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,))
+            user = cursor.fetchone()
+            
+            if not user:
+                cursor.execute("ROLLBACK")
+                logger.error(f"User {user_id} not found")
+                return {
+                    'success': False, 
+                    'message': 'User not found',
+                    'code': 'USER_NOT_FOUND'
+                }
+            
+            user_balance = float(user[0])
+            if user_balance < card_price:
+                cursor.execute("ROLLBACK")
+                logger.warning(f"User {user_id} has insufficient balance: {user_balance} < {card_price}")
+                return {
+                    'success': False, 
+                    'message': f'Insufficient balance. Need {card_price} birr, you have {user_balance:.2f} birr',
+                    'code': 'INSUFFICIENT_BALANCE',
+                    'required': card_price,
+                    'available': user_balance
+                }
+            
+            # ===== STEP 6: Generate card numbers =====
+            card_numbers = cls._generate_bingo_numbers()
+            
+            # ===== STEP 7: Insert the card with ALL required fields =====
+            now = datetime.now()
+            card_numbers_json = json.dumps(card_numbers)
+            
+            # Card data with marked numbers array
+            card_data = {
+                'numbers': card_numbers,
+                'grid': [card_numbers[i:i+5] for i in range(0, 25, 5)],
+                'purchased_at': now.isoformat(),
+                'marked_numbers': []
+            }
+            card_data_json = json.dumps(card_data)
+            
+            cursor.execute("""
+                INSERT INTO player_cards (
+                    game_id, user_id, card_index, card_numbers, 
+                    card_data, purchase_price, purchase_time, 
+                    created_at, is_active, is_fake,
+                    has_bingo, prize_won
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                game_id, user_id, card_index, card_numbers_json,
+                card_data_json, card_price, now,
+                now, 1, 0,  # is_active=1, is_fake=0
+                0, 0.00  # has_bingo=0, prize_won=0
+            ))
+            
+            card_id = cursor.lastrowid
+            
+            # ===== STEP 8: Update game stats =====
+            # Prize pool gets 80% of card price
+            prize_pool_contribution = card_price * 0.8
+            
+            cursor.execute("""
+                UPDATE games 
+                SET total_cards_sold = total_cards_sold + 1,
+                    prize_pool = prize_pool + ?,
+                    total_sales = total_sales + ?,
+                    real_cards_sold = real_cards_sold + 1,
+                    total_players = (
+                        SELECT COUNT(DISTINCT user_id) 
+                        FROM player_cards 
+                        WHERE game_id = ? AND is_active = 1 AND is_fake = 0
+                    ),
+                    updated_at = ?
+                WHERE game_id = ?
+            """, (prize_pool_contribution, card_price, game_id, now, game_id))
+            
+            # ===== STEP 9: Update user balance =====
+            new_balance = user_balance - card_price
+            
+            cursor.execute("""
+                UPDATE users 
+                SET balance = ?,
+                    total_games_played = total_games_played + 1,
+                    updated_at = ?,
+                    last_active = ?
+                WHERE user_id = ?
+            """, (new_balance, now, now, user_id))
+            
+            # ===== STEP 10: Create transaction record with ALL required fields =====
+            cursor.execute("""
+                INSERT INTO transactions (
+                    user_id, amount, balance_after, transaction_type,
+                    description, game_id, card_id, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                user_id, -card_price, new_balance, 'card_purchase',
+                f'Purchased card #{card_index} in round {round_number}',
+                game_id, card_id, now
+            ))
+            
+            # ===== STEP 11: Get updated game stats =====
+            cursor.execute("""
+                SELECT 
+                    prize_pool,
+                    (SELECT COUNT(DISTINCT user_id) FROM player_cards 
+                     WHERE game_id = ? AND is_active = 1 AND is_fake = 0) as real_players,
+                    (SELECT COUNT(DISTINCT user_id) FROM player_cards 
+                     WHERE game_id = ? AND is_active = 1 AND is_fake = 1) as fake_players,
+                    total_cards_sold
+                FROM games 
+                WHERE game_id = ?
+            """, (game_id, game_id, game_id))
+            
+            updated = cursor.fetchone()
+            
+            # Commit the transaction
+            cursor.execute("COMMIT")
+            
+            logger.info(f"✅ User {user_id} successfully purchased card #{card_index} in game {game_id}")
+            
+            return {
+                'success': True,
+                'message': 'Card purchased successfully',
+                'code': 'SUCCESS',
+                'data': {
+                    'card_id': card_id,
+                    'card_index': card_index,
+                    'card_numbers': card_numbers,
+                    'new_balance': new_balance,
+                    'prize_pool': float(updated[0]) if updated and updated[0] else current_prize_pool + prize_pool_contribution,
+                    'real_players': updated[1] if updated else 0,
+                    'fake_players': updated[2] if updated else 0,
+                    'total_players': (updated[1] if updated else 0) + (updated[2] if updated else 0),
+                    'total_cards_sold': updated[3] if updated else 0,
+                    'round_number': round_number,
+                    'purchase_time': now.isoformat()
+                }
+            }
+            
+        except Exception as e:
+            # Rollback on any error
+            if cursor:
+                try:
+                    cursor.execute("ROLLBACK")
+                except:
+                    pass
+            
+            logger.error(f"❌ Error in buy_card for user {user_id}, game {game_id}, card {card_index}: {e}", exc_info=True)
+            
+            return {
+                'success': False,
+                'message': f'Database error: {str(e)}',
+                'code': 'DATABASE_ERROR',
+                'error': str(e)
+            }
+        
+        finally:
+            # Always close cursor properly
+            if cursor:
+                try:
+                    cursor.close()
+                except:
+                    pass
+            # Don't close the connection here - let the connection pool manage it
+
+    @classmethod
+    async def refund_card(cls, user_id: int, game_id: str, card_index: int) -> Dict[str, Any]:
+        """
+        Refund a card (80% of purchase price back to user)
+        
+        Returns:
+            Dict with success status, message, and updated data
+        """
+        conn = None
+        cursor = None
+        
+        try:
+            conn = cls.get_connection()
+            cursor = conn.cursor()
+            
+            # Start transaction
+            cursor.execute("BEGIN TRANSACTION")
+            
+            # ===== STEP 1: Check if user owns this card =====
+            cursor.execute("""
+                SELECT pc.id, pc.purchase_price, g.card_price, g.round_number
+                FROM player_cards pc
+                JOIN games g ON pc.game_id = g.game_id
+                WHERE pc.game_id = ? AND pc.user_id = ? AND pc.card_index = ? 
+                  AND pc.is_active = 1
+            """, (game_id, user_id, card_index))
+            
+            card = cursor.fetchone()
+            if not card:
+                cursor.execute("ROLLBACK")
+                return {
+                    'success': False,
+                    'message': 'You do not own this card or it is not active',
+                    'code': 'CARD_NOT_FOUND'
+                }
+            
+            card_id = card[0]
+            purchase_price = float(card[1])
+            card_price = float(card[2]) if card[2] else 10.00
+            round_number = card[3]
+            
+            # Refund amount (80% of purchase price)
+            refund_amount = purchase_price * 0.8
+            
+            # ===== STEP 2: Deactivate the card =====
+            now = datetime.now()
+            cursor.execute("""
+                UPDATE player_cards 
+                SET is_active = 0, refunded_at = ? 
+                WHERE id = ?
+            """, (now, card_id))
+            
+            # ===== STEP 3: Update game stats =====
+            cursor.execute("""
+                UPDATE games 
+                SET total_cards_sold = total_cards_sold - 1,
+                    prize_pool = prize_pool - ?,
+                    total_sales = total_sales - ?,
+                    real_cards_sold = real_cards_sold - 1,
+                    total_players = (
+                        SELECT COUNT(DISTINCT user_id) 
+                        FROM player_cards 
+                        WHERE game_id = ? AND is_active = 1 AND is_fake = 0
+                    ),
+                    updated_at = ?
+                WHERE game_id = ?
+            """, (refund_amount, purchase_price, game_id, now, game_id))
+            
+            # ===== STEP 4: Refund user =====
+            cursor.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,))
+            user = cursor.fetchone()
+            current_balance = float(user[0]) if user else 0
+            new_balance = current_balance + refund_amount
+            
+            cursor.execute("""
+                UPDATE users 
+                SET balance = ?,
+                    total_games_played = total_games_played - 1,
+                    updated_at = ?,
+                    last_active = ?
+                WHERE user_id = ?
+            """, (new_balance, now, now, user_id))
+            
+            # ===== STEP 5: Create refund transaction =====
+            cursor.execute("""
+                INSERT INTO transactions (
+                    user_id, amount, balance_after, transaction_type,
+                    description, game_id, card_id, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                user_id, refund_amount, new_balance, 'refund',
+                f'Refunded card #{card_index} in round {round_number}',
+                game_id, card_id, now
+            ))
+            
+            # ===== STEP 6: Get updated game stats =====
+            cursor.execute("""
+                SELECT 
+                    prize_pool,
+                    (SELECT COUNT(DISTINCT user_id) FROM player_cards 
+                     WHERE game_id = ? AND is_active = 1 AND is_fake = 0) as real_players,
+                    (SELECT COUNT(DISTINCT user_id) FROM player_cards 
+                     WHERE game_id = ? AND is_active = 1 AND is_fake = 1) as fake_players,
+                    total_cards_sold
+                FROM games 
+                WHERE game_id = ?
+            """, (game_id, game_id, game_id))
+            
+            updated = cursor.fetchone()
+            
+            cursor.execute("COMMIT")
+            
+            logger.info(f"✅ User {user_id} successfully refunded card #{card_index} in game {game_id}")
+            
+            return {
+                'success': True,
+                'message': 'Card refunded successfully',
+                'code': 'SUCCESS',
+                'data': {
+                    'new_balance': new_balance,
+                    'refund_amount': refund_amount,
+                    'prize_pool': float(updated[0]) if updated and updated[0] else 0,
+                    'real_players': updated[1] if updated else 0,
+                    'fake_players': updated[2] if updated else 0,
+                    'total_players': (updated[1] if updated else 0) + (updated[2] if updated else 0),
+                    'total_cards_sold': updated[3] if updated else 0,
+                    'card_index': card_index,
+                    'card_id': card_id
+                }
+            }
+            
+        except Exception as e:
+            if cursor:
+                try:
+                    cursor.execute("ROLLBACK")
+                except:
+                    pass
+            logger.error(f"❌ Error in refund_card: {e}", exc_info=True)
+            return {
+                'success': False,
+                'message': f'Database error: {str(e)}',
+                'code': 'DATABASE_ERROR'
+            }
+        finally:
+            if cursor:
+                try:
+                    cursor.close()
+                except:
+                    pass
+
+    @classmethod
+    def _generate_bingo_numbers(cls) -> List[int]:
+        """Generate a valid 5x5 bingo card (75 numbers, 25 spots)"""
+        import random
+        
+        # Define ranges for each column
+        ranges = [
+            (1, 15),   # B
+            (16, 30),  # I
+            (31, 45),  # N
+            (46, 60),  # G
+            (61, 75)   # O
+        ]
+        
+        card = []
+        
+        # Generate 5 numbers for each column
+        for col_range in ranges:
+            # Get 5 unique numbers from this range
+            numbers = random.sample(range(col_range[0], col_range[1] + 1), 5)
+            card.extend(numbers)
+        
+        # Mark the center as FREE (index 12 in flat array, row 3, col 3)
+        card[12] = 0
+        
+        return card
+
+    @classmethod
+    async def can_user_buy_card(cls, game_id: str, user_id: int) -> Dict[str, Any]:
+        """Enhanced check if user can buy a card in the current game"""
+        try:
+            with cls.get_cursor() as cursor:
+                # Check if game exists and is in card purchase phase
+                cursor.execute("""
+                    SELECT status, purchase_end_time, round_number, card_price 
+                    FROM games 
+                    WHERE game_id = ?
+                """, (game_id,))
+                game_result = cursor.fetchone()
+                
+                if not game_result:
+                    return {
+                        'can_buy': False, 
+                        'reason': 'Game not found',
+                        'code': 'GAME_NOT_FOUND'
+                    }
+                
+                status = game_result[0]
+                purchase_end_time = game_result[1]
+                round_number = game_result[2]
+                card_price = float(game_result[3]) if game_result[3] else 10.00
+                
+                # Check game phase
+                if status != 'card_purchase':
+                    return {
+                        'can_buy': False, 
+                        'reason': f'Cannot buy cards during {status} phase',
+                        'code': 'WRONG_PHASE',
+                        'current_phase': status
+                    }
+                
+                # Check purchase end time
+                if purchase_end_time:
+                    if isinstance(purchase_end_time, str):
+                        try:
+                            purchase_end = datetime.fromisoformat(purchase_end_time.replace('Z', '+00:00'))
+                        except:
+                            purchase_end = datetime.strptime(purchase_end_time, '%Y-%m-%d %H:%M:%S')
+                    else:
+                        purchase_end = purchase_end_time
+                    
+                    if purchase_end < datetime.now():
+                        return {
+                            'can_buy': False, 
+                            'reason': 'Card purchase time has expired',
+                            'code': 'TIME_EXPIRED'
+                        }
+                
+                # Check if user already has an active card
+                cursor.execute("""
+                    SELECT COUNT(*) as count, card_index 
+                    FROM player_cards 
+                    WHERE game_id = ? AND user_id = ? AND is_active = 1
+                """, (game_id, user_id))
+                card_result = cursor.fetchone()
+                
+                if card_result and card_result[0] > 0:
+                    return {
+                        'can_buy': False, 
+                        'reason': 'You already have a card in this round',
+                        'code': 'ALREADY_HAS_CARD',
+                        'existing_card_index': card_result[1]
+                    }
+                
+                # Check user balance
+                cursor.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,))
+                user_result = cursor.fetchone()
+                
+                if not user_result:
+                    return {
+                        'can_buy': False, 
+                        'reason': 'User not found',
+                        'code': 'USER_NOT_FOUND'
+                    }
+                
+                balance = float(user_result[0]) if user_result[0] else 0.00
+                
+                if balance < card_price:
+                    return {
+                        'can_buy': False, 
+                        'reason': f'Insufficient balance. Need {card_price} birr, you have {balance:.2f} birr',
+                        'code': 'INSUFFICIENT_BALANCE',
+                        'required': card_price,
+                        'available': balance
+                    }
+                
+                return {
+                    'can_buy': True, 
+                    'reason': '',
+                    'code': 'OK',
+                    'card_price': card_price,
+                    'balance': balance,
+                    'round_number': round_number
+                }
+                
+        except Exception as e:
+            logger.error(f"Error checking can user buy card: {e}")
+            return {
+                'can_buy': False, 
+                'reason': 'Server error',
+                'code': 'SERVER_ERROR',
+                'error': str(e)
+            }
+
+    @classmethod
+    async def get_available_cards(cls, game_id: str) -> Dict[str, Any]:
+        """Get all available and sold cards for a game"""
+        try:
+            with cls.get_cursor() as cursor:
+                # Get all active cards
+                cursor.execute("""
+                    SELECT card_index, user_id, is_fake 
+                    FROM player_cards 
+                    WHERE game_id = ? AND is_active = 1
+                    ORDER BY card_index
+                """, (game_id,))
+                
+                sold_cards = []
+                sold_indices = []
+                card_owners = {}
+                
+                for row in cursor.fetchall():
+                    card_index = row[0]
+                    user_id = row[1]
+                    is_fake = row[2]
+                    
+                    sold_indices.append(card_index)
+                    sold_cards.append({
+                        'card_index': card_index,
+                        'user_id': user_id,
+                        'is_fake': bool(is_fake)
+                    })
+                    card_owners[str(card_index)] = user_id
+                
+                # Get user's card if any
+                cursor.execute("""
+                    SELECT user_id, card_index 
+                    FROM player_cards 
+                    WHERE game_id = ? AND is_active = 1
+                """, (game_id,))
+                
+                user_cards = {}
+                for row in cursor.fetchall():
+                    user_cards[str(row[0])] = row[1]
+                
+                return {
+                    'success': True,
+                    'sold_cards': sold_indices,
+                    'sold_cards_detail': sold_cards,
+                    'user_cards': user_cards,
+                    'card_owners': card_owners,
+                    'total_sold': len(sold_indices)
+                }
+                
+        except Exception as e:
+            logger.error(f"Error getting available cards: {e}")
+            return {
+                'success': False,
+                'message': str(e),
+                'sold_cards': [],
+                'sold_cards_detail': [],
+                'user_cards': {},
+                'card_owners': {},
+                'total_sold': 0
+            }
+
+    @classmethod
+    async def get_user_game_state(cls, user_id: int, game_id: str) -> Dict[str, Any]:
+        """Get complete user state for a game"""
+        try:
+            with cls.get_cursor() as cursor:
+                # Get user info
+                cursor.execute("""
+                    SELECT user_id, username, full_name, balance 
+                    FROM users 
+                    WHERE user_id = ?
+                """, (user_id,))
+                user = cursor.fetchone()
+                
+                if not user:
+                    return {
+                        'success': False,
+                        'message': 'User not found',
+                        'code': 'USER_NOT_FOUND'
+                    }
+                
+                # Get user's card in this game
+                cursor.execute("""
+                    SELECT id, card_index, card_numbers, card_data, 
+                           purchase_time, has_bingo, prize_won, purchase_price
+                    FROM player_cards 
+                    WHERE game_id = ? AND user_id = ? AND is_active = 1
+                """, (game_id, user_id))
+                
+                card = cursor.fetchone()
+                
+                # Parse card data if exists
+                card_data = None
+                if card:
+                    try:
+                        card_numbers = json.loads(card[2]) if card[2] else []
+                        card_data = {
+                            'card_id': card[0],
+                            'card_index': card[1],
+                            'card_numbers': card_numbers,
+                            'card_data': json.loads(card[3]) if card[3] else {},
+                            'purchase_time': card[4].isoformat() if card[4] else None,
+                            'has_bingo': bool(card[5]),
+                            'prize_won': float(card[6]) if card[6] else 0,
+                            'purchase_price': float(card[7]) if card[7] else 0
+                        }
+                    except:
+                        card_data = None
+                
+                # Get game info
+                cursor.execute("""
+                    SELECT status, round_number, prize_pool, card_price,
+                           (SELECT COUNT(DISTINCT user_id) FROM player_cards 
+                            WHERE game_id = ? AND is_active = 1 AND is_fake = 0) as real_players,
+                           (SELECT COUNT(DISTINCT user_id) FROM player_cards 
+                            WHERE game_id = ? AND is_active = 1 AND is_fake = 1) as fake_players,
+                           countdown_remaining
+                    FROM games 
+                    WHERE game_id = ?
+                """, (game_id, game_id, game_id))
+                
+                game = cursor.fetchone()
+                
+                # Get called numbers
+                cursor.execute("""
+                    SELECT number FROM called_numbers 
+                    WHERE game_id = ? 
+                    ORDER BY called_at
+                """, (game_id,))
+                called = cursor.fetchall()
+                called_numbers = [row[0] for row in called] if called else []
+                
+                # Get available cards
+                available_cards = await cls.get_available_cards(game_id)
+                
+                return {
+                    'success': True,
+                    'user': {
+                        'user_id': user[0],
+                        'username': user[1],
+                        'full_name': user[2],
+                        'balance': float(user[3])
+                    },
+                    'has_card': card is not None,
+                    'card': card_data,
+                    'game': {
+                        'status': game[0] if game else None,
+                        'round_number': game[1] if game else 0,
+                        'prize_pool': float(game[2]) if game and game[2] else 0,
+                        'card_price': float(game[3]) if game and game[3] else 10.00,
+                        'real_players': game[4] if game else 0,
+                        'fake_players': game[5] if game else 0,
+                        'total_players': (game[4] if game else 0) + (game[5] if game else 0),
+                        'countdown_remaining': game[6] if game else 30
+                    } if game else None,
+                    'called_numbers': called_numbers,
+                    'sold_cards': available_cards.get('sold_cards', []),
+                    'sold_cards_detail': available_cards.get('sold_cards_detail', []),
+                    'card_owners': available_cards.get('card_owners', {})
+                }
+                
+        except Exception as e:
+            logger.error(f"Error getting user game state: {e}")
+            return {
+                'success': False,
+                'message': f'Database error: {str(e)}',
+                'code': 'DATABASE_ERROR'
+            }
+
+    @classmethod
+    async def ensure_card_purchase_tables(cls):
+        """Ensure all tables have the required columns for card purchases"""
+        try:
+            with cls.get_cursor() as cursor:
+                # Check player_cards table
+                cursor.execute("PRAGMA table_info(player_cards)")
+                columns = {col[1] for col in cursor.fetchall()}
+                
+                required_columns = {
+                    'created_at': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                    'is_active': 'INTEGER DEFAULT 1',
+                    'is_fake': 'INTEGER DEFAULT 0',
+                    'has_bingo': 'INTEGER DEFAULT 0',
+                    'prize_won': 'REAL DEFAULT 0.00',
+                    'refunded_at': 'TIMESTAMP DEFAULT NULL'
+                }
+                
+                for col_name, col_def in required_columns.items():
+                    if col_name not in columns:
+                        logger.info(f"Adding missing column {col_name} to player_cards")
+                        cursor.execute(f"ALTER TABLE player_cards ADD COLUMN {col_name} {col_def}")
+                
+                # Check transactions table
+                cursor.execute("PRAGMA table_info(transactions)")
+                columns = {col[1] for col in cursor.fetchall()}
+                
+                tx_required = {
+                    'created_at': 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP'
+                }
+                
+                for col_name, col_def in tx_required.items():
+                    if col_name not in columns:
+                        logger.info(f"Adding missing column {col_name} to transactions")
+                        cursor.execute(f"ALTER TABLE transactions ADD COLUMN {col_name} {col_def}")
+                
+                logger.info("✅ Database schema verified for card purchases")
+                return True
+                
+        except Exception as e:
+            logger.error(f"Error ensuring database schema: {e}")
+            return False
+
+    @classmethod
+    async def debug_card_purchase(cls, user_id: int, game_id: str, card_index: int) -> Dict:
+        """Debug method to check why card purchase is failing"""
+        try:
+            issues = []
+            debug_info = {}
+            
+            with cls.get_cursor() as cursor:
+                # Check game exists and phase
+                cursor.execute("SELECT status, round_number, card_price FROM games WHERE game_id = ?", (game_id,))
+                game = cursor.fetchone()
+                if not game:
+                    issues.append("Game not found")
+                    debug_info['game_exists'] = False
+                else:
+                    debug_info['game_exists'] = True
+                    debug_info['game_status'] = game[0]
+                    debug_info['round_number'] = game[1]
+                    debug_info['card_price'] = float(game[2]) if game[2] else 10.00
+                    
+                    if game[0] != 'card_purchase':
+                        issues.append(f"Game phase is {game[0]}, not card_purchase")
+                
+                # Check if card is already sold
+                cursor.execute("""
+                    SELECT id, user_id FROM player_cards 
+                    WHERE game_id = ? AND card_index = ? AND is_active = 1
+                """, (game_id, card_index))
+                existing = cursor.fetchone()
+                if existing:
+                    issues.append(f"Card {card_index} is already sold to user {existing[1]}")
+                    debug_info['card_sold_to'] = existing[1]
+                else:
+                    debug_info['card_available'] = True
+                
+                # Check if user already has a card
+                cursor.execute("""
+                    SELECT id, card_index FROM player_cards 
+                    WHERE game_id = ? AND user_id = ? AND is_active = 1
+                """, (game_id, user_id))
+                user_card = cursor.fetchone()
+                if user_card:
+                    issues.append(f"User already has card #{user_card[1]}")
+                    debug_info['user_card_index'] = user_card[1]
+                
+                # Check user balance
+                cursor.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,))
+                user = cursor.fetchone()
+                if not user:
+                    issues.append("User not found")
+                    debug_info['user_exists'] = False
+                else:
+                    debug_info['user_exists'] = True
+                    debug_info['user_balance'] = float(user[0])
+                    card_price = debug_info.get('card_price', 10.00)
+                    if float(user[0]) < card_price:
+                        issues.append(f"Insufficient balance: {user[0]} birr, need {card_price} birr")
+                
+                # Check if card index is valid
+                if card_index < 1 or card_index > 400:
+                    issues.append(f"Invalid card index: {card_index}")
+                
+                # Check database connection
+                debug_info['database_connected'] = True
+                
+            return {
+                'user_id': user_id,
+                'game_id': game_id,
+                'card_index': card_index,
+                'can_purchase': len(issues) == 0,
+                'issues': issues,
+                'debug_info': debug_info
+            }
+        except Exception as e:
+            return {
+                'error': str(e),
+                'user_id': user_id,
+                'game_id': game_id,
+                'card_index': card_index,
+                'can_purchase': False,
+                'issues': [f'Exception: {str(e)}']
+            }
     # ==================== UTILITY METHODS ====================
     
     @classmethod
