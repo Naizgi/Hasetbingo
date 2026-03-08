@@ -925,12 +925,12 @@ class GameManager:
                    LIMIT 1
                 """)
 
-               row = cursor.fetchone()
+                row = cursor.fetchone()
 
-               if not row:
+                if not row:
                    return None
 
-               return dict(row)
+                return dict(row)
 
         except Exception as e:
             logger.error(f"Error getting active round game: {e}")
