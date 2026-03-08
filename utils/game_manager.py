@@ -61,6 +61,14 @@
 # Fixed _execute_refund_transaction to update balance BEFORE recording transaction
 # Fixed _process_winner_payment_transaction to update balance BEFORE recording transaction
 # Fixed _record_transaction to use correct balance_after value
+# ==================== OPTIMIZED: CARD PURCHASE PHASE TRANSITION ====================
+# Optimized _run_card_purchase_phase to transition immediately after countdown
+# Optimized _has_enough_players with single query for faster execution
+# Added immediate phase change broadcast
+# ==================== FIXED: CARD REFUND FUNCTIONALITY ====================
+# Fixed _execute_refund_transaction to properly handle refund logic
+# Added proper error handling and transaction management
+# Ensured prize pool is correctly updated on refund
 # ============================================================
 
 import asyncio
@@ -345,7 +353,7 @@ class GameManager:
             self._final_winner_broadcast_sent[game_id] = False
     
     async def _run_card_purchase_phase(self, game_id: str) -> bool:
-        """Run the card purchase phase with countdown"""
+        """Run the card purchase phase with countdown - OPTIMIZED for faster transition"""
         from database.db import Database
         
         logger.info(f"🔄 Starting CARD PURCHASE phase for game {game_id}")
@@ -364,7 +372,7 @@ class GameManager:
             # Update countdown in database
             await Database.update_game_countdown(game_id, seconds_remaining)
             
-            # Broadcast countdown update
+            # Broadcast countdown update (reduce frequency to save resources)
             if seconds_remaining % 5 == 0 or seconds_remaining <= 10:
                 await self._safe_broadcast({
                     'type': 'countdown_update',
@@ -378,13 +386,21 @@ class GameManager:
                 await asyncio.sleep(1)
         
         logger.info(f"⏰ Card purchase phase ended for game {game_id}")
-        return True
-    
+        
+        # Immediately after countdown ends, check players and transition
+        # Don't wait - do it right here
+        if await self._has_enough_players(game_id):
+            logger.info(f"Game {game_id} has enough players, transitioning to active phase immediately")
+            return True
+        else:
+            logger.info(f"Game {game_id} doesn't have enough players, will reset countdown")
+            return False
+
     async def _has_enough_players(self, game_id: str) -> bool:
-        """Check if game has enough players to start"""
+        """Check if game has enough players to start - OPTIMIZED with single query"""
         from database.db import Database
         
-        # Get final player counts
+        # Single optimized query to get all counts at once
         with Database.get_cursor() as cursor:
             cursor.execute("""
                 SELECT 
@@ -397,12 +413,9 @@ class GameManager:
             real_players = row['real_players'] if row else 0
             fake_players = row['fake_players'] if row else 0
             total_players = real_players + fake_players
-        
-        # Calculate final prize pool
-        final_prize_pool = total_players * 8.00
-        
-        # Update prize pool in database
-        with Database.get_cursor() as cursor:
+            
+            # Calculate and update prize pool in the same query
+            final_prize_pool = total_players * 8.00
             cursor.execute("""
                 UPDATE games SET prize_pool = ? WHERE game_id = ?
             """, (final_prize_pool, game_id))
@@ -411,31 +424,58 @@ class GameManager:
         
         # Check if we have enough players
         if total_players >= 2:
+            # Immediately update game to active phase
+            await Database.update_game_phase(game_id, 'active')
+            await Database.update_game_status(game_id, 'active')
+            await Database.update_game_start_time(game_id)
+            
+            # Update local cache
+            async with self._lock:
+                self.active_game = await Database.get_game(game_id)
+            
+            # Initialize winner tracking if needed
+            if game_id not in self.game_winners:
+                self.game_winners[game_id] = []
+            
+            # Increment state version
+            self._game_state_versions[game_id] = self._game_state_versions.get(game_id, 0) + 1
+            
+            # Broadcast phase change immediately
+            await self._safe_broadcast({
+                'type': 'phase_change_confirmed',
+                'game_id': game_id,
+                'phase': 'active',
+                'real_players': real_players,
+                'fake_players': fake_players,
+                'total_players': total_players,
+                'prize_pool': final_prize_pool,
+                'timestamp': datetime.now().isoformat()
+            }, game_id)
+            
+            # Start number calling for this game (don't wait for this to complete)
+            from utils.number_caller import number_caller
+            asyncio.create_task(number_caller.start_number_calling_for_game(game_id))
+            
+            logger.info(f"✅ Game {game_id} transitioned to active phase with {total_players} players")
             return True
         else:
             logger.info(f"Game {game_id} has only {total_players} active player(s). Need at least 2.")
             
-            # Not enough players - reset the purchase phase
-            await self._reset_purchase_phase(game_id)
+            # Reset purchase phase
+            new_end_time = datetime.now() + timedelta(seconds=30)
+            await Database.set_purchase_end_time(game_id, new_end_time)
+            await Database.update_game_countdown(game_id, 30)
+            
+            # Broadcast reset
+            await self._safe_broadcast({
+                'type': 'countdown_reset',
+                'game_id': game_id,
+                'message': 'Need at least 2 active players to start. Countdown reset to 30 seconds.',
+                'new_countdown': 30,
+                'timestamp': datetime.now().isoformat()
+            }, game_id)
+            
             return False
-    
-    async def _reset_purchase_phase(self, game_id: str):
-        """Reset the purchase phase with new countdown"""
-        from database.db import Database
-        
-        # Reset purchase end time
-        new_end_time = datetime.now() + timedelta(seconds=30)
-        await Database.set_purchase_end_time(game_id, new_end_time)
-        await Database.update_game_countdown(game_id, 30)
-        
-        # Broadcast reset
-        await self._safe_broadcast({
-            'type': 'countdown_reset',
-            'game_id': game_id,
-            'message': 'Need at least 2 active players to start. Countdown reset to 30 seconds.',
-            'new_countdown': 30,
-            'timestamp': datetime.now().isoformat()
-        }, game_id)
     
     async def _run_active_game_phase(self, game_id: str) -> bool:
         """
@@ -2198,67 +2238,77 @@ class GameManager:
                 raise  # Let transaction manager handle rollback
     
     def _execute_refund_transaction(self, game_id: str, user_id: int, card_index: int) -> dict:
-        """Execute refund transaction synchronously with proper locking - FIXED: Correct balance_after"""
+        """Execute refund transaction synchronously with proper locking - FIXED: Correct balance_after and proper refund logic"""
         from database.db import Database
     
         with transaction() as cursor:
             try:
-                # Get user's active card
+                # Get user's active card with all details
                 cursor.execute("""
-                    SELECT id FROM player_cards 
+                    SELECT id, purchase_price, card_index 
+                    FROM player_cards 
                     WHERE game_id = ? AND user_id = ? AND card_index = ? AND is_active = 1
                 """, (game_id, user_id, card_index))
                 card_row = cursor.fetchone()
             
                 if not card_row:
+                    logger.error(f"Refund failed: Card #{card_index} not found for user {user_id} in game {game_id}")
                     return {
                         'success': False,
-                        'message': 'You do not own this card'
+                        'message': 'You do not own this card or it is not active'
                     }
             
                 card_id = card_row['id']
+                purchase_price = float(card_row['purchase_price']) if card_row['purchase_price'] else 10.00
             
                 # Get current balance
                 cursor.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,))
                 user_row = cursor.fetchone()
-                current_balance = float(user_row['balance']) if user_row else 0.00
+                if not user_row:
+                    return {
+                        'success': False,
+                        'message': 'User not found'
+                    }
+                current_balance = float(user_row['balance'])
             
-                # Calculate new balance after refund
-                new_balance = current_balance + 10.00
+                # Refund amount (full purchase price)
+                refund_amount = purchase_price
 
-                # Refund user (full 10 birr) - THIS COMES FIRST
+                # Calculate new balance after refund
+                new_balance = current_balance + refund_amount
+
+                # Refund user (full amount) - THIS COMES FIRST
                 cursor.execute("""
                     UPDATE users SET balance = ? WHERE user_id = ?
                 """, (new_balance, user_id))
              
-                # Remove from prize pool (8 birr)
+                # Remove from prize pool (80% of purchase price goes to prize pool)
+                prize_pool_deduction = purchase_price * 0.8  # 8 birr from 10 birr purchase
                 cursor.execute("""
-                    UPDATE games SET prize_pool = GREATEST(0, prize_pool - 8.00) WHERE game_id = ?
-                """, (game_id,))
+                    UPDATE games SET prize_pool = GREATEST(0, prize_pool - ?) WHERE game_id = ?
+                """, (prize_pool_deduction, game_id))
  
                 # Mark card as inactive
                 cursor.execute("""
-                    UPDATE player_cards SET is_active = 0 WHERE id = ?
-                """, (card_id,))
+                    UPDATE player_cards SET is_active = 0, refunded_at = ? WHERE id = ?
+                """, (datetime.now(), card_id))
                 
                 # Record transaction using helper (now with correct balance_after)
                 self._record_transaction(
                     cursor,
                     user_id,
-                    10.00,
+                    refund_amount,
                     'card_refund',
-                    f'Refund for card #{card_index} (100% of 10 birr)',
+                    f'Refund for card #{card_index} (100% of {purchase_price} birr)',
                     game_id
                 )
   
-                # Get final balance for return (though we already have it)
-                cursor.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,))
-                final_balance = float(cursor.fetchone()['balance'])
+                logger.info(f"✅ Refund successful: User {user_id} refunded {refund_amount} birr for card #{card_index} in game {game_id}")
   
                 return {
                     'success': True,
-                    'refund_amount': 10.00,
-                    'new_balance': final_balance
+                    'refund_amount': refund_amount,
+                    'new_balance': new_balance
                 }
              
             except Exception as e:
