@@ -24,6 +24,7 @@
         --success-dark: #009624;
         --warning: #ff9800;
         --danger: #f44336;
+        --penalty: #FF0000; /* Red for penalty cross */
         
         --dark: #1a1a2e;
         --darker: #0f0f1a;
@@ -368,6 +369,62 @@
         display: flex;
         flex-direction: column;
         flex-shrink: 0;
+        position: relative;
+    }
+    
+    .player-card-container.penalty {
+        opacity: 0.6;
+        filter: grayscale(50%);
+        pointer-events: none;
+    }
+    
+    .penalty-overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(255, 0, 0, 0.2);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 10;
+        border-radius: 12px;
+        pointer-events: none;
+    }
+    
+    .penalty-overlay::before,
+    .penalty-overlay::after {
+        content: '';
+        position: absolute;
+        width: 80%;
+        height: 4px;
+        background: var(--penalty);
+        border-radius: 2px;
+        box-shadow: 0 0 20px var(--penalty);
+    }
+    
+    .penalty-overlay::before {
+        transform: rotate(45deg);
+    }
+    
+    .penalty-overlay::after {
+        transform: rotate(-45deg);
+    }
+    
+    .penalty-text {
+        position: absolute;
+        bottom: 10px;
+        color: var(--penalty);
+        font-weight: bold;
+        text-shadow: 0 0 10px var(--penalty);
+        animation: penaltyPulse 1s infinite;
+    }
+    
+    @keyframes penaltyPulse {
+        0% { opacity: 0.7; }
+        50% { opacity: 1; }
+        100% { opacity: 0.7; }
     }
     
     .player-card-title {
@@ -471,6 +528,36 @@
         font-size: 10px;
     }
     
+    .player-card-cell.penalty {
+        background: linear-gradient(135deg, #ff0000 0%, #cc0000 100%) !important;
+        color: white !important;
+        border-color: var(--penalty) !important;
+        opacity: 0.7;
+        cursor: not-allowed !important;
+        position: relative;
+        overflow: hidden;
+    }
+    
+    .player-card-cell.penalty::before,
+    .player-card-cell.penalty::after {
+        content: '';
+        position: absolute;
+        width: 100%;
+        height: 2px;
+        background: white;
+        left: 0;
+        top: 50%;
+        transform: translateY(-50%);
+    }
+    
+    .player-card-cell.penalty::before {
+        transform: rotate(45deg);
+    }
+    
+    .player-card-cell.penalty::after {
+        transform: rotate(-45deg);
+    }
+    
     .game-bingo-button-container {
         margin: 0;
         text-align: center;
@@ -513,6 +600,13 @@
     .bingo-btn:disabled {
         opacity: 0.5;
         cursor: not-allowed;
+    }
+    
+    .bingo-btn-penalty {
+        background: linear-gradient(135deg, #6c757d 0%, #495057 100%) !important;
+        color: white !important;
+        cursor: not-allowed !important;
+        opacity: 0.5;
     }
     
     /* Called Numbers Container - Purple Theme */
@@ -1918,7 +2012,7 @@
                 </div>
                 
                 <div class="player-card-and-button-container">
-                    <div class="player-card-container">
+                    <div class="player-card-container" id="player-card-container">
                         <div class="player-card-title">
                             <span><i class="fas fa-id-card"></i> Your Card</span>
                             <span style="font-size: 11px;">#<span id="player-card-id">0</span></span>
@@ -1933,6 +2027,8 @@
                         </div>
                         
                         <div class="player-card-grid" id="player-card-grid"></div>
+                        <div id="penalty-overlay" class="penalty-overlay" style="display: none;"></div>
+                        <div id="penalty-text" class="penalty-text" style="display: none;">FALSE CLAIM</div>
                     </div>
                     
                     <div class="game-bingo-button-container">
@@ -2010,6 +2106,10 @@
         maxConnectionRetries: 50,
         reconnectAttempts: 0,
         maxReconnectAttempts: 100,
+        
+        // NEW: False claim penalty tracking
+        falseClaimPenalty: false,
+        falseClaimTime: null,
         
         audioEnabled: true,
         audioCache: {},
@@ -2502,9 +2602,63 @@
         }
     }
 
+    // ==================== NEW: Apply False Claim Penalty ====================
+    function applyFalseClaimPenalty() {
+        console.log('Applying false claim penalty - card disabled');
+        
+        gameState.falseClaimPenalty = true;
+        gameState.falseClaimTime = Date.now();
+        
+        // Disable the BINGO button
+        const btn = document.getElementById('claim-bingo-btn');
+        if (btn) {
+            btn.innerHTML = `<i class="fas fa-times-circle"></i> FALSE CLAIM - DISABLED`;
+            btn.className = 'bingo-btn bingo-btn-penalty';
+            btn.disabled = true;
+        }
+        
+        // Add penalty overlay to player card
+        const playerCardContainer = document.getElementById('player-card-container');
+        if (playerCardContainer) {
+            playerCardContainer.classList.add('penalty');
+        }
+        
+        const penaltyOverlay = document.getElementById('penalty-overlay');
+        const penaltyText = document.getElementById('penalty-text');
+        
+        if (penaltyOverlay) {
+            penaltyOverlay.style.display = 'flex';
+        }
+        
+        if (penaltyText) {
+            penaltyText.style.display = 'block';
+        }
+        
+        // Mark all card cells as penalty (disabled)
+        const playerCardGrid = document.getElementById('player-card-grid');
+        if (playerCardGrid) {
+            const cells = playerCardGrid.children;
+            for (let i = 0; i < cells.length; i++) {
+                const cell = cells[i];
+                if (!cell.classList.contains('free')) {
+                    cell.classList.add('penalty');
+                    cell.onclick = null; // Remove click handler
+                }
+            }
+        }
+        
+        showNotification('FALSE CLAIM! Your card has been disabled for this round.', 'error', 5000);
+    }
+
     // ==================== BINGO CLAIM FUNCTION ====================
     async function claimBingo() {
         console.log("Attempting to claim BINGO...");
+        
+        // Check if already under penalty
+        if (gameState.falseClaimPenalty) {
+            showNotification('Your card has been disabled due to a false claim.', 'error');
+            return;
+        }
         
         if (!gameState.gameId) {
             showNotification('No active game', 'error');
@@ -2516,13 +2670,10 @@
             return;
         }
         
-        const hasBingo = checkForBingo();
-        if (!hasBingo) {
-            showNotification('You do not have a winning pattern yet', 'error');
-            return;
-        }
+        // FIXED: Always allow BINGO button click regardless of pattern
+        // We'll let the server verify and handle false claims with penalty
         
-        // FIXED: Validate game phase
+        // Validate game phase
         if (!validateGamePhase('active', 'claimBingo')) {
             showNotification('Can only claim bingo during active game play', 'error');
             return;
@@ -2535,7 +2686,7 @@
         
         const btn = document.getElementById('claim-bingo-btn');
         if (btn) {
-            btn.innerHTML = `<div class="loading-spinner"></div> Claiming BINGO...`;
+            btn.innerHTML = `<div class="loading-spinner"></div> Verifying BINGO...`;
             btn.disabled = true;
             btn.className = 'bingo-btn bingo-btn-verifying';
         }
@@ -2579,7 +2730,12 @@
                     gameState.hasClaimedBingo = true;
                     setTimeout(() => getUserBalance(), 1000);
                 } else {
-                    showNotification(data.message || 'Failed to claim BINGO', 'error');
+                    // FIXED: Handle false claim with penalty
+                    if (data.code === 'INVALID_CLAIM' || data.message?.includes('false')) {
+                        applyFalseClaimPenalty();
+                    } else {
+                        showNotification(data.message || 'Failed to claim BINGO', 'error');
+                    }
                     gameState.bingoClaimInProgress = false;
                     gameState.phaseChangeRequested = false;
                     updateBingoButton();
@@ -2595,7 +2751,7 @@
     }
     window.claimBingo = claimBingo;
 
-    // ==================== CHECK FOR BINGO ====================
+    // ==================== CHECK FOR BINGO (FOR UI ONLY - NOT REQUIRED FOR CLAIM) ====================
     function checkForBingo() {
         try {
             if (!gameState.hasCard || !Array.isArray(gameState.selectedCardNumbers) || 
@@ -2680,6 +2836,15 @@
         const btn = document.getElementById('claim-bingo-btn');
         if (!btn) return;
         
+        // Check if under penalty
+        if (gameState.falseClaimPenalty) {
+            btn.innerHTML = `<i class="fas fa-times-circle"></i> FALSE CLAIM - DISABLED`;
+            btn.className = 'bingo-btn bingo-btn-penalty';
+            btn.disabled = true;
+            btn.onclick = null;
+            return;
+        }
+        
         if (gameState.gameComplete || gameState.winnerAnnounced) {
             btn.innerHTML = `<i class="fas fa-trophy"></i> Game Complete`;
             btn.className = 'bingo-btn bingo-btn-claimed';
@@ -2705,15 +2870,15 @@
             return;
         }
         
-        const hasBingo = checkForBingo();
-        btn.disabled = !hasBingo || gameState.bingoClaimInProgress || gameState.hasClaimedBingo;
+        // FIXED: Button is ALWAYS enabled when player has a card
+        // We'll let the server verify and handle false claims
+        const prizeFromDB = gameState.prizePool || 0;
+        btn.innerHTML = `<i class="fas fa-trophy"></i> CLAIM BINGO! (${prizeFromDB.toFixed(2)} birr)`;
+        btn.className = 'bingo-btn bingo-btn-gold';
+        btn.disabled = gameState.bingoClaimInProgress || gameState.hasClaimedBingo;
+        btn.onclick = claimBingo;
         
-        if (hasBingo && !gameState.bingoClaimInProgress && !gameState.hasClaimedBingo) {
-            const prizeFromDB = gameState.prizePool || 0;
-            btn.innerHTML = `<i class="fas fa-trophy"></i> BINGO! WIN ${prizeFromDB.toFixed(2)} birr!`;
-            btn.className = 'bingo-btn bingo-btn-gold';
-            btn.onclick = claimBingo;
-        } else if (gameState.bingoClaimInProgress) {
+        if (gameState.bingoClaimInProgress) {
             btn.innerHTML = `<div class="loading-spinner"></div> Verifying BINGO...`;
             btn.className = 'bingo-btn bingo-btn-verifying';
             btn.onclick = null;
@@ -2721,11 +2886,6 @@
             btn.innerHTML = `<i class="fas fa-check-circle"></i> BINGO Claimed!`;
             btn.className = 'bingo-btn bingo-btn-claimed';
             btn.onclick = null;
-        } else {
-            btn.innerHTML = `<i class="fas fa-bell"></i> BINGO`;
-            btn.className = 'bingo-btn';
-            btn.onclick = null;
-            btn.disabled = true;
         }
     }
 
@@ -2739,13 +2899,16 @@
         updateCurrentCalledDisplay(number);
         updateBingoGrid();
         
+        // FIXED: Allow marking numbers regardless of whether they've been called
+        // The UI will now allow marking any number, but we'll track the called numbers separately
+        // for bingo verification
+        
         if (gameState.audioEnabled && gameState.audioPreloaded && gameState.audioInitialized && !gameState.winnerAnnounced && !gameState.isWinnerDisplayActive) {
             playNumberAudio(number);
         }
         
-        if (checkForBingo() && !gameState.hasClaimedBingo) {
-            updateBingoButton();
-        }
+        // Update button state - still enabled if has card
+        updateBingoButton();
     }
 
     function updateCurrentCalledDisplay(number) {
@@ -2765,7 +2928,14 @@
         }
     }
 
+    // ==================== FIXED: Player Card Click Handler ====================
     function handlePlayerCardClick(cell, number) {
+        // Check if under penalty
+        if (gameState.falseClaimPenalty) {
+            showNotification('Your card has been disabled due to a false claim.', 'error');
+            return;
+        }
+        
         if (!gameState.gameActive || !gameState.hasCard) {
             showNotification('Game not active', 'error');
             return;
@@ -2775,10 +2945,8 @@
             return;
         }
         
-        if (!gameState.calledNumbers.includes(number)) {
-            showNotification('This number has not been called yet!', 'error');
-            return;
-        }
+        // FIXED: Allow marking numbers regardless of called status
+        // Numbers are marked locally, server will verify during bingo claim
         
         if (gameState.markedNumbers.has(number)) {
             gameState.markedNumbers.delete(number);
@@ -2788,9 +2956,8 @@
             cell.classList.add('marked');
         }
         
-        if (checkForBingo() && !gameState.hasClaimedBingo) {
-            updateBingoButton();
-        }
+        // Update button state (still enabled)
+        updateBingoButton();
     }
     window.handlePlayerCardClick = handlePlayerCardClick;
 
@@ -3144,6 +3311,13 @@
     // ==================== RESET CARDS FOR NEW ROUND (NO REBUILD) ====================
     function resetCardsForNewRound() {
         console.log('Resetting cards for new round - no grid rebuild');
+        
+        // Reset penalty state
+        gameState.falseClaimPenalty = false;
+        const penaltyOverlay = document.getElementById('penalty-overlay');
+        const penaltyText = document.getElementById('penalty-text');
+        if (penaltyOverlay) penaltyOverlay.style.display = 'none';
+        if (penaltyText) penaltyText.style.display = 'none';
         
         const grid = document.getElementById('cards-grid');
         if (!grid) return;
@@ -4277,6 +4451,13 @@
         gameState.bingoClaimInProgress = false;
         gameState.gameStartConfirmed = false;
         
+        // Reset penalty state
+        gameState.falseClaimPenalty = false;
+        const penaltyOverlay = document.getElementById('penalty-overlay');
+        const penaltyText = document.getElementById('penalty-text');
+        if (penaltyOverlay) penaltyOverlay.style.display = 'none';
+        if (penaltyText) penaltyText.style.display = 'none';
+        
         gameState.countdown = 30;
         gameState.countdownTotal = 30;
         
@@ -4367,6 +4548,13 @@
         gameState.winners = [];
         gameState.gameStartConfirmed = false;
         
+        // Reset penalty state
+        gameState.falseClaimPenalty = false;
+        const penaltyOverlay = document.getElementById('penalty-overlay');
+        const penaltyText = document.getElementById('penalty-text');
+        if (penaltyOverlay) penaltyOverlay.style.display = 'none';
+        if (penaltyText) penaltyText.style.display = 'none';
+        
         gameState.hasCard = false;
         gameState.selectedCardId = null;
         gameState.selectedCardIndex = null;
@@ -4419,8 +4607,13 @@
     }
 
     function handleBingoRejected(data) {
+        // FIXED: Apply penalty for false claim
         gameState.bingoClaimInProgress = false;
         gameState.phaseChangeRequested = false;
+        
+        // Apply penalty
+        applyFalseClaimPenalty();
+        
         updateBingoButton();
     }
 
@@ -5038,6 +5231,19 @@
         grid.innerHTML = '';
         document.getElementById('player-card-id').textContent = gameState.selectedCardIndex || 'None';
         
+        // Check if under penalty
+        if (gameState.falseClaimPenalty) {
+            const playerCardContainer = document.getElementById('player-card-container');
+            if (playerCardContainer) {
+                playerCardContainer.classList.add('penalty');
+            }
+            
+            const penaltyOverlay = document.getElementById('penalty-overlay');
+            const penaltyText = document.getElementById('penalty-text');
+            if (penaltyOverlay) penaltyOverlay.style.display = 'flex';
+            if (penaltyText) penaltyText.style.display = 'block';
+        }
+        
         if (gameState.selectedCardNumbers && Array.isArray(gameState.selectedCardNumbers)) {
             gameState.selectedCardNumbers.forEach((num, index) => {
                 const cell = document.createElement('div');
@@ -5055,7 +5261,13 @@
                         cell.classList.add('marked');
                     }
                     
-                    cell.onclick = () => handlePlayerCardClick(cell, num);
+                    // Add penalty class if under penalty
+                    if (gameState.falseClaimPenalty) {
+                        cell.classList.add('penalty');
+                        cell.onclick = null;
+                    } else {
+                        cell.onclick = () => handlePlayerCardClick(cell, num);
+                    }
                 }
                 
                 grid.appendChild(cell);
@@ -5074,6 +5286,17 @@
         
         grid.innerHTML = '';
         document.getElementById('player-card-id').textContent = 'None';
+        
+        // Hide penalty overlay
+        const penaltyOverlay = document.getElementById('penalty-overlay');
+        const penaltyText = document.getElementById('penalty-text');
+        if (penaltyOverlay) penaltyOverlay.style.display = 'none';
+        if (penaltyText) penaltyText.style.display = 'none';
+        
+        const playerCardContainer = document.getElementById('player-card-container');
+        if (playerCardContainer) {
+            playerCardContainer.classList.remove('penalty');
+        }
         
         for (let i = 0; i < 25; i++) {
             const cell = document.createElement('div');
@@ -5280,12 +5503,14 @@
             return;
         }
         
+        // FIXED: If clicking on owned card, refund it (toggle off)
         if (gameState.selectedCardIndex === cardIndex) {
             console.log('Auto-refunding owned card:', cardIndex);
             await toggleCardPurchase(cardIndex, element, 'refund');
             return;
         }
         
+        // FIXED: If clicking on different card while owning one, refund first then buy new
         if (gameState.hasCard && gameState.selectedCardIndex !== cardIndex) {
             console.log('Auto-replacing card: First refund', gameState.selectedCardIndex, 'then buy', cardIndex);
             
@@ -5401,6 +5626,7 @@
             return;
         }
         
+        // FIXED: If no card owned, just buy the selected card
         if (!gameState.hasCard) {
             if (gameState.cardsSold.has(cardIndex)) {
                 showNotification('This card is already sold to another player', 'error');
@@ -5422,7 +5648,7 @@
             gameState.uiSelectedCardIndex = cardIndex;
             element.classList.add('selected');
             
-            console.log('Auto-buying card:', cardIndex);
+            console.log('Buying card:', cardIndex);
             await toggleCardPurchase(cardIndex, element, 'buy');
             return;
         }
@@ -5459,7 +5685,7 @@
         }
         
         if (action === 'buy' && gameState.hasCard) {
-            showNotification('You already have a card. Click on another card to replace it.', 'error');
+            showNotification('You already have a card. Click on another card to replace it, or click your current card to refund.', 'error');
             gameState.isCardOperationInProgress = false;
             return;
         }
