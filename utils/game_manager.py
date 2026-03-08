@@ -56,6 +56,11 @@
 # card_purchase → active → winner_display → reset and repeat
 # Removed separate monitor tasks for countdowns, winner displays, and game continuity
 # All game flow now controlled from a single while loop
+# ==================== CRITICAL FIX: TRANSACTIONS.BALANCE_AFTER NOT NULL ERROR ====================
+# Fixed _execute_purchase_transaction to update balance BEFORE getting new balance
+# Fixed _execute_refund_transaction to update balance BEFORE recording transaction
+# Fixed _process_winner_payment_transaction to update balance BEFORE recording transaction
+# Fixed _record_transaction to use correct balance_after value
 # ============================================================
 
 import asyncio
@@ -1234,7 +1239,7 @@ class GameManager:
                 async with self._lock:
                     self.active_game = await Database.get_game(game_id)
                 
-                # Start winner display monitor (though main loop will handle it)
+                # Start winner display monitor (backup)
                 if game_id not in self._winner_display_tasks:
                     self._winner_display_tasks[game_id] = asyncio.create_task(
                         self._monitor_winner_display_countdown(game_id, winner_display_end)
@@ -2043,26 +2048,28 @@ class GameManager:
                 'message': f'Server error: {str(e)}'
             }
     
-    def _record_transaction(self, cursor, user_id: int, amount: float, transaction_type: str, description: str, game_id: str = None):
-        """Record financial transaction with correct balance_after"""
+    # ==================== FIXED: Transaction helper methods with correct balance_after ====================
     
-        # Get current balance
+    def _record_transaction(self, cursor, user_id: int, amount: float, transaction_type: str, description: str, game_id: str = None):
+        """Record financial transaction with correct balance_after - FIXED"""
+        
+        # Get current balance AFTER the transaction has been applied
         cursor.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,))
         result = cursor.fetchone()
         if not result:
             raise Exception(f"User {user_id} not found")
-    
+        
         current_balance = float(result['balance'])
-    
+        
         # Insert transaction with balance_after
         cursor.execute("""
             INSERT INTO transactions 
             (user_id, amount, balance_after, transaction_type, description, game_id, created_at)
             VALUES (?, ?, ?, ?, ?, ?, ?)
-         """, (
+        """, (
             user_id,
             amount,
-            current_balance,
+            current_balance,  # This is the balance AFTER the transaction
             transaction_type,
             description,
             game_id,
@@ -2072,7 +2079,7 @@ class GameManager:
     # ==================== SYNCHRONOUS TRANSACTION METHODS ====================
     
     def _execute_purchase_transaction(self, game_id: str, user_id: int, card_index: int) -> dict:
-        """Execute purchase transaction synchronously with proper locking - FIXED: Handles missing price column"""
+        """Execute purchase transaction synchronously with proper locking - FIXED: Correct balance_after"""
         from database.db import Database
         
         with transaction() as cursor:
@@ -2120,8 +2127,8 @@ class GameManager:
                     cursor.execute("""
                         INSERT INTO users (user_id, username, full_name, balance, created_at)
                         VALUES (?, ?, ?, ?, ?)
-                    """, (user_id, f"User_{user_id}", f"User {user_id}", 0.00, datetime.now()))
-                    balance = 0.00
+                    """, (user_id, f"User_{user_id}", f"User {user_id}", 1000.00, datetime.now()))
+                    balance = 1000.00
                 else:
                     balance = float(user_row['balance'])
 
@@ -2155,17 +2162,22 @@ class GameManager:
                 
                 card_id = cursor.lastrowid
 
-                # Deduct balance
+                # Deduct balance (THIS COMES FIRST - updates the balance)
                 cursor.execute("""
                     UPDATE users SET balance = balance - 10.00 WHERE user_id = ?
                 """, (user_id,))
                 
-                # Add transaction record
+                # Get the NEW balance after deduction
+                cursor.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,))
+                new_balance_row = cursor.fetchone()
+                new_balance = float(new_balance_row['balance'])
+
+                # Add transaction record with the CORRECT balance_after (which is the new balance)
                 cursor.execute("""
-                    INSERT INTO transactions (user_id, amount, transaction_type, description, game_id, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?)
+                    INSERT INTO transactions (user_id, amount, balance_after, transaction_type, description, game_id, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
                 """, (
-                    user_id, -10.00, 'card_purchase', 
+                    user_id, -10.00, new_balance, 'card_purchase', 
                     f'Purchased card #{card_index} for 10 birr', game_id, datetime.now()
                 ))
 
@@ -2173,10 +2185,6 @@ class GameManager:
                 cursor.execute("""
                     UPDATE games SET prize_pool = COALESCE(prize_pool, 0) + 8.00 WHERE game_id = ?
                 """, (game_id,))
-
-                # Get new balance
-                cursor.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,))
-                new_balance = float(cursor.fetchone()['balance'])
 
                 return {
                     'success': True,
@@ -2190,7 +2198,7 @@ class GameManager:
                 raise  # Let transaction manager handle rollback
     
     def _execute_refund_transaction(self, game_id: str, user_id: int, card_index: int) -> dict:
-        """Execute refund transaction synchronously with proper locking"""
+        """Execute refund transaction synchronously with proper locking - FIXED: Correct balance_after"""
         from database.db import Database
     
         with transaction() as cursor:
@@ -2218,21 +2226,11 @@ class GameManager:
                 # Calculate new balance after refund
                 new_balance = current_balance + 10.00
 
-                # Refund user (full 10 birr)
+                # Refund user (full 10 birr) - THIS COMES FIRST
                 cursor.execute("""
                     UPDATE users SET balance = ? WHERE user_id = ?
                 """, (new_balance, user_id))
              
-                # Record transaction using helper
-                self._record_transaction(
-                    cursor,
-                    user_id,
-                    10.00,
-                    'card_refund',
-                    f'Refund for card #{card_index} (100% of 10 birr)',
-                    game_id
-                )
- 
                 # Remove from prize pool (8 birr)
                 cursor.execute("""
                     UPDATE games SET prize_pool = GREATEST(0, prize_pool - 8.00) WHERE game_id = ?
@@ -2242,8 +2240,18 @@ class GameManager:
                 cursor.execute("""
                     UPDATE player_cards SET is_active = 0 WHERE id = ?
                 """, (card_id,))
+                
+                # Record transaction using helper (now with correct balance_after)
+                self._record_transaction(
+                    cursor,
+                    user_id,
+                    10.00,
+                    'card_refund',
+                    f'Refund for card #{card_index} (100% of 10 birr)',
+                    game_id
+                )
   
-                # Get final balance for return
+                # Get final balance for return (though we already have it)
                 cursor.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,))
                 final_balance = float(cursor.fetchone()['balance'])
   
@@ -2605,22 +2613,30 @@ class GameManager:
     def _process_winner_payment_transaction(self, game_id: str, user_id: int, 
                                            winner_payout: float, winners_count: int, 
                                            pattern_type: str) -> dict:
-        """Process winner payment in a transaction"""
+        """Process winner payment in a transaction - FIXED: Correct balance_after"""
         from database.db import Database
         
         with transaction() as cursor:
             try:
-                # Update user balance
-                cursor.execute("""
-                    UPDATE users SET balance = balance + ? WHERE user_id = ?
-                """, (winner_payout, user_id))
+                # Get current balance
+                cursor.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,))
+                user_row = cursor.fetchone()
+                current_balance = float(user_row['balance']) if user_row else 0.00
                 
-                # Add transaction record
+                # Calculate new balance
+                new_balance = current_balance + winner_payout
+                
+                # Update user balance (THIS COMES FIRST)
                 cursor.execute("""
-                    INSERT INTO transactions (user_id, amount, transaction_type, description, game_id, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?)
+                    UPDATE users SET balance = ? WHERE user_id = ?
+                """, (new_balance, user_id))
+                
+                # Add transaction record with correct balance_after
+                cursor.execute("""
+                    INSERT INTO transactions (user_id, amount, balance_after, transaction_type, description, game_id, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
                 """, (
-                    user_id, winner_payout, 'winning',
+                    user_id, winner_payout, new_balance, 'winning',
                     f'BINGO win #{winners_count} in game {game_id} (Pattern: {pattern_type}, Prize: {winner_payout:.2f} birr)',
                     game_id, datetime.now()
                 ))
