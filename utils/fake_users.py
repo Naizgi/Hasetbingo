@@ -294,6 +294,14 @@ class FakeUserManager:
         count = min(count, len(users))
         return random.sample(users, count)
     
+    
+    
+    
+    
+    def get_fake_user(self, user_id: int) -> Optional[Dict]:
+        """Get fake user by ID"""
+        return self.fake_users.get(user_id)
+    
     # ==================== FIXED: Generate valid Bingo cards ====================
     def generate_bingo_card(self) -> Dict:
         """

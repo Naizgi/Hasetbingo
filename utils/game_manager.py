@@ -909,32 +909,7 @@ class GameManager:
         
         
         
-    async def get_active_round_game(self):
-        """
-        Return the currently active round game
-        """
-        try:
-            from database.db import Database
-
-            with Database.get_cursor() as cursor:
-                cursor.execute("""
-                    SELECT *
-                    FROM games
-                    WHERE status IN ('card_purchase', 'active')
-                    ORDER BY created_at DESC
-                   LIMIT 1
-                """)
-
-                row = cursor.fetchone()
-
-                if not row:
-                   return None
-
-                return dict(row)
-
-        except Exception as e:
-            logger.error(f"Error getting active round game: {e}")
-            return None
+   
     
     # ==================== PUBLIC API METHODS ====================
     

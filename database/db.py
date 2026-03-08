@@ -5643,7 +5643,27 @@ class Database:
                 except:
                     pass
             
-            
+    @classmethod
+    async def get_active_round_game(cls):
+        try:
+            with cls.get_cursor() as cursor:
+                cursor.execute("""
+                    SELECT *
+                    FROM games
+                    WHERE status IN ('card_purchase','active','winner_display')
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                """)
+                row = cursor.fetchone()
+
+                if not row:
+                    return None
+
+                return dict(row)
+
+        except Exception as e:
+            logger.error(f"Error getting active round game: {e}")
+            return None       
             
             
     @classmethod
