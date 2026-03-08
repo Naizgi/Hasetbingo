@@ -69,11 +69,8 @@
 # Fixed _execute_refund_transaction to properly handle refund logic
 # Added proper error handling and transaction management
 # Ensured prize pool is correctly updated on refund
-# ==================== OPTIMIZED: FALSE CLAIM HANDLING ====================
-# Added immediate false claim response without processing delays
-# Added broadcast_false_claim method to notify frontend instantly
-# Fixed bingo verification to return false claim result immediately
-# Added proper error handling for invalid bingo claims
+# ==================== FIXED: SQLite GREATEST FUNCTION COMPATIBILITY ====================
+# Replaced GREATEST with MAX(0, prize_pool - ?) for SQLite compatibility
 # ============================================================
 
 import asyncio
@@ -2242,10 +2239,10 @@ class GameManager:
                 logger.error(f"Error in purchase transaction: {e}")
                 raise  # Let transaction manager handle rollback
     
-    # ==================== FIXED: Refund Transaction with proper logic ====================
+    # ==================== FIXED: Refund Transaction with proper logic and SQLite compatibility ====================
     
     def _execute_refund_transaction(self, game_id: str, user_id: int, card_index: int) -> dict:
-        """Execute refund transaction synchronously with proper locking - FIXED: Correct balance_after and proper refund logic"""
+        """Execute refund transaction synchronously with proper locking - FIXED: Removed GREATEST for SQLite compatibility"""
         from database.db import Database
     
         with transaction() as cursor:
@@ -2291,8 +2288,10 @@ class GameManager:
              
                 # Remove from prize pool (80% of purchase price goes to prize pool)
                 prize_pool_deduction = purchase_price * 0.8  # 8 birr from 10 birr purchase
+                
+                # FIXED: Replace GREATEST with MAX(0, prize_pool - ?) for SQLite compatibility
                 cursor.execute("""
-                    UPDATE games SET prize_pool = GREATEST(0, prize_pool - ?) WHERE game_id = ?
+                    UPDATE games SET prize_pool = MAX(0, prize_pool - ?) WHERE game_id = ?
                 """, (prize_pool_deduction, game_id))
  
                 # Mark card as inactive
@@ -2322,7 +2321,7 @@ class GameManager:
                 logger.error(f"Error in refund transaction: {e}")
                 raise
     
-    # ==================== FIXED: process_winner with transaction handling and immediate false claim response ====================
+    # ==================== FIXED: process_winner with transaction handling ====================
     async def process_winner(self, game_id: str, user_id: int):
         """Process bingo winner - UPDATED: Two winner support with 50-50 split and TRUE claims"""
         async with self._verification_lock:
@@ -2366,29 +2365,9 @@ class GameManager:
                 verification_time = (time.time() - start_time) * 1000
                 logger.info(f"⚡ Bingo verified in {verification_time:.1f}ms - Result: {has_bingo}, Pattern: {pattern_type}")
                 
-                # ========== CRITICAL FIX: Immediate false claim response ==========
                 if not has_bingo:
-                    logger.error(f"❌ Invalid bingo claim by user {user_id} - sending immediate false claim response")
-                    
-                    # Broadcast false claim immediately to frontend
-                    await self._safe_broadcast({
-                        'type': 'bingo_rejected',
-                        'game_id': game_id,
-                        'user_id': user_id,
-                        'reason': 'invalid_pattern',
-                        'message': 'No valid bingo pattern found',
-                        'timestamp': datetime.now().isoformat()
-                    }, game_id)
-                    
-                    # Return error response
-                    return {
-                        'success': False,
-                        'error': 'invalid_bingo',
-                        'message': 'No valid bingo pattern found',
-                        'user_id': user_id,
-                        'game_id': game_id,
-                        'verification_time_ms': verification_time
-                    }
+                    logger.error(f"Invalid bingo claim by user {user_id}")
+                    return None
                 
                 # Get prize pool (already have from game)
                 prize_pool = float(game.get('prize_pool', 0.00))
@@ -2685,20 +2664,6 @@ class GameManager:
                 
             except Exception as e:
                 logger.error(f"Error processing winner: {e}", exc_info=True)
-                
-                # Broadcast error to frontend
-                try:
-                    await self._safe_broadcast({
-                        'type': 'bingo_rejected',
-                        'game_id': game_id,
-                        'user_id': user_id,
-                        'reason': 'server_error',
-                        'message': 'Error processing bingo claim',
-                        'timestamp': datetime.now().isoformat()
-                    }, game_id)
-                except:
-                    pass
-                
                 return None
     
     def _process_winner_payment_transaction(self, game_id: str, user_id: int, 
@@ -2914,7 +2879,7 @@ class GameManager:
                     len(winners),
                     json.dumps(winners_data),
                     json.dumps(winner_payouts),
-                    is_fake,
+                    1 if is_fake else 0,
                     self.min_fake_players,
                     self.max_fake_players,
                     datetime.now().date(),
