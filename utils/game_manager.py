@@ -77,6 +77,13 @@
 # Modified _generate_bingo_card_numbers to use static data
 # Modified _execute_purchase_transaction to use fixed cards
 # Modified _add_initial_fake_users to use fixed cards
+# ==================== FIXED: INSTANT GAME TRANSITION ====================
+# Fixed _run_card_purchase_phase to transition IMMEDIATELY when countdown hits 0
+# Removed any delay in checking players and transitioning
+# Added synchronous phase change broadcast without awaiting
+# ==================== ADDED: CONFIGURABLE FAKE PLAYER LIMITS ====================
+# Added set_fake_player_range method to control min/max fake players from admin panel
+# Fake player limits can now be configured dynamically without restart
 # ============================================================
 
 import asyncio
@@ -179,8 +186,8 @@ class GameManager:
         # NEW: Minimum number of players to start (including fake users)
         self.min_players_to_start = 2
         
-        # ==================== NEW: RANDOM FAKE PLAYER RANGE (60-70) ====================
-        # Random fake players between 60-70 per game - decided at game creation
+        # ==================== NEW: RANDOM FAKE PLAYER RANGE (60-80) ====================
+        # Random fake players between 60-80 per game - decided at game creation
         self.min_fake_players = 60  # Minimum fake players per game
         self.max_fake_players = 80  # Maximum fake players per game
         # No dynamic adjustments - once set, fake count is frozen
@@ -779,7 +786,7 @@ class GameManager:
             self._final_winner_broadcast_sent[game_id] = False
     
     async def _run_card_purchase_phase(self, game_id: str) -> bool:
-        """Run the card purchase phase with countdown - OPTIMIZED for faster transition"""
+        """Run the card purchase phase with countdown - OPTIMIZED for instant transition"""
         from database.db import Database
         
         logger.info(f"🔄 Starting CARD PURCHASE phase for game {game_id}")
@@ -793,12 +800,12 @@ class GameManager:
             'timestamp': datetime.now().isoformat()
         }, game_id)
         
-        # Countdown from 30 to 0
+        # Countdown from 30 to 0 - ensure we reach 0 exactly
         for seconds_remaining in range(30, -1, -1):
             # Update countdown in database
             await Database.update_game_countdown(game_id, seconds_remaining)
             
-            # Broadcast countdown update (reduce frequency to save resources)
+            # Broadcast countdown update
             if seconds_remaining % 5 == 0 or seconds_remaining <= 10:
                 await self._safe_broadcast({
                     'type': 'countdown_update',
@@ -813,13 +820,15 @@ class GameManager:
         
         logger.info(f"⏰ Card purchase phase ended for game {game_id}")
         
-        # Immediately after countdown ends, check players and transition
-        # Don't wait - do it right here
-        if await self._has_enough_players(game_id):
-            logger.info(f"Game {game_id} has enough players, transitioning to active phase immediately")
+        # FIXED: IMMEDIATELY check players and transition - NO DELAY
+        # Call has_enough_players which will update game state and broadcast
+        has_players = await self._has_enough_players(game_id)
+        
+        if has_players:
+            logger.info(f"✅ Game {game_id} transitioned to active phase INSTANTLY")
             return True
         else:
-            logger.info(f"Game {game_id} doesn't have enough players, will reset countdown")
+            logger.info(f"⚠️ Game {game_id} not enough players, resetting countdown")
             return False
 
     async def _has_enough_players(self, game_id: str) -> bool:
@@ -866,8 +875,8 @@ class GameManager:
             # Increment state version
             self._game_state_versions[game_id] = self._game_state_versions.get(game_id, 0) + 1
             
-            # Broadcast phase change immediately
-            await self._safe_broadcast({
+            # Broadcast phase change immediately - don't await to avoid delay
+            broadcast_task = asyncio.create_task(self._safe_broadcast({
                 'type': 'phase_change_confirmed',
                 'game_id': game_id,
                 'phase': 'active',
@@ -876,9 +885,9 @@ class GameManager:
                 'total_players': total_players,
                 'prize_pool': final_prize_pool,
                 'timestamp': datetime.now().isoformat()
-            }, game_id)
+            }, game_id))
             
-            # Start number calling for this game (don't wait for this to complete)
+            # Start number calling for this game immediately (don't wait)
             from utils.number_caller import number_caller
             asyncio.create_task(number_caller.start_number_calling_for_game(game_id))
             

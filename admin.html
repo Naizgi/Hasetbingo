@@ -1830,6 +1830,28 @@
             color: #666;
         }
 
+        /* ==================== FAKE PLAYER SETTINGS MODAL ==================== */
+        .fake-player-range-inputs {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+        }
+
+        .fake-player-range-inputs .form-group {
+            flex: 1;
+        }
+
+        .current-fake-stats {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 5px;
+        }
+
+        .current-fake-stats .detail-row {
+            padding: 8px 0;
+        }
+
         @media (max-width: 767px) {
             body {
                 padding-bottom: 80px;
@@ -1915,6 +1937,11 @@
 
             .commission-stats {
                 grid-template-columns: repeat(2, 1fr);
+            }
+
+            .fake-player-range-inputs {
+                flex-direction: column;
+                gap: 10px;
             }
         }
 
@@ -2240,6 +2267,10 @@
         body.theme-dark .commission-period {
             background: #1a237e;
             color: #ffffff;
+        }
+
+        body.theme-dark .current-fake-stats {
+            background: #2d2d2d;
         }
     </style>
 </head>
@@ -2836,6 +2867,9 @@
                                 <button class="btn btn-reset-game" onclick="forceResetGame()">
                                     <i class="fas fa-sync-alt"></i> Force Reset Game
                                 </button>
+                                <button class="btn btn-warning" onclick="openFakePlayerSettingsModal()">
+                                    <i class="fas fa-robot"></i> Fake Players
+                                </button>
                             </div>
                         </div>
                     </div>
@@ -3142,7 +3176,7 @@
         </div>
     </div>
 
-    <!-- User Details Modal - UPDATED with Paginated Transactions -->
+    <!-- User Details Modal - FIXED with Paginated Transactions -->
     <div class="modal" id="user-details-modal">
         <div class="modal-content">
             <div class="modal-header">
@@ -3153,7 +3187,7 @@
                 <div class="payment-details" id="user-details-content"></div>
                 
                 <!-- Transaction History Section with Pagination -->
-                <div id="user-transactions-section" style="margin-top: 20px; display: none;">
+                <div id="user-transactions-section" style="margin-top: 20px;">
                     <h4 style="margin-bottom: 10px;">Transaction History</h4>
                     
                     <!-- Transaction Controls -->
@@ -3532,6 +3566,50 @@
                     <button class="btn btn-secondary" data-modal="reset-game-modal">Cancel</button>
                     <button class="btn btn-danger" id="confirm-reset-game">
                         <i class="fas fa-sync-alt"></i> Yes, Force Reset Game
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== NEW: Fake Player Settings Modal ==================== -->
+    <div class="modal" id="fake-player-settings-modal">
+        <div class="modal-content" style="max-width: 500px;">
+            <div class="modal-header">
+                <h3>Fake Player Settings</h3>
+                <button class="modal-close" data-modal="fake-player-settings-modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="payment-details" style="margin-bottom: 20px;">
+                    <p>Configure the range of fake players that join each game. These settings will apply to all future games.</p>
+                </div>
+                
+                <div class="fake-player-range-inputs">
+                    <div class="form-group">
+                        <label for="min-fake-players">Minimum Fake Players</label>
+                        <input type="number" id="min-fake-players" min="2" max="400" value="60" class="form-control">
+                    </div>
+                    <div class="form-group">
+                        <label for="max-fake-players">Maximum Fake Players</label>
+                        <input type="number" id="max-fake-players" min="2" max="400" value="80" class="form-control">
+                    </div>
+                </div>
+                
+                <div class="current-fake-stats" id="fake-player-status">
+                    <div class="detail-row">
+                        <span class="detail-label">Current Range:</span>
+                        <span class="detail-value" id="current-fake-range">60 - 80</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Fake Users Enabled:</span>
+                        <span class="detail-value" id="fake-users-enabled">Yes</span>
+                    </div>
+                </div>
+                
+                <div class="form-actions">
+                    <button class="btn btn-secondary" data-modal="fake-player-settings-modal">Cancel</button>
+                    <button class="btn btn-success" id="save-fake-player-settings">
+                        <i class="fas fa-save"></i> Save Settings
                     </button>
                 </div>
             </div>
@@ -5104,13 +5182,16 @@
         }
     }
 
-    // ==================== USER TRANSACTION FUNCTIONS - NEW ====================
+    // ==================== USER TRANSACTION FUNCTIONS - FIXED ====================
     async function loadUserTransactions(userId, page = 1) {
         if (!userId) return;
         
         currentTransactionUserId = userId;
         currentTransactionPage = page;
         currentTransactionPageSize = parseInt(document.getElementById('user-trans-page-size').value);
+        
+        // Show loading state
+        document.getElementById('user-transactions-body').innerHTML = '<tr><td colspan="6" style="text-align: center;">Loading transactions...</td></tr>';
         
         try {
             const response = await fetch(`/api/admin/user/${userId}/transactions?page=${page}&limit=${currentTransactionPageSize}`);
@@ -5166,6 +5247,78 @@
             console.error('Error loading user transactions:', error);
             document.getElementById('user-transactions-body').innerHTML = 
                 `<tr><td colspan="6" style="text-align: center;">Error loading transactions: ${error.message}</td></tr>`;
+        }
+    }
+
+    // ==================== FAKE PLAYER SETTINGS FUNCTIONS - NEW ====================
+    async function openFakePlayerSettingsModal() {
+        await loadFakePlayerSettings();
+        openModal('fake-player-settings-modal');
+    }
+
+    async function loadFakePlayerSettings() {
+        try {
+            const response = await fetch('/api/admin/fake-users-status');
+            if (!response.ok) {
+                throw new Error(`HTTP error ${response.status}`);
+            }
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                document.getElementById('min-fake-players').value = data.min_fake_players || 60;
+                document.getElementById('max-fake-players').value = data.max_fake_players || 80;
+                document.getElementById('current-fake-range').textContent = `${data.min_fake_players || 60} - ${data.max_fake_players || 80}`;
+                document.getElementById('fake-users-enabled').textContent = data.fake_users_enabled ? 'Yes' : 'No';
+            }
+        } catch (error) {
+            console.error('Error loading fake player settings:', error);
+            showNotification('Error loading fake player settings', 'danger');
+        }
+    }
+
+    async function saveFakePlayerSettings() {
+        const minFake = parseInt(document.getElementById('min-fake-players').value);
+        const maxFake = parseInt(document.getElementById('max-fake-players').value);
+        
+        if (isNaN(minFake) || minFake < 2) {
+            showNotification('Minimum fake players must be at least 2', 'warning');
+            return;
+        }
+        
+        if (isNaN(maxFake) || maxFake < minFake) {
+            showNotification('Maximum fake players must be greater than or equal to minimum', 'warning');
+            return;
+        }
+        
+        if (maxFake > 400) {
+            showNotification('Maximum fake players cannot exceed 400', 'warning');
+            return;
+        }
+        
+        try {
+            const response = await fetch('/api/admin/set_fake_player_range', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    min_fake: minFake,
+                    max_fake: maxFake,
+                    admin_id: adminData?.id || 'system'
+                })
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                showNotification(`Fake player range set to ${minFake} - ${maxFake}`, 'success');
+                addLiveUpdate(`Fake player range updated: ${minFake} - ${maxFake}`, 'success');
+                closeModal('fake-player-settings-modal');
+            } else {
+                showNotification('Failed to save settings: ' + (data.message || 'Unknown error'), 'danger');
+            }
+        } catch (error) {
+            console.error('Error saving fake player settings:', error);
+            showNotification('Error saving settings: ' + error.message, 'danger');
         }
     }
 
@@ -5921,6 +6074,13 @@
         
         // Profile save button
         document.getElementById('save-profile-btn')?.addEventListener('click', saveProfile);
+        
+        // Fake player settings button
+        document.querySelectorAll('.btn[onclick="openFakePlayerSettingsModal()"]').forEach(btn => {
+            btn.addEventListener('click', openFakePlayerSettingsModal);
+        });
+        
+        document.getElementById('save-fake-player-settings')?.addEventListener('click', saveFakePlayerSettings);
         
         document.querySelectorAll('.modal-close, .btn-secondary[data-modal]').forEach(btn => {
             btn.addEventListener('click', function() {
