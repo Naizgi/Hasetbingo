@@ -1353,7 +1353,7 @@
             background: white;
             border-radius: var(--border-radius);
             width: 100%;
-            max-width: 600px;
+            max-width: 700px;
             max-height: 90vh;
             overflow-y: auto;
             box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
@@ -1793,6 +1793,41 @@
         .commission-tab-content.active {
             display: block;
             animation: fadeIn 0.5s ease;
+        }
+
+        .user-transaction-controls {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin: 15px 0;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 5px;
+        }
+
+        .user-transaction-pagination {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .user-transaction-pagination button {
+            padding: 5px 10px;
+            border: 1px solid #ddd;
+            background: white;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+
+        .user-transaction-pagination button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .user-transaction-pagination span {
+            font-size: 12px;
+            color: #666;
         }
 
         @media (max-width: 767px) {
@@ -3107,7 +3142,7 @@
         </div>
     </div>
 
-    <!-- User Details Modal -->
+    <!-- User Details Modal - UPDATED with Paginated Transactions -->
     <div class="modal" id="user-details-modal">
         <div class="modal-content">
             <div class="modal-header">
@@ -3116,6 +3151,52 @@
             </div>
             <div class="modal-body">
                 <div class="payment-details" id="user-details-content"></div>
+                
+                <!-- Transaction History Section with Pagination -->
+                <div id="user-transactions-section" style="margin-top: 20px; display: none;">
+                    <h4 style="margin-bottom: 10px;">Transaction History</h4>
+                    
+                    <!-- Transaction Controls -->
+                    <div class="user-transaction-controls">
+                        <div class="user-transaction-pagination">
+                            <button id="user-trans-prev" onclick="loadUserTransactions(currentTransactionUserId, currentTransactionPage - 1)" disabled>
+                                <i class="fas fa-chevron-left"></i> Prev
+                            </button>
+                            <span id="user-trans-info">Page 1 of 1</span>
+                            <button id="user-trans-next" onclick="loadUserTransactions(currentTransactionUserId, currentTransactionPage + 1)" disabled>
+                                Next <i class="fas fa-chevron-right"></i>
+                            </button>
+                        </div>
+                        <select id="user-trans-page-size" onchange="loadUserTransactions(currentTransactionUserId, 1)">
+                            <option value="5">5 per page</option>
+                            <option value="10" selected>10 per page</option>
+                            <option value="20">20 per page</option>
+                            <option value="50">50 per page</option>
+                        </select>
+                    </div>
+                    
+                    <!-- Transactions Table -->
+                    <div class="table-container">
+                        <table id="user-transactions-table" style="min-width: 100%; font-size: 12px;">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Type</th>
+                                    <th>Amount</th>
+                                    <th>Balance After</th>
+                                    <th>Description</th>
+                                    <th>Date</th>
+                                </tr>
+                            </thead>
+                            <tbody id="user-transactions-body">
+                                <tr>
+                                    <td colspan="6" style="text-align: center;">Loading transactions...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                
                 <div class="form-actions">
                     <button class="btn btn-secondary" data-modal="user-details-modal">Close</button>
                 </div>
@@ -3484,6 +3565,13 @@
     let userSearchQuery = '';
     let userSearchType = 'all';
     let isSearchMode = false;
+
+    // User transaction pagination state
+    let currentTransactionUserId = null;
+    let currentTransactionPage = 1;
+    let currentTransactionPageSize = 10;
+    let userTransactionsTotal = 0;
+    let userTransactionsTotalPages = 0;
 
     // ==================== AUTHENTICATION CHECK ====================
     function checkAuth() {
@@ -5016,6 +5104,71 @@
         }
     }
 
+    // ==================== USER TRANSACTION FUNCTIONS - NEW ====================
+    async function loadUserTransactions(userId, page = 1) {
+        if (!userId) return;
+        
+        currentTransactionUserId = userId;
+        currentTransactionPage = page;
+        currentTransactionPageSize = parseInt(document.getElementById('user-trans-page-size').value);
+        
+        try {
+            const response = await fetch(`/api/admin/user/${userId}/transactions?page=${page}&limit=${currentTransactionPageSize}`);
+            
+            if (!response.ok) {
+                throw new Error(`HTTP error ${response.status}`);
+            }
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                userTransactionsTotal = data.pagination?.total || 0;
+                userTransactionsTotalPages = data.pagination?.pages || Math.ceil(userTransactionsTotal / currentTransactionPageSize);
+                
+                // Update pagination info
+                document.getElementById('user-trans-info').textContent = 
+                    `Page ${page} of ${userTransactionsTotalPages || 1}`;
+                
+                // Enable/disable prev/next buttons
+                document.getElementById('user-trans-prev').disabled = page === 1;
+                document.getElementById('user-trans-next').disabled = page === userTransactionsTotalPages || userTransactionsTotalPages === 0;
+                
+                // Show transactions section
+                document.getElementById('user-transactions-section').style.display = 'block';
+                
+                // Render transactions table
+                const tbody = document.getElementById('user-transactions-body');
+                
+                if (data.transactions && data.transactions.length > 0) {
+                    let html = '';
+                    data.transactions.forEach(tx => {
+                        const amount = parseFloat(tx.amount || 0);
+                        const amountClass = amount >= 0 ? 'change-positive' : 'change-negative';
+                        const amountSign = amount >= 0 ? '+' : '';
+                        
+                        html += `
+                            <tr>
+                                <td><strong>${tx.id}</strong></td>
+                                <td>${formatTransactionType(tx.transaction_type)}</td>
+                                <td class="${amountClass}"><strong>${amountSign}${formatCurrency(amount)}</strong></td>
+                                <td>${formatCurrency(tx.balance_after || 0)}</td>
+                                <td>${tx.description || ''}</td>
+                                <td>${tx.created_at ? new Date(tx.created_at).toLocaleString() : 'N/A'}</td>
+                            </tr>
+                        `;
+                    });
+                    tbody.innerHTML = html;
+                } else {
+                    tbody.innerHTML = '<tr><td colspan="6" style="text-align: center;">No transactions found</td></tr>';
+                }
+            }
+        } catch (error) {
+            console.error('Error loading user transactions:', error);
+            document.getElementById('user-transactions-body').innerHTML = 
+                `<tr><td colspan="6" style="text-align: center;">Error loading transactions: ${error.message}</td></tr>`;
+        }
+    }
+
     // ==================== VIEW FUNCTIONS - POPUP MODALS ====================
     async function openViewGameModal(gameId) {
         try {
@@ -5154,28 +5307,16 @@
                     </div>
                 `;
                 
-                if (user.recent_transactions && user.recent_transactions.length > 0) {
-                    html += '<h4 style="margin-top: 20px; margin-bottom: 10px;">Recent Transactions</h4>';
-                    html += '<table style="width: 100%; font-size: 12px;">';
-                    html += '<thead><tr><th>Type</th><th>Amount</th><th>Date</th></tr></thead><tbody>';
-                    
-                    user.recent_transactions.slice(0, 5).forEach(tx => {
-                        html += `
-                            <tr>
-                                <td>${tx.transaction_type}</td>
-                                <td class="${tx.amount > 0 ? 'change-positive' : 'change-negative'}">${tx.amount > 0 ? '+' : ''}${formatCurrency(tx.amount)}</td>
-                                <td>${new Date(tx.created_at).toLocaleDateString()}</td>
-                            </tr>
-                        `;
-                    });
-                    
-                    html += '</tbody></table>';
-                }
-                
                 document.getElementById('user-details-content').innerHTML = html;
                 
-                const actionSection = document.getElementById('user-details-modal').querySelector('.modal-body .form-actions');
+                // Reset transaction pagination and load first page
+                currentTransactionUserId = userId;
+                currentTransactionPage = 1;
+                await loadUserTransactions(userId, 1);
+                
+                const actionSection = document.getElementById('user-details-modal').querySelector('.form-actions');
                 if (actionSection) {
+                    // Remove existing action buttons except close
                     while (actionSection.children.length > 1) {
                         actionSection.removeChild(actionSection.children[0]);
                     }
