@@ -6,1728 +6,1056 @@
     <title>Habesha Bingo - Server-Coordinated Game</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
- <style>
-    :root {
-        --primary: #8B4513; /* Brown - for owned cards */
-        --primary-dark: #5D3A1A;
-        --primary-light: #A0522D;
-        
-        --secondary: #FF0000; /* Red - for stat numbers */
-        --secondary-dark: #CC0000;
-        --secondary-light: #FF3333;
-        
-        --accent: #800080; /* Purple - for called numbers board */
-        --accent-dark: #4B0082;
-        --accent-light: #9370DB;
-        
-        --success: #00c853;
-        --success-dark: #009624;
-        --warning: #ff9800;
-        --danger: #f44336;
-        
-        --dark: #1a1a2e;
-        --darker: #0f0f1a;
-        --light: #f8f9fa;
-        --card-bg: #FFD580; /* Light orange for card backgrounds */
-        --available: #808080; /* Gray for available cards */
-        --sold: #FFFF00; /* Yellow for sold cards */
-        --owned: #8B4513; /* Brown for owned cards */
-        --panel-bg: rgba(255, 255, 255, 0.03);
-        --border-color: rgba(255, 255, 255, 0.1);
-        
-        /* BINGO letter colors */
-        --bingo-b: #ff6b6b;
-        --bingo-i: #2e0eff;
-        --bingo-n: #ffe66d;
-        --bingo-g: #e10bcb;
-        --bingo-o: #0c5f21;
-    }
-    
-    * {
-        margin: 0;
-        padding: 0;
-        box-sizing: border-box;
-        -webkit-tap-highlight-color: transparent;
-    }
-    
-    body {
-        font-family: 'Poppins', sans-serif;
-        background: linear-gradient(135deg, var(--darker) 0%, var(--dark) 100%);
-        color: var(--light);
-        min-height: 100vh;
-        padding: 0;
-        margin: 0;
-        overflow-x: hidden;
-    }
-    
-    /* Screen States */
-    .screen {
-        display: none;
-        animation: fadeIn 0.2s ease;
-    }
-    
-    .screen.active {
-        display: block;
-    }
-    
-    @keyframes fadeIn {
-        from { opacity: 0; }
-        to { opacity: 1; }
-    }
-    
-    /* Main Container */
-    .container {
-        max-width: 100%;
-        padding: 12px;
-        padding-bottom: 80px;
-        min-width: 320px;
-    }
-    
-    /* Game Stats - Mobile Optimized */
-    .game-stats {
-        background: var(--panel-bg);
-        border-radius: 8px;
-        padding: 8px;
-        margin-bottom: 8px;
-        display: grid;
-        grid-template-columns: repeat(3, 1fr);
-        gap: 6px;
-        border: 1px solid var(--border-color);
-    }
-    
-    .stat-item {
-        text-align: center;
-        padding: 6px 4px;
-        background: rgba(0, 0, 0, 0.3);
-        border-radius: 6px;
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-        border: 1px solid var(--border-color);
-    }
-    
-    .stat-label {
-        font-size: 9px;
-        opacity: 0.8;
-        margin-bottom: 3px;
-    }
-    
-    .stat-value {
-        font-size: 14px;
-        font-weight: 600;
-        color: var(--secondary) !important;
-        transition: color 0.1s ease;
-    }
-    
-    .countdown-timer {
-        font-size: 18px;
-        font-weight: 700;
-        color: var(--secondary) !important;
-        text-shadow: 0 0 10px rgba(255, 0, 0, 0.5);
-        animation: pulse 1s infinite;
-    }
-    
-    @keyframes pulse {
-        0% { opacity: 0.9; }
-        50% { opacity: 1; }
-        100% { opacity: 0.9; }
-    }
-    
-    /* Countdown Progress Bar */
-    .countdown-progress {
-        width: 100%;
-        height: 4px;
-        background: rgba(255, 255, 255, 0.1);
-        border-radius: 2px;
-        margin-top: 4px;
-        overflow: hidden;
-    }
-    
-    .countdown-progress-bar {
-        height: 100%;
-        background: linear-gradient(90deg, var(--success) 0%, var(--secondary) 100%);
-        border-radius: 2px;
-        width: 100%;
-        transition: width 1s linear;
-    }
-    
-    /* Current Called Number Display - Purple Theme */
-    .current-called-display {
-        background: linear-gradient(135deg, var(--accent) 0%, var(--accent-dark) 100%);
-        border-radius: 10px;
-        padding: 10px;
-        text-align: center;
-        border: 2px solid var(--secondary);
-        box-shadow: 0 4px 12px rgba(128, 0, 128, 0.3);
-        margin-bottom: 12px;
-        position: relative;
-    }
-    
-    .current-called-label {
-        font-size: 12px;
-        opacity: 0.9;
-        margin-bottom: 4px;
-        color: white;
-        font-weight: 600;
-    }
-    
-    .current-called-letter-number {
-        font-weight: 700;
-        color: white;
-        text-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
-        animation: pulse 1.5s infinite;
-        font-size: 42px;
-        margin: 4px 0;
-        letter-spacing: 1px;
-    }
-    
-    /* Audio Controls */
-    .audio-controls {
-        position: absolute;
-        top: 10px;
-        right: 10px;
-    }
-    
-    .audio-toggle {
-        background: rgba(0, 0, 0, 0.3);
-        border: 1px solid var(--secondary);
-        color: var(--secondary);
-        width: 30px;
-        height: 30px;
-        border-radius: 50%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        cursor: pointer;
-        transition: all 0.2s ease;
-    }
-    
-    .audio-toggle:hover {
-        background: rgba(255, 0, 0, 0.2);
-        transform: scale(1.05);
-    }
-    
-    .audio-toggle.muted {
-        opacity: 0.5;
-        border-color: var(--accent);
-        color: var(--accent);
-    }
-    
-    /* Audio Loading Progress */
-    .audio-loading-progress {
-        width: 100%;
-        height: 4px;
-        background: rgba(255, 255, 255, 0.1);
-        border-radius: 2px;
-        margin-top: 5px;
-        overflow: hidden;
-    }
-    
-    .audio-loading-bar {
-        height: 100%;
-        background: var(--primary);
-        border-radius: 2px;
-        width: 0%;
-        transition: width 0.3s ease;
-    }
-    
-    .game-grid-container {
-        display: flex;
-        flex-direction: row !important;
-        justify-content: center;
-        gap: 2px;
-        margin-bottom: 12px;
-        align-items: flex-start;
-        flex-wrap: nowrap;
-        min-width: 340px;
-        overflow-x: auto;
-        padding: 10px 5px;
-    }
-    
-    .bingo-grid-container {
-        background: var(--card-bg) !important; /* Light orange */
-        border-radius: 12px;
-        padding: 10px;
-        border: 2px solid var(--primary);
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-        width: 160px;
-        height: 420px;
-        overflow-y: auto;
-        display: flex;
-        flex-direction: column;
-        flex-shrink: 0;
-    }
-    
-    .bingo-header-row {
-        display: flex;
-        margin-bottom: 5px;
-    }
-    
-    .bingo-header-cell {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-weight: 700;
-        font-size: 15px;
-        background: rgba(0, 0, 0, 0.3);
-        border-radius: 5px;
-        padding: 6px 2px;
-        flex: 1;
-        margin: 0 1px;
-        text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
-    }
-    
-    /* BINGO letter colors */
-    .bingo-header-cell:nth-child(1) {
-        background: linear-gradient(135deg, var(--bingo-b), #ff5252);
-        color: white;
-        border: 1px solid rgba(255, 255, 255, 0.3);
-        box-shadow: 0 0 10px rgba(255, 107, 107, 0.5);
-    }
-    
-    .bingo-header-cell:nth-child(2) {
-        background: linear-gradient(135deg, var(--bingo-i), #45b7d1);
-        color: white;
-        border: 1px solid rgba(255, 255, 255, 0.3);
-        box-shadow: 0 0 10px rgba(78, 205, 196, 0.5);
-    }
-    
-    .bingo-header-cell:nth-child(3) {
-        background: linear-gradient(135deg, var(--bingo-n), #ffd93d);
-        color: #2d2d44;
-        border: 1px solid rgba(255, 255, 255, 0.3);
-        box-shadow: 0 0 10px rgba(255, 230, 109, 0.5);
-    }
-    
-    .bingo-header-cell:nth-child(4) {
-        background: linear-gradient(135deg, var(--bingo-g), #7ed6df);
-        color: white;
-        border: 1px solid rgba(255, 255, 255, 0.3);
-        box-shadow: 0 0 10px rgba(149, 225, 211, 0.5);
-    }
-    
-    .bingo-header-cell:nth-child(5) {
-        background: linear-gradient(135deg, var(--bingo-o), #ffb347);
-        color: white;
-        border: 1px solid rgba(255, 255, 255, 0.3);
-        box-shadow: 0 0 10px rgba(249, 202, 167, 0.5);
-    }
-    
-    .bingo-numbers-columns {
-        display: flex;
-        gap: 3px;
-    }
-    
-    .bingo-column {
-        display: flex;
-        flex-direction: column;
-        gap: 3px;
-        flex: 1;
-    }
-    
-    .bingo-number-cell {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: rgba(0, 0, 0, 0.1);
-        border-radius: 4px;
-        font-weight: 600;
-        font-size: 15px;
-        min-height: 18px;
-        border: 1px solid rgba(0, 0, 0, 0.2);
-        transition: all 0.1s ease;
-        padding: 2px;
-        color: #333;
-        position: relative;
-    }
-    
-    .bingo-number-cell.called {
-        background: var(--accent);
-        color: white;
-        border-color: var(--accent-dark);
-        transform: scale(1.02);
-        box-shadow: 0 0 5px rgba(128, 0, 128, 0.5);
-    }
-    
-    .player-card-and-button-container {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 2px;
-        width: auto;
-    }
-    
-    .player-card-container {
-        background: var(--card-bg) !important; /* Light orange */
-        border-radius: 12px;
-        padding: 10px;
-        border: 2px solid var(--primary);
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-        width: 260px;
-        height: 310px;
-        display: flex;
-        flex-direction: column;
-        flex-shrink: 0;
-    }
-    
-    .player-card-title {
-        font-size: 12px;
-        margin-bottom: 8px;
-        color: var(--secondary);
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding-bottom: 6px;
-        border-bottom: 1px solid var(--border-color);
-    }
-    
-    .player-card-header-row {
-        display: grid;
-        grid-template-columns: repeat(5, 1fr);
-        gap: 3px;
-        margin-bottom: 5px;
-    }
-    
-    .player-card-header-cell {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-weight: 700;
-        font-size: 12px;
-        background: rgba(0, 0, 0, 0.3);
-        border-radius: 5px;
-        padding: 6px 0;
-    }
-    
-    /* Player card BINGO letter colors */
-    .player-card-header-cell:nth-child(1) {
-        background: linear-gradient(135deg, var(--bingo-b), #ff5252);
-        color: white;
-    }
-    
-    .player-card-header-cell:nth-child(2) {
-        background: linear-gradient(135deg, var(--bingo-i), #45b7d1);
-        color: white;
-    }
-    
-    .player-card-header-cell:nth-child(3) {
-        background: linear-gradient(135deg, var(--bingo-n), #ffd93d);
-        color: #2d2d44;
-    }
-    
-    .player-card-header-cell:nth-child(4) {
-        background: linear-gradient(135deg, var(--bingo-g), #7ed6df);
-        color: white;
-    }
-    
-    .player-card-header-cell:nth-child(5) {
-        background: linear-gradient(135deg, var(--bingo-o), #ffb347);
-        color: white;
-    }
-    
-    .player-card-grid {
-        display: grid;
-        grid-template-columns: repeat(5, 1fr);
-        gap: 3px;
-        flex: 1;
-        width: fit-content;
-    }
-    
-    .player-card-cell {
-        aspect-ratio: 1;
-        background: rgba(255, 255, 255, 0.2);
-        border-radius: 4px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-weight: 600;
-        cursor: pointer;
-        transition: all 0.08s ease;
-        border: 1px solid rgba(0, 0, 0, 0.2);
-        font-size: 14px;
-        color: #333;
-        position: relative;
-        user-select: none;
-    }
-    
-    .player-card-cell:hover {
-        background: rgba(255, 255, 255, 0.3);
-        transform: scale(1.02);
-    }
-    
-    .player-card-cell.marked {
-        background: var(--accent) !important;
-        color: white;
-        border-color: var(--accent-dark) !important;
-        transform: scale(1.02);
-        box-shadow: 0 0 8px rgba(128, 0, 128, 0.5) !important;
-    }
-    
-    .player-card-cell.free {
-        background: var(--primary);
-        color: white;
-        cursor: default;
-        border-color: var(--primary-dark);
-        font-size: 10px;
-    }
-    
-    .game-bingo-button-container {
-        margin: 0;
-        text-align: center;
-        padding: 0;
-        background: transparent;
-        border-radius: 8px;
-        border: none;
-        width: 100%;
-        max-width: 220px;
-        display: flex;
-        justify-content: center;
-        align-items: center;
-    }
-    
-    .bingo-btn {
-        padding: 10px 20px;
-        font-size: 14px;
-        font-weight: 700;
-        background: linear-gradient(135deg, #ffd700 0%, #ff9800 100%);
-        color: var(--dark);
-        border: none;
-        border-radius: 50px;
-        cursor: pointer;
-        transition: all 0.15s ease;
-        box-shadow: 0 5px 20px rgba(255, 215, 0, 0.4);
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        gap: 6px;
-        width: 100%;
-        max-width: 220px;
-        min-height: 44px;
-    }
-    
-    .bingo-btn:hover:not(:disabled) {
-        transform: scale(1.02);
-        box-shadow: 0 8px 25px rgba(255, 215, 0, 0.6);
-    }
-    
-    .bingo-btn:disabled {
-        opacity: 0.5;
-        cursor: not-allowed;
-    }
-    
-    /* Called Numbers Container - Purple Theme */
-    .called-numbers-container {
-        background: var(--accent) !important;
-        border-radius: 10px;
-        padding: 12px;
-        border: 2px solid rgba(255, 255, 255, 0.2);
-        margin-bottom: 12px;
-        box-shadow: 0 4px 12px rgba(128, 0, 128, 0.3);
-    }
-    
-    .called-title {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 8px;
-        color: white;
-    }
-    
-    .called-title div {
-        color: white !important;
-        font-weight: 600;
-    }
-    
-    .called-numbers-grid {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 4px;
-        max-height: 50px;
-        overflow-y: auto;
-        padding: 8px;
-        background: var(--accent-light);
-        border-radius: 8px;
-        border: 1px solid rgba(255, 255, 255, 0.2);
-    }
-    
-    .called-number {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-weight: 700;
-        background: var(--accent-dark);
-        color: white;
-        border: 1px solid rgba(255, 255, 255, 0.2);
-        width: 28px;
-        height: 28px;
-        font-size: 13px;
-        border-radius: 6px;
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-    }
-    
-    .called-number.recent {
-        animation: pulse 1s infinite;
-        border: 2px solid white;
-        transform: scale(1.05);
-        background: var(--accent-light);
-    }
-    
-    .called-stat {
-        font-size: 16px;
-        color: var(--secondary) !important;
-        font-weight: 600;
-    }
-    
-    .bingo-button-container {
-        margin: 12px 0;
-        text-align: center;
-        padding: 12px;
-        background: var(--panel-bg);
-        border-radius: 10px;
-        border: 1px solid var(--border-color);
-    }
-    
-    .cards-selection {
-        padding: 0;
-        margin-bottom: 0;
-    }
-
-    /* FIXED: Cards Grid with fixed height to prevent layout shifts */
-    .cards-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(40px, 1fr));
-        gap: 4px;
-        max-height: 420px;
-        min-height: 420px;
-        overflow-y: auto;
-        padding: 12px;
-        background: rgba(0, 0, 0, 0.2);
-        border-radius: 8px;
-        border: 1px solid var(--border-color);
-        margin-bottom: 8px;
-        width: 100%;
-        contain: content;
-        content-visibility: auto;
-    }
-    
-    /* FIXED: Lightning fast card transitions with hardware acceleration */
-    .card-item {
-        aspect-ratio: 1;
-        border-radius: 6px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-weight: 600;
-        color: white;
-        font-size: 14px;
-        position: relative;
-        min-width: 0;
-        min-height: 40px;
-        box-sizing: border-box;
-        line-height: 1;
-        
-        transition: background-color 0.08s ease, transform 0.08s ease, box-shadow 0.08s ease;
-        will-change: transform, background-color;
-        backface-visibility: hidden;
-        -webkit-font-smoothing: antialiased;
-        transform: translateZ(0);
-        image-rendering: -webkit-optimize-contrast;
-        animation: none !important;
-    }
-    
-    .card-item.available {
-        background: var(--available) !important; /* Gray */
-        cursor: pointer;
-        transform: scale(1) !important;
-        color: white;
-    }
-    
-    .card-item.available:hover {
-        transform: scale(1.05);
-        box-shadow: 0 0 10px rgba(128, 128, 128, 0.5);
-    }
-    
-    .card-item.sold {
-        background: var(--sold) !important; /* Yellow */
-        color: #333 !important;
-        cursor: not-allowed !important;
-        opacity: 0.9;
-        transform: scale(1) !important;
-        pointer-events: none;
-        border: 1px solid #666;
-    }
-    
-    .card-item.owned {
-        background: var(--owned) !important; /* Brown */
-        border-color: var(--secondary) !important;
-        box-shadow: 0 0 10px rgba(139, 69, 19, 0.5) !important;
-        transform: scale(1) !important;
-        animation: ownedPulse 2s infinite;
-        color: white;
-    }
-    
-    @keyframes ownedPulse {
-        0% { transform: scale(1); box-shadow: 0 0 10px rgba(139, 69, 19, 0.5); }
-        50% { transform: scale(1.02); box-shadow: 0 0 15px rgba(139, 69, 19, 0.8); }
-        100% { transform: scale(1); box-shadow: 0 0 10px rgba(139, 69, 19, 0.5); }
-    }
-    
-    .card-item.selected {
-        background: var(--primary-light) !important;
-        border-color: var(--secondary) !important;
-        box-shadow: 0 0 15px rgba(255, 0, 0, 0.7) !important;
-        transform: scale(1.05) !important;
-        z-index: 10;
-    }
-    
-    .card-item.purchasing {
-        opacity: 0.9;
-        transform: scale(0.98);
-        pointer-events: none;
-        filter: brightness(0.9);
-        transition: all 0.08s ease;
-        background: var(--primary) !important;
-    }
-    
-    .card-item::before,
-    .card-item::after {
-        transition: none;
-        animation: none !important;
-    }
-    
-    .card-item.purchasing::after {
-        display: none !important;
-        content: none !important;
-    }
-    
-    .card-item.owned::after {
-        content: '★';
-        position: absolute;
-        top: 1px;
-        right: 1px;
-        font-size: 6px;
-        color: var(--secondary);
-        z-index: 2;
-    }
-    
-    .selected-card-info {
-        background: rgba(255, 255, 255, 0.05);
-        border-radius: 10px;
-        padding: 12px;
-        margin: 12px 0;
-        border: 1px solid rgba(255, 255, 255, 0.1);
-    }
-    
-    .card-info-row {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 8px;
-    }
-    
-    .card-price {
-        font-size: 14px;
-        color: var(--secondary);
-    }
-    
-    .card-cut {
-        font-size: 11px;
-        opacity: 0.8;
-    }
-    
-    .card-preview-section {
-        margin-top: 15px;
-    }
-    
-    .card-preview-title {
-        font-size: 12px;
-        color: var(--secondary);
-        margin-bottom: 8px;
-        display: flex;
-        align-items: center;
-        gap: 6px;
-    }
-    
-    .card-preview-container {
-        background: var(--card-bg);
-        border-radius: 8px;
-        padding: 10px;
-        border: 1px solid var(--primary);
-        display: flex;
-        justify-content: center;
-        align-items: center;
-    }
-    
-    .card-preview-grid {
-        display: grid;
-        grid-template-columns: repeat(5, 1fr);
-        gap: 3px;
-        width: 180px;
-        height: 180px;
-    }
-    
-    .card-preview-cell {
-        aspect-ratio: 1;
-        background: rgba(255, 255, 255, 0.2);
-        border-radius: 4px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-weight: 600;
-        font-size: 11px;
-        border: 1px solid rgba(0, 0, 0, 0.1);
-        color: #333;
-        position: relative;
-    }
-    
-    .card-preview-cell.free {
-        background: var(--primary);
-        color: white;
-        font-size: 9px;
-        border-color: var(--primary);
-    }
-
-    .loading-spinner {
-        display: inline-block;
-        width: 20px;
-        height: 20px;
-        border: 3px solid rgba(255,255,255,.3);
-        border-radius: 50%;
-        border-top-color: #fff;
-        animation: spin 1s ease-in-out infinite;
-    }
-    
-    @keyframes spin {
-        to { transform: rotate(360deg); }
-    }
-    
-    .card-item:not(.purchasing) {
-        transition: background-color 0.08s ease, transform 0.08s ease, box-shadow 0.08s ease;
-    }
-    
-    /* Winner Announcement Screen */
-    .winner-display {
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background: rgba(0, 0, 0, 0.98);
-        display: none;
-        align-items: center;
-        justify-content: center;
-        z-index: 1000;
-        overflow-y: auto;
-        padding: 5px;
-        animation: winnerFadeIn 0.2s ease;
-    }
-    
-    @keyframes winnerFadeIn {
-        from { opacity: 0; transform: scale(0.95); }
-        to { opacity: 1; transform: scale(1); }
-    }
-    
-    .winner-content {
-        background: linear-gradient(135deg, #1a4d2e 0%, #0a2f1a 100%);
-        border-radius: 15px;
-        padding: 10px;
-        text-align: center;
-        width: 100%;
-        max-width: 350px;
-        margin: auto;
-        border: 3px solid var(--secondary);
-        box-shadow: 0 0 30px rgba(255, 0, 0, 0.3);
-        position: relative;
-        overflow: hidden;
-        max-height: 95vh;
-        overflow-y: auto;
-        display: flex;
-        flex-direction: column;
-    }
-    
-    .winner-content::before {
-        content: '';
-        position: absolute;
-        top: -50%;
-        left: -50%;
-        width: 200%;
-        height: 200%;
-        background: radial-gradient(circle, rgba(255,0,0,0.1) 0%, transparent 70%);
-        animation: rotate 20s linear infinite;
-        z-index: 0;
-    }
-    
-    @keyframes rotate {
-        from { transform: rotate(0deg); }
-        to { transform: rotate(360deg); }
-    }
-    
-    .winner-content > * {
-        position: relative;
-        z-index: 1;
-    }
-    
-    .winner-content h2 {
-        font-size: 20px;
-        color: var(--secondary);
-        margin: 5px 0;
-        text-shadow: 0 0 15px rgba(255, 0, 0, 0.8);
-        font-weight: 700;
-        letter-spacing: 1px;
-    }
-    
-    .winner-trophy {
-        font-size: 30px;
-        color: var(--secondary);
-        margin: 5px 0;
-        animation: bounce 2s infinite;
-    }
-    
-    @keyframes bounce {
-        0%, 100% { transform: translateY(0); }
-        50% { transform: translateY(-5px); }
-    }
-    
-    .multiple-winners-header {
-        background: rgba(255, 0, 0, 0.2);
-        border-radius: 30px;
-        padding: 8px 12px;
-        margin: 5px 0 10px;
-        border: 1px solid var(--secondary);
-        font-size: 16px;
-        font-weight: 600;
-        color: var(--secondary);
-    }
-    
-    .winners-names {
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        gap: 5px;
-        flex-wrap: wrap;
-    }
-    
-    .winner-name-badge {
-        background: var(--primary);
-        padding: 5px 12px;
-        border-radius: 20px;
-        font-size: 14px;
-        font-weight: 600;
-        color: white;
-    }
-    
-    .winner-name-badge:first-child {
-        background: var(--accent);
-    }
-    
-    .winner-name-badge:last-child {
-        background: #00c853;
-    }
-    
-    .and-separator {
-        color: var(--secondary);
-        font-weight: 600;
-        font-size: 14px;
-    }
-    
-    .winners-compact-container {
-        display: flex;
-        flex-direction: column;
-        gap: 10px;
-        margin: 5px 0;
-        max-height: 350px;
-        overflow-y: auto;
-    }
-    
-    .winner-compact-card {
-        background: rgba(0, 0, 0, 0.3);
-        border-radius: 10px;
-        padding: 8px;
-        border: 1px solid var(--secondary);
-    }
-    
-    .winner-compact-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 5px;
-        font-size: 12px;
-    }
-    
-    .winner-compact-name {
-        font-weight: 600;
-        color: var(--secondary);
-    }
-    
-    .winner-compact-prize {
-        background: rgba(255, 0, 0, 0.2);
-        padding: 2px 8px;
-        border-radius: 12px;
-        font-size: 11px;
-        font-weight: 600;
-    }
-    
-    .winner-card-grid-display {
-        display: grid;
-        grid-template-columns: repeat(5, 1fr);
-        gap: 2px;
-        width: 100%;
-        max-width: 200px;
-        margin: 0 auto;
-        background: transparent;
-    }
-    
-    .winner-card-cell {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: rgba(255, 255, 255, 0.15);
-        border-radius: 4px;
-        font-size: 11px;
-        font-weight: 600;
-        color: white;
-        border: 1px solid rgba(255, 255, 255, 0.2);
-        transition: all 0.15s ease;
-        position: relative;
-        backdrop-filter: blur(2px);
-        aspect-ratio: 1;
-        padding: 2px;
-    }
-    
-    .winner-card-cell.marked {
-        background: linear-gradient(135deg, #ff3333 0%, #cc0000 100%) !important;
-        border-color: var(--secondary) !important;
-        box-shadow: 0 0 15px rgba(255, 51, 51, 0.8) !important;
-        transform: scale(1.02);
-        font-weight: 700;
-        animation: winnerCellPulse 1.5s infinite;
-        border: 1px solid var(--secondary) !important;
-        color: white;
-    }
-    
-    @keyframes winnerCellPulse {
-        0% { box-shadow: 0 0 10px rgba(255, 51, 51, 0.8); }
-        50% { box-shadow: 0 0 20px rgba(255, 51, 51, 1), 0 0 30px rgba(255, 0, 0, 0.5); }
-        100% { box-shadow: 0 0 10px rgba(255, 51, 51, 0.8); }
-    }
-    
-    .winner-card-cell.free {
-        background: var(--primary);
-        border-color: var(--primary);
-        color: white;
-        font-weight: bold;
-        font-size: 9px;
-    }
-    
-    .winner-card-cell.free.marked {
-        background: linear-gradient(135deg, #ff3333 0%, #cc0000 100%) !important;
-        border-color: var(--secondary) !important;
-    }
-    
-    .winning-pattern-display {
-        background: rgba(255, 51, 51, 0.15);
-        border-radius: 8px;
-        padding: 8px;
-        margin: 5px 0;
-        border: 1px solid rgba(255, 51, 51, 0.5);
-    }
-    
-    .winning-pattern-title {
-        color: #ff3333;
-        font-weight: bold;
-        margin-bottom: 5px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 5px;
-        font-size: 12px;
-    }
-    
-    .winning-pattern-numbers {
-        display: flex;
-        flex-wrap: wrap;
-        justify-content: center;
-        gap: 5px;
-        margin-top: 5px;
-    }
-    
-    .winning-pattern-number {
-        background: linear-gradient(135deg, #ff3333 0%, #cc0000 100%);
-        color: white;
-        width: 30px;
-        height: 30px;
-        border-radius: 50%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-weight: bold;
-        font-size: 12px;
-        box-shadow: 0 0 10px rgba(255, 51, 51, 0.5);
-        border: 1px solid var(--secondary);
-        animation: numberPop 0.2s ease;
-    }
-    
-    @keyframes numberPop {
-        0% { transform: scale(0); }
-        80% { transform: scale(1.05); }
-        100% { transform: scale(1); }
-    }
-    
-    .winner-countdown {
-        font-size: 14px;
-        margin: 8px 0 5px;
-        opacity: 0.9;
-        color: var(--secondary);
-        animation: countdownPulse 1s infinite;
-    }
-    
-    @keyframes countdownPulse {
-        0% { opacity: 0.7; }
-        50% { opacity: 1; }
-        100% { opacity: 0.7; }
-    }
-    
-    .notification-toast {
-        position: fixed;
-        top: 20px;
-        right: 20px;
-        background: var(--success);
-        color: white;
-        padding: 12px 20px;
-        border-radius: 8px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-        z-index: 1001;
-        display: none;
-        align-items: center;
-        gap: 10px;
-        animation: slideIn 0.15s ease-out;
-    }
-    
-    @keyframes slideIn {
-        from { transform: translateX(100%); opacity: 0; }
-        to { transform: translateX(0); opacity: 1; }
-    }
-    
-    .game-winner-screen {
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background: rgba(0, 0, 0, 0.95);
-        display: none;
-        align-items: center;
-        justify-content: center;
-        z-index: 1002;
-    }
-    
-    .game-winner-content {
-        background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
-        border-radius: 15px;
-        padding: 25px;
-        text-align: center;
-        max-width: 90%;
-        border: 3px solid var(--secondary);
-    }
-    
-    .game-winner-content h2 {
-        font-size: 24px;
-        color: var(--secondary);
-        margin-bottom: 15px;
-    }
-    
-    @keyframes redFlash {
-        0% { background-color: var(--sold); }
-        100% { background-color: var(--owned); }
-    }
-    
-    .card-purchased {
-        animation: redFlash 0.2s ease-in-out;
-    }
-    
-    @keyframes goldPulse {
-        0% {
-            transform: scale(1);
-            box-shadow: 0 0 20px #ffd700, 0 0 40px #ffd700;
+    <style>
+        :root {
+            --primary: #8B4513; /* Brown - for owned cards */
+            --primary-dark: #5D3A1A;
+            --primary-light: #A0522D;
+            
+            --secondary: #FF0000; /* Red - for stat numbers */
+            --secondary-dark: #CC0000;
+            --secondary-light: #FF3333;
+            
+            --accent: #800080; /* Purple - for called numbers board */
+            --accent-dark: #4B0082;
+            --accent-light: #9370DB;
+            
+            --success: #00c853;
+            --success-dark: #009624;
+            --warning: #ff9800;
+            --danger: #f44336;
+            
+            --dark: #1a1a2e;
+            --darker: #0f0f1a;
+            --light: #f8f9fa;
+            --card-bg: #FFD580; /* Light orange for card backgrounds */
+            --available: #808080; /* Gray for available cards */
+            --sold: #FFFF00; /* Yellow for sold cards */
+            --owned: #8B4513; /* Brown for owned cards */
+            --panel-bg: rgba(255, 255, 255, 0.03);
+            --border-color: rgba(255, 255, 255, 0.1);
+            
+            /* BINGO letter colors */
+            --bingo-b: #ff6b6b;
+            --bingo-i: #2e0eff;
+            --bingo-n: #ffe66d;
+            --bingo-g: #e10bcb;
+            --bingo-o: #0c5f21;
         }
-        50% {
-            transform: scale(1.02);
-            box-shadow: 0 0 30px #ffd700, 0 0 60px #ffd700;
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
         }
-        100% {
-            transform: scale(1);
-            box-shadow: 0 0 20px #ffd700, 0 0 40px #ffd700;
+        
+        body {
+            font-family: 'Poppins', sans-serif;
+            background: linear-gradient(135deg, var(--darker) 0%, var(--dark) 100%);
+            color: var(--light);
+            min-height: 100vh;
+            padding: 0;
+            margin: 0;
+            overflow-x: hidden;
         }
-    }
-    
-    .bingo-btn-gold {
-        background: linear-gradient(45deg, #ffd700, #ffed4e) !important;
-        color: #000 !important;
-        border: 2px solid #ffd700 !important;
-        font-weight: bold !important;
-        animation: goldPulse 1.5s infinite !important;
-        box-shadow: 0 0 20px #ffd700, 0 0 40px #ffd700 !important;
-        text-shadow: 1px 1px 2px rgba(0,0,0,0.3);
-    }
-    
-    .bingo-btn-inactive {
-        background: #6c757d !important;
-        color: white !important;
-        cursor: not-allowed !important;
-        opacity: 0.7;
-    }
-    
-    .bingo-btn-verifying {
-        background: #17a2b8 !important;
-        color: white !important;
-        cursor: wait !important;
-    }
-    
-    .bingo-btn-claimed {
-        background: #28a745 !important;
-        color: white !important;
-        cursor: not-allowed !important;
-    }
-    
-    ::-webkit-scrollbar {
-        width: 4px;
-    }
-    
-    ::-webkit-scrollbar-track {
-        background: rgba(255, 255, 255, 0.05);
-        border-radius: 2px;
-    }
-    
-    ::-webkit-scrollbar-thumb {
-        background: var(--primary);
-        border-radius: 2px;
-    }
-
-    .player-card-cell.empty {
-        background: rgba(255, 255, 255, 0.05);
-        color: rgba(0, 0, 0, 0.5);
-        border: 1px dashed rgba(0, 0, 0, 0.2);
-        cursor: default;
-    }
-
-    .player-card-cell.empty:hover {
-        background: rgba(255, 255, 255, 0.05);
-        transform: none;
-    }
-
-    .auto-redirect-message {
-        text-align: center;
-        padding: 10px;
-        background: rgba(255, 255, 255, 0.05);
-        border-radius: 8px;
-        margin-top: 10px;
-        font-size: 12px;
-        color: var(--secondary);
-    }
-    
-    .audio-loading {
-        position: fixed;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
-        background: rgba(0,0,0,0.8);
-        padding: 20px;
-        border-radius: 10px;
-        z-index: 9999;
-        display: none;
-    }
-    
-    .audio-prompt {
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background: rgba(0, 0, 0, 0.9);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        z-index: 9999;
-        text-align: center;
-        padding: 20px;
-    }
-    
-    .audio-prompt-content {
-        background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
-        border-radius: 15px;
-        padding: 30px;
-        max-width: 90%;
-        border: 3px solid var(--secondary);
-    }
-    
-    .audio-prompt-content h2 {
-        font-size: 24px;
-        color: var(--secondary);
-        margin-bottom: 15px;
-    }
-    
-    .audio-prompt-content p {
-        margin-bottom: 20px;
-        font-size: 16px;
-    }
-    
-    @media (max-width: 767px) {
+        
+        /* Screen States */
+        .screen {
+            display: none;
+            animation: fadeIn 0.2s ease;
+        }
+        
+        .screen.active {
+            display: block;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        
+        /* Main Container */
         .container {
-            padding: 10px;
-            padding-bottom: 90px;
+            max-width: 100%;
+            padding: 12px;
+            padding-bottom: 80px;
+            min-width: 320px;
         }
         
+        /* Game Stats - Mobile Optimized */
         .game-stats {
+            background: var(--panel-bg);
+            border-radius: 8px;
+            padding: 8px;
+            margin-bottom: 8px;
+            display: grid;
             grid-template-columns: repeat(3, 1fr);
+            gap: 6px;
+            border: 1px solid var(--border-color);
+        }
+        
+        .stat-item {
+            text-align: center;
+            padding: 6px 4px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 6px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            border: 1px solid var(--border-color);
+        }
+        
+        .stat-label {
+            font-size: 9px;
+            opacity: 0.8;
+            margin-bottom: 3px;
+        }
+        
+        .stat-value {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--secondary) !important;
+            transition: color 0.1s ease;
+        }
+        
+        .countdown-timer {
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--secondary) !important;
+            text-shadow: 0 0 10px rgba(255, 0, 0, 0.5);
+            animation: pulse 1s infinite;
+        }
+        
+        @keyframes pulse {
+            0% { opacity: 0.9; }
+            50% { opacity: 1; }
+            100% { opacity: 0.9; }
+        }
+        
+        /* Countdown Progress Bar */
+        .countdown-progress {
+            width: 100%;
+            height: 4px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 2px;
+            margin-top: 4px;
+            overflow: hidden;
+        }
+        
+        .countdown-progress-bar {
+            height: 100%;
+            background: linear-gradient(90deg, var(--success) 0%, var(--secondary) 100%);
+            border-radius: 2px;
+            width: 100%;
+            transition: width 1s linear;
+        }
+        
+        /* Current Called Number Display - Purple Theme */
+        .current-called-display {
+            background: linear-gradient(135deg, var(--accent) 0%, var(--accent-dark) 100%);
+            border-radius: 10px;
+            padding: 10px;
+            text-align: center;
+            border: 2px solid var(--secondary);
+            box-shadow: 0 4px 12px rgba(128, 0, 128, 0.3);
+            margin-bottom: 12px;
+            position: relative;
+        }
+        
+        .current-called-label {
+            font-size: 12px;
+            opacity: 0.9;
+            margin-bottom: 4px;
+            color: white;
+            font-weight: 600;
         }
         
         .current-called-letter-number {
-            font-size: 36px !important;
+            font-weight: 700;
+            color: white;
+            text-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
+            animation: pulse 1.5s infinite;
+            font-size: 42px;
+            margin: 4px 0;
+            letter-spacing: 1px;
+        }
+        
+        /* Audio Controls */
+        .audio-controls {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+        }
+        
+        .audio-toggle {
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid var(--secondary);
+            color: var(--secondary);
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        
+        .audio-toggle:hover {
+            background: rgba(255, 0, 0, 0.2);
+            transform: scale(1.05);
+        }
+        
+        .audio-toggle.muted {
+            opacity: 0.5;
+            border-color: var(--accent);
+            color: var(--accent);
         }
         
         .game-grid-container {
+            display: flex;
+            flex-direction: row !important;
+            justify-content: center;
             gap: 2px;
-            min-width: 300px;
-            justify-content: flex-start;
+            margin-bottom: 12px;
+            align-items: flex-start;
+            flex-wrap: nowrap;
+            min-width: 340px;
+            overflow-x: auto;
+            padding: 10px 5px;
         }
         
         .bingo-grid-container {
-            width: 120px;
-            height: 350px;
+            background: var(--card-bg) !important;
+            border-radius: 12px;
+            padding: 10px;
+            border: 2px solid var(--primary);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+            width: 160px;
+            height: 420px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
         }
         
-        .player-card-container {
-            width: 180px;
-            height: 260px;
-        }
-        
-        .game-bingo-button-container {
-            max-width: 180px;
-        }
-        
-        .bingo-btn {
-            max-width: 180px;
+        .bingo-header-row {
+            display: flex;
+            margin-bottom: 5px;
         }
         
         .bingo-header-cell {
-            font-size: 10px;
-            padding: 4px 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 15px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 5px;
+            padding: 6px 2px;
+            flex: 1;
+            margin: 0 1px;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+        }
+        
+        .bingo-numbers-columns {
+            display: flex;
+            gap: 3px;
+        }
+        
+        .bingo-column {
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+            flex: 1;
         }
         
         .bingo-number-cell {
-            font-size: 10px;
-            min-height: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(0, 0, 0, 0.1);
+            border-radius: 4px;
+            font-weight: 600;
+            font-size: 15px;
+            min-height: 18px;
+            border: 1px solid rgba(0, 0, 0, 0.2);
+            transition: all 0.1s ease;
+            padding: 2px;
+            color: #333;
+            position: relative;
         }
         
-        .current-called-number {
-            font-size: 28px;
+        .bingo-number-cell.called {
+            background: var(--accent);
+            color: white;
+            border-color: var(--accent-dark);
+            transform: scale(1.02);
+            box-shadow: 0 0 5px rgba(128, 0, 128, 0.5);
+        }
+        
+        .player-card-and-button-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 2px;
+            width: auto;
+        }
+        
+        .player-card-container {
+            background: var(--card-bg) !important;
+            border-radius: 12px;
+            padding: 10px;
+            border: 2px solid var(--primary);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+            width: 260px;
+            height: 310px;
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+        }
+        
+        .player-card-title {
+            font-size: 12px;
+            margin-bottom: 8px;
+            color: var(--secondary);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding-bottom: 6px;
+            border-bottom: 1px solid var(--border-color);
+        }
+        
+        .player-card-header-row {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 3px;
+            margin-bottom: 5px;
+        }
+        
+        .player-card-header-cell {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 12px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 5px;
+            padding: 6px 0;
+        }
+        
+        .player-card-grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 3px;
+            flex: 1;
+            width: fit-content;
         }
         
         .player-card-cell {
-            font-size: 12px;
+            aspect-ratio: 1;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.08s ease;
+            border: 1px solid rgba(0, 0, 0, 0.2);
+            font-size: 14px;
+            color: #333;
+            position: relative;
+            user-select: none;
+        }
+        
+        .player-card-cell:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: scale(1.02);
+        }
+        
+        .player-card-cell.marked {
+            background: var(--accent) !important;
+            color: white;
+            border-color: var(--accent-dark) !important;
+            transform: scale(1.02);
+            box-shadow: 0 0 8px rgba(128, 0, 128, 0.5) !important;
+        }
+        
+        .player-card-cell.free {
+            background: var(--primary);
+            color: white;
+            cursor: default;
+            border-color: var(--primary-dark);
+            font-size: 10px;
+        }
+        
+        .game-bingo-button-container {
+            margin: 0;
+            text-align: center;
+            padding: 0;
+            background: transparent;
+            border-radius: 8px;
+            border: none;
+            width: 100%;
+            max-width: 220px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .bingo-btn {
+            padding: 10px 20px;
+            font-size: 14px;
+            font-weight: 700;
+            background: linear-gradient(135deg, #ffd700 0%, #ff9800 100%);
+            color: var(--dark);
+            border: none;
+            border-radius: 50px;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            box-shadow: 0 5px 20px rgba(255, 215, 0, 0.4);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            width: 100%;
+            max-width: 220px;
+            min-height: 44px;
+        }
+        
+        .bingo-btn:hover:not(:disabled) {
+            transform: scale(1.02);
+            box-shadow: 0 8px 25px rgba(255, 215, 0, 0.6);
+        }
+        
+        .bingo-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .bingo-btn.bingo-btn-gold {
+            background: linear-gradient(45deg, #ffd700, #ffed4e) !important;
+            color: #000 !important;
+            border: 2px solid #ffd700 !important;
+            font-weight: bold !important;
+            animation: goldPulse 1.5s infinite !important;
+            box-shadow: 0 0 20px #ffd700, 0 0 40px #ffd700 !important;
+        }
+        
+        .bingo-btn.bingo-btn-inactive {
+            background: #6c757d !important;
+            color: white !important;
+            cursor: not-allowed !important;
+            opacity: 0.7;
+        }
+        
+        @keyframes goldPulse {
+            0% { transform: scale(1); box-shadow: 0 0 20px #ffd700, 0 0 40px #ffd700; }
+            50% { transform: scale(1.02); box-shadow: 0 0 30px #ffd700, 0 0 60px #ffd700; }
+            100% { transform: scale(1); box-shadow: 0 0 20px #ffd700, 0 0 40px #ffd700; }
+        }
+        
+        /* Called Numbers Container - Purple Theme */
+        .called-numbers-container {
+            background: var(--accent) !important;
+            border-radius: 10px;
+            padding: 12px;
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            margin-bottom: 12px;
+            box-shadow: 0 4px 12px rgba(128, 0, 128, 0.3);
+        }
+        
+        .called-title {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+            color: white;
+        }
+        
+        .called-numbers-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+            max-height: 50px;
+            overflow-y: auto;
+            padding: 8px;
+            background: var(--accent-light);
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
         }
         
         .called-number {
-            width: 22px;
-            height: 22px;
-            font-size: 11px;
-        }
-        
-        .cards-grid {
-            grid-template-columns: repeat(auto-fill, minmax(35px, 1fr));
-            max-height: 450px;
-            min-height: 450px;
-            gap: 3px;
-            padding: 10px;
-        }
-        
-        .card-item {
-            font-size: 12px;
-            aspect-ratio: 1;
-            min-width: 0;
-            min-height: 35px;
-            transition: background-color 0.08s ease, transform 0.08s ease;
-        }
-        
-        .card-preview-grid {
-            width: 150px;
-            height: 150px;
-        }
-        
-        .card-preview-cell {
-            font-size: 10px;
-        }
-        
-        .game-bingo-button-container {
-            max-width: 180px;
-            padding: 0;
-        }
-        
-        .bingo-btn {
-            padding: 8px 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            background: var(--accent-dark);
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            width: 28px;
+            height: 28px;
             font-size: 13px;
-            max-width: 180px;
+            border-radius: 6px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
         }
         
-        .winner-content {
-            max-width: 320px;
-            padding: 8px;
+        .called-number.recent {
+            animation: pulse 1s infinite;
+            border: 2px solid white;
+            transform: scale(1.05);
+            background: var(--accent-light);
         }
         
-        .winner-content h2 {
-            font-size: 18px;
-        }
-        
-        .winners-compact-container {
-            max-height: 250px;
-        }
-        
-        .winner-card-grid-display {
-            max-width: 150px;
-        }
-        
-        .winner-card-cell {
-            font-size: 10px;
-        }
-        
-        .winning-pattern-number {
-            width: 25px;
-            height: 25px;
-            font-size: 11px;
-        }
-    }
-    
-    @media (max-width: 480px) {
-        .game-grid-container {
-            gap: 2px;
-            min-width: 280px;
-        }
-        
-        .bingo-grid-container {
-            width: 130px;
-            height: 350px;
-        }
-        
-        .player-card-container {
-            width: 215px;
-            height: 280px;
-        }
-        
-        .player-card-grid {
-            width: 100%;
-            height: 100%;
-            display: grid;
-            grid-template-columns: repeat(5, 1fr);
-            grid-template-rows: repeat(5, 1fr);
-            gap: 3px;
-            padding: 2px;
-        }
-        
-        .player-card-cell {
-            width: 100%;
-            height: 100%;
-            font-size: 15px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            min-height: 0;
-        }
-        
-        .game-bingo-button-container {
-            max-width: 160px;
-        }
-        
-        .bingo-btn {
-            max-width: 160px;
-        }
-        
-        .bingo-number-cell {
-            font-size: 9px;
-            min-height: 14px;
-        }
-        
-        .current-called-number {
-            font-size: 26px;
-        }
-        
-        .cards-grid {
-            grid-template-columns: repeat(auto-fill, minmax(30px, 1fr));
-            max-height: 400px;
-            min-height: 400px;
-            gap: 2px;
-        }
-        
-        .card-item {
-            font-size: 11px;
-            aspect-ratio: 1;
-            min-width: 0;
-            min-height: 30px;
-        }
-        
-        .card-preview-grid {
-            width: 130px;
-            height: 130px;
-        }
-        
-        .game-bingo-button-container {
-            max-width: 160px;
-        }
-        
-        .bingo-btn {
-            padding: 6px 12px;
-            font-size: 12px;
-            max-width: 160px;
-        }
-        
-        .winner-content {
-            max-width: 280px;
-        }
-        
-        .winner-content h2 {
+        .called-stat {
             font-size: 16px;
+            color: var(--secondary) !important;
+            font-weight: 600;
         }
         
-        .winners-compact-container {
-            max-height: 200px;
-        }
-        
-        .winner-card-grid-display {
-            max-width: 120px;
-        }
-    }
-
-    @media (max-width: 360px) {
-        .game-grid-container {
-            min-width: 260px;
-            gap: 2px;
-        }
-        
-        .bingo-grid-container {
-            width: 120px;
-            height: 365px;
-        }
-        
-        .player-card-container {
-            width: 210px;
-            height: 300px;
-        }
-        
-        .player-card-grid {
-            width: 95%;
-            height: 100%;
-            display: grid;
-            grid-template-columns: repeat(5, 1fr);
-            grid-template-rows: repeat(5, 1fr);
-            gap: 1px;
-            padding: 2px;
-        }
-        
-        .player-card-cell {
-            width: 90%;
-            height: 90%;
-            font-size: 15px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            min-height: 0;
-            box-sizing: border-box;
-        }
-        
-        .game-bingo-button-container {
-            max-width: 150px;
-        }
-        
-        .bingo-btn {
-            max-width: 150px;
-        }
-        
-        .bingo-number-cell {
-            font-size: 8px;
-            min-height: 12px;
-        }
-        
-        .current-called-number {
-            font-size: 24px;
+        .cards-selection {
+            padding: 0;
+            margin-bottom: 0;
         }
         
         .cards-grid {
-            grid-template-columns: repeat(auto-fill, minmax(28px, 1fr));
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(40px, 1fr));
+            gap: 4px;
             max-height: 420px;
             min-height: 420px;
-            gap: 2px;
+            overflow-y: auto;
+            padding: 12px;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            margin-bottom: 8px;
+            width: 100%;
         }
         
         .card-item {
-            font-size: 10px;
             aspect-ratio: 1;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            color: white;
+            font-size: 14px;
+            position: relative;
             min-width: 0;
-            min-height: 28px;
+            min-height: 40px;
+            box-sizing: border-box;
+            transition: background-color 0.08s ease, transform 0.08s ease;
+            will-change: transform, background-color;
+            backface-visibility: hidden;
+        }
+        
+        .card-item.available {
+            background: var(--available) !important;
+            cursor: pointer;
+            color: white;
+        }
+        
+        .card-item.available:hover {
+            transform: scale(1.05);
+            box-shadow: 0 0 10px rgba(128, 128, 128, 0.5);
+        }
+        
+        .card-item.sold {
+            background: var(--sold) !important;
+            color: #333 !important;
+            cursor: not-allowed !important;
+            opacity: 0.9;
+            pointer-events: none;
+            border: 1px solid #666;
+        }
+        
+        .card-item.owned {
+            background: var(--owned) !important;
+            border-color: var(--secondary) !important;
+            box-shadow: 0 0 10px rgba(139, 69, 19, 0.5) !important;
+            animation: ownedPulse 2s infinite;
+            color: white;
+        }
+        
+        @keyframes ownedPulse {
+            0% { transform: scale(1); box-shadow: 0 0 10px rgba(139, 69, 19, 0.5); }
+            50% { transform: scale(1.02); box-shadow: 0 0 15px rgba(139, 69, 19, 0.8); }
+            100% { transform: scale(1); box-shadow: 0 0 10px rgba(139, 69, 19, 0.5); }
+        }
+        
+        .card-item.selected {
+            background: var(--primary-light) !important;
+            border-color: var(--secondary) !important;
+            box-shadow: 0 0 15px rgba(255, 0, 0, 0.7) !important;
+            transform: scale(1.05) !important;
+            z-index: 10;
+        }
+        
+        .card-item.purchasing {
+            opacity: 0.9;
+            transform: scale(0.98);
+            pointer-events: none;
+            filter: brightness(0.9);
+            transition: all 0.08s ease;
+            background: var(--primary) !important;
+        }
+        
+        .selected-card-info {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+            padding: 12px;
+            margin: 12px 0;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .card-info-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        
+        .card-price {
+            font-size: 14px;
+            color: var(--secondary);
+        }
+        
+        .card-preview-section {
+            margin-top: 15px;
+        }
+        
+        .card-preview-title {
+            font-size: 12px;
+            color: var(--secondary);
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        
+        .card-preview-container {
+            background: var(--card-bg);
+            border-radius: 8px;
+            padding: 10px;
+            border: 1px solid var(--primary);
+            display: flex;
+            justify-content: center;
+            align-items: center;
         }
         
         .card-preview-grid {
-            width: 130px;
-            height: 130px;
-        }
-        
-        .game-bingo-button-container {
-            max-width: 150px;
-        }
-        
-        .bingo-btn {
-            padding: 5px 10px;
-            font-size: 11px;
-            max-width: 150px;
-        }
-        
-        .winner-content {
-            max-width: 260px;
-        }
-        
-        .winner-card-grid-display {
-            max-width: 100px;
-        }
-    }
-    
-    @media (max-width: 767px) and (orientation: landscape) {
-        .game-grid-container {
-            height: 200px;
-            gap: 2px;
-        }
-        
-        .bingo-grid-container {
-            height: 100%;
-            width: 120px;
-        }
-        
-        .player-card-container {
-            height: 100%;
-            width: 170px;
-        }
-        
-        .game-bingo-button-container {
-            max-width: 100%;
-        }
-        
-        .bingo-btn {
-            max-width: 100%;
-        }
-        
-        .cards-grid {
-            grid-template-columns: repeat(auto-fill, minmax(30px, 1fr));
-            max-height: 120px;
-            min-height: 120px;
-        }
-        
-        .card-item {
-            font-size: 9px;
-            aspect-ratio: 1;
-            min-width: 0;
-            min-height: 30px;
-        }
-        
-        .winner-card-grid-display {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 3px;
             width: 180px;
             height: 180px;
         }
-    }
-    
-    @media (min-width: 768px) {
-        .container {
-            max-width: 900px;
-            margin-left: auto;
-            margin-right: auto;
-        }
-        
-        .game-stats {
-            grid-template-columns: repeat(3, 1fr);
-        }
-        
-        .game-grid-container {
-            gap: 2px;
-            min-width: 420px;
-        }
-        
-        .bingo-grid-container {
-            width: 160px;
-            height: 420px;
-        }
-        
-        .player-card-container {
-            width: 220px;
-            height: 310px;
-        }
-        
-        .game-bingo-button-container {
-            max-width: 220px;
-        }
-        
-        .bingo-btn {
-            max-width: 220px;
-        }
-        
-        .bingo-header-cell {
-            font-size: 14px;
-        }
-        
-        .bingo-number-cell {
-            font-size: 13px;
-            min-height: 18px;
-        }
-        
-        .current-called-number {
-            font-size: 34px;
-        }
-        
-        .player-card-cell {
-            font-size: 15px;
-        }
-        
-        .cards-grid {
-            grid-template-columns: repeat(auto-fill, minmax(45px, 1fr));
-            max-height: 380px;
-            min-height: 380px;
-        }
-        
-        .card-item {
-            font-size: 14px;
-            aspect-ratio: 1;
-            min-width: 0;
-            min-height: 45px;
-        }
-        
-        .card-preview-grid {
-            width: 200px;
-            height: 200px;
-        }
         
         .card-preview-cell {
+            aspect-ratio: 1;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            font-size: 11px;
+            border: 1px solid rgba(0, 0, 0, 0.1);
+            color: #333;
+            position: relative;
+        }
+        
+        .card-preview-cell.free {
+            background: var(--primary);
+            color: white;
+            font-size: 9px;
+            border-color: var(--primary);
+        }
+        
+        .loading-spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255,255,255,.3);
+            border-radius: 50%;
+            border-top-color: #fff;
+            animation: spin 1s ease-in-out infinite;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        /* Winner Announcement Screen */
+        .winner-display {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.98);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            overflow-y: auto;
+            padding: 5px;
+            animation: winnerFadeIn 0.2s ease;
+        }
+        
+        @keyframes winnerFadeIn {
+            from { opacity: 0; transform: scale(0.95); }
+            to { opacity: 1; transform: scale(1); }
+        }
+        
+        .winner-content {
+            background: linear-gradient(135deg, #1a4d2e 0%, #0a2f1a 100%);
+            border-radius: 15px;
+            padding: 10px;
+            text-align: center;
+            width: 100%;
+            max-width: 350px;
+            margin: auto;
+            border: 3px solid var(--secondary);
+            box-shadow: 0 0 30px rgba(255, 0, 0, 0.3);
+            position: relative;
+            overflow: hidden;
+            max-height: 95vh;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .winner-content h2 {
+            font-size: 20px;
+            color: var(--secondary);
+            margin: 5px 0;
+            text-shadow: 0 0 15px rgba(255, 0, 0, 0.8);
+            font-weight: 700;
+            letter-spacing: 1px;
+        }
+        
+        .winner-trophy {
+            font-size: 30px;
+            color: var(--secondary);
+            margin: 5px 0;
+            animation: bounce 2s infinite;
+        }
+        
+        @keyframes bounce {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-5px); }
+        }
+        
+        .winners-compact-container {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin: 5px 0;
+            max-height: 350px;
+            overflow-y: auto;
+        }
+        
+        .winner-compact-card {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 10px;
+            padding: 8px;
+            border: 1px solid var(--secondary);
+        }
+        
+        .winner-compact-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 5px;
             font-size: 12px;
         }
-    }
-
-    /* REMOVED: Round transition overlay - no longer needed */
-    
-    /* FIXED: Card purchase error message */
-    .phase-error-message {
-        background: rgba(255, 0, 0, 0.2);
-        border: 1px solid var(--secondary);
-        border-radius: 8px;
-        padding: 12px;
-        margin: 10px 0;
-        text-align: center;
-        font-size: 14px;
-        color: var(--secondary);
-        display: none;
-    }
-    
-    .phase-error-message i {
-        margin-right: 5px;
-    }
-</style>
+        
+        .winner-compact-name {
+            font-weight: 600;
+            color: var(--secondary);
+        }
+        
+        .winner-compact-prize {
+            background: rgba(255, 0, 0, 0.2);
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+        
+        .winner-card-grid-display {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 2px;
+            width: 100%;
+            max-width: 200px;
+            margin: 0 auto;
+            background: transparent;
+        }
+        
+        .winner-card-cell {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(255, 255, 255, 0.15);
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            transition: all 0.15s ease;
+            position: relative;
+            aspect-ratio: 1;
+            padding: 2px;
+        }
+        
+        .winner-card-cell.marked {
+            background: linear-gradient(135deg, #ff3333 0%, #cc0000 100%) !important;
+            border-color: var(--secondary) !important;
+            box-shadow: 0 0 15px rgba(255, 51, 51, 0.8) !important;
+            transform: scale(1.02);
+            font-weight: 700;
+            animation: winnerCellPulse 1.5s infinite;
+        }
+        
+        @keyframes winnerCellPulse {
+            0% { box-shadow: 0 0 10px rgba(255, 51, 51, 0.8); }
+            50% { box-shadow: 0 0 20px rgba(255, 51, 51, 1), 0 0 30px rgba(255, 0, 0, 0.5); }
+            100% { box-shadow: 0 0 10px rgba(255, 51, 51, 0.8); }
+        }
+        
+        .winner-card-cell.free {
+            background: var(--primary);
+            border-color: var(--primary);
+            color: white;
+            font-weight: bold;
+            font-size: 9px;
+        }
+        
+        .winner-countdown {
+            font-size: 14px;
+            margin: 8px 0 5px;
+            opacity: 0.9;
+            color: var(--secondary);
+            animation: countdownPulse 1s infinite;
+        }
+        
+        @keyframes countdownPulse {
+            0% { opacity: 0.7; }
+            50% { opacity: 1; }
+            100% { opacity: 0.7; }
+        }
+        
+        .notification-toast {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: var(--success);
+            color: white;
+            padding: 12px 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            z-index: 1001;
+            display: none;
+            align-items: center;
+            gap: 10px;
+            animation: slideIn 0.15s ease-out;
+        }
+        
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+        
+        .phase-error-message {
+            background: rgba(255, 0, 0, 0.2);
+            border: 1px solid var(--secondary);
+            border-radius: 8px;
+            padding: 12px;
+            margin: 10px 0;
+            text-align: center;
+            font-size: 14px;
+            color: var(--secondary);
+            display: none;
+        }
+        
+        .phase-error-message i {
+            margin-right: 5px;
+        }
+        
+        /* Connection Status Indicator */
+        #connection-status {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            z-index: 1000;
+            background: rgba(0,0,0,0.7);
+            padding: 5px 10px;
+            border-radius: 5px;
+            font-size: 12px;
+            display: none;
+        }
+        
+        /* Audio Loading */
+        .audio-loading {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0,0,0,0.8);
+            padding: 20px;
+            border-radius: 10px;
+            z-index: 9999;
+            display: none;
+        }
+        
+        .audio-prompt {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.9);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+            text-align: center;
+            padding: 20px;
+        }
+        
+        .audio-prompt-content {
+            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+            border-radius: 15px;
+            padding: 30px;
+            max-width: 90%;
+            border: 3px solid var(--secondary);
+        }
+        
+        .audio-prompt-content h2 {
+            font-size: 24px;
+            color: var(--secondary);
+            margin-bottom: 15px;
+        }
+        
+        .audio-prompt-content p {
+            margin-bottom: 20px;
+            font-size: 16px;
+        }
+        
+        @media (max-width: 767px) {
+            .container {
+                padding: 10px;
+                padding-bottom: 90px;
+            }
+            
+            .game-stats {
+                grid-template-columns: repeat(3, 1fr);
+            }
+            
+            .current-called-letter-number {
+                font-size: 36px !important;
+            }
+            
+            .game-grid-container {
+                gap: 2px;
+                min-width: 300px;
+                justify-content: flex-start;
+            }
+            
+            .bingo-grid-container {
+                width: 120px;
+                height: 350px;
+            }
+            
+            .player-card-container {
+                width: 180px;
+                height: 260px;
+            }
+            
+            .player-card-cell {
+                font-size: 12px;
+            }
+            
+            .called-number {
+                width: 22px;
+                height: 22px;
+                font-size: 11px;
+            }
+            
+            .cards-grid {
+                grid-template-columns: repeat(auto-fill, minmax(35px, 1fr));
+                max-height: 450px;
+                min-height: 450px;
+                gap: 3px;
+                padding: 10px;
+            }
+            
+            .card-item {
+                font-size: 12px;
+                min-height: 35px;
+            }
+            
+            .card-preview-grid {
+                width: 150px;
+                height: 150px;
+            }
+            
+            .winner-content {
+                max-width: 320px;
+                padding: 8px;
+            }
+        }
+        
+        @media (max-width: 480px) {
+            .game-grid-container {
+                min-width: 280px;
+            }
+            
+            .bingo-grid-container {
+                width: 130px;
+                height: 350px;
+            }
+            
+            .player-card-container {
+                width: 215px;
+                height: 280px;
+            }
+            
+            .player-card-cell {
+                font-size: 15px;
+            }
+            
+            .bingo-number-cell {
+                font-size: 9px;
+            }
+            
+            .cards-grid {
+                grid-template-columns: repeat(auto-fill, minmax(30px, 1fr));
+                max-height: 400px;
+                min-height: 400px;
+            }
+            
+            .card-item {
+                font-size: 11px;
+                min-height: 30px;
+            }
+            
+            .card-preview-grid {
+                width: 130px;
+                height: 130px;
+            }
+        }
+    </style>
 </head>
 <body>
     <!-- Connection Status Indicator -->
-    <div id="connection-status" style="position: fixed; top: 10px; right: 10px; z-index: 1000; background: rgba(0,0,0,0.7); padding: 5px 10px; border-radius: 5px; font-size: 12px; display: none;">
+    <div id="connection-status">
         <span id="status-indicator" style="width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 5px;"></span>
         <span id="status-text">Connecting...</span>
     </div>
@@ -1737,14 +1065,10 @@
         <div style="display: flex; flex-direction: column; align-items: center; gap: 10px;">
             <div class="loading-spinner"></div>
             <div style="font-size: 14px;">Loading audio files...</div>
-            <div id="audio-loading-progress" style="font-size: 12px; opacity: 0.8;">0/75 loaded</div>
-            <div class="audio-loading-progress">
-                <div id="audio-loading-bar" class="audio-loading-bar"></div>
-            </div>
         </div>
     </div>
 
-    <!-- Audio Initialization Prompt (for autoplay) -->
+    <!-- Audio Initialization Prompt -->
     <div id="audio-prompt" class="audio-prompt" style="display: none;">
         <div class="audio-prompt-content">
             <h2><i class="fas fa-volume-up"></i> Enable Sound</h2>
@@ -1761,17 +1085,13 @@
         <span id="notification-message">Success!</span>
     </div>
     
-    <!-- Winner Announcement Screen with Card Index -->
+    <!-- Winner Announcement Screen -->
     <div class="winner-display" id="winner-announcement">
         <div class="winner-content">
             <div class="winner-trophy">
                 <i class="fas fa-trophy"></i>
             </div>
             <h2>🏆 BINGO WINNERS! 🏆</h2>
-            
-            <div id="multiple-winners-header" class="multiple-winners-header" style="display: none;">
-                <div class="winners-names" id="winners-names-container"></div>
-            </div>
             
             <div id="winners-compact-container" class="winners-compact-container"></div>
             
@@ -1803,7 +1123,6 @@
                 </div>
             </div>
             
-            <!-- FIXED: Phase error message -->
             <div id="phase-error-message" class="phase-error-message" style="display: none;">
                 <i class="fas fa-exclamation-triangle"></i>
                 <span id="phase-error-text">Card purchase is only available during purchase phase</span>
@@ -1841,7 +1160,6 @@
                         </div>
                         <div class="card-price">10 birr</div>
                     </div>
-                    <div class="card-cut">8 birr to prize pool (20% platform fee)</div>
                     
                     <div class="card-preview-section">
                         <div class="card-preview-title">
@@ -1850,19 +1168,6 @@
                         <div class="card-preview-container">
                             <div class="card-preview-grid" id="card-preview-grid"></div>
                         </div>
-                    </div>
-                    
-                    <div class="auto-redirect-message">
-                        <i class="fas fa-clock"></i> Game will start automatically after countdown
-                    </div>
-                </div>
-                
-                <div class="countdown-status-with-round" id="countdown-status" style="display: none;">
-                    <div class="countdown-round-info">
-                        <i class="fas fa-flag"></i> Round <span id="current-round-number">1</span> - Card Purchase Phase
-                    </div>
-                    <div style="font-size: 16px; font-weight: 700; color: var(--accent);" id="countdown-status-text">
-                        30 seconds remaining
                     </div>
                 </div>
             </div>
@@ -1900,9 +1205,6 @@
                     <i class="fas fa-bullhorn"></i> CURRENT CALLED NUMBER
                 </div>
                 <div class="current-called-letter-number" id="current-called-letter-number">--</div>
-                <div id="audio-status" style="font-size: 10px; opacity: 0.7; margin-top: 5px;">
-                    <i class="fas fa-circle-notch fa-spin"></i> Audio loading...
-                </div>
             </div>
             
             <div class="game-grid-container">
@@ -1957,1372 +1259,832 @@
         </div>
     </div>
 
- <script>
-    // ==================== CONFIGURATION ====================
-    const API_BASE_URL = `${window.location.protocol}//${window.location.host}/api`;
-    const WS_BASE_URL = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}`;
-    const CARD_PRICE = 10.00;
-    const SOUNDS_BASE_URL = `${window.location.protocol}//${window.location.host}/sounds`;
+    <script>
+        // ==================== CONFIGURATION ====================
+        const API_BASE_URL = `${window.location.protocol}//${window.location.host}/api`;
+        const WS_BASE_URL = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}`;
+        const CARD_PRICE = 10.00;
+        const SOUNDS_BASE_URL = `${window.location.protocol}//${window.location.host}/sounds`;
 
-    // ==================== GAME STATE ====================
-    const gameState = {
-        userId: null,
-        gameId: null,
-        gamePhase: 'card_purchase',
-        gameStatus: 'card_purchase',
-        gameType: 'round_based',
-        selectedCardId: null,
-        selectedCardIndex: null,
-        selectedCardNumbers: [],
-        calledNumbers: [],
-        markedNumbers: new Set(),
-        countdown: 30,  // This is now SOLELY set by server messages
-        countdownTotal: 30,
-        prizePool: 0,
-        realPlayers: 0,
-        fakePlayers: 0,
-        totalPlayers: 0,
-        playerCount: 0,
-        
-        websocket: null,
-        isConnected: false,
-        hasCard: false,
-        gameActive: false,
-        currentRound: 1,
-        
-        // FIXED: Remove all local countdown intervals - server only!
-        winnerAnnounced: false,
-        purchasePhaseActive: true,
-        cardsSold: new Set(),
-        cardOwnership: {},
-        hasClaimedBingo: false,
-        lastBingoCheck: 0,
-        
-        // FIXED: Single sync interval, no local countdown
-        syncInterval: null,
-        lastSyncTime: 0,
-        
-        connectionRetryCount: 0,
-        maxConnectionRetries: 50,
-        reconnectAttempts: 0,
-        maxReconnectAttempts: 100,
-        
-        audioEnabled: true,
-        audioCache: {},
-        audioPreloaded: false,
-        currentAudio: null,
-        audioInitialized: false,
-        
-        winnerData: null,
-        uiSelectedCardIndex: null,
-        winnerDisplayCountdown: 0,
-        winnerDisplayInterval: null,
-        isWinnerDisplayActive: false,
-        isCardOperationInProgress: false,
-        cardOperationQueue: [],
-        gameComplete: false,
-        isReconnecting: false,
-        pendingMessages: [],
-        maxWinners: 2,
-        winnersCount: 0,
-        winners: [],
-        isLoadingCards: false,
-        
-        // FIXED: Card cache - NEVER rebuild the grid!
-        cardsCache: {
-            soldCards: new Set(),
-            ownedCardIndex: null,
-            lastUpdate: 0,
-            cardElements: {}
-        },
-        
-        // FIXED: Track if cards have been loaded (only load once!)
-        cardsLoaded: false,
-        
-        // FIXED: Server-confirmed game start
-        gameStartConfirmed: false,
-        lastConfirmedPhase: 'card_purchase',
-    };
+        // ==================== GAME STATE ====================
+        const gameState = {
+            userId: null,
+            gameId: null,
+            gamePhase: 'card_purchase',
+            gameStatus: 'card_purchase',
+            selectedCardId: null,
+            selectedCardIndex: null,
+            selectedCardNumbers: [],
+            calledNumbers: [],
+            markedNumbers: new Set(),
+            countdown: 30,
+            prizePool: 0,
+            realPlayers: 0,
+            fakePlayers: 0,
+            totalPlayers: 0,
+            
+            websocket: null,
+            isConnected: false,
+            hasCard: false,
+            gameActive: false,
+            currentRound: 1,
+            
+            winnerAnnounced: false,
+            isWinnerDisplayActive: false,
+            purchasePhaseActive: true,
+            cardsSold: new Set(),
+            hasClaimedBingo: false,
+            bingoClaimInProgress: false,
+            
+            syncInterval: null,
+            lastSyncTime: 0,
+            reconnectAttempts: 0,
+            maxReconnectAttempts: 100,
+            
+            audioEnabled: true,
+            audioInitialized: false,
+            audioCache: {},
+            
+            winnerData: null,
+            isCardOperationInProgress: false,
+            pendingMessages: [],
+            maxWinners: 2,
+            winners: [],
+            
+            isLoadingCards: false,
+            cardsLoaded: false,
+            cardsCache: {
+                soldCards: new Set(),
+                ownedCardIndex: null,
+                cardElements: {}
+            },
+            
+            // FIXED: Track if winner display is completed
+            winnerDisplayCompleted: false,
+            
+            // FIXED: Track last countdown update time
+            lastCountdownUpdate: Date.now(),
+            
+            // FIXED: Track if game is waiting for new round
+            waitingForNewRound: false
+        };
 
-    // ==================== NOTIFICATION FUNCTION ====================
-    function showNotification(message, type = 'info', duration = 3000) {
-        console.log(`Notification: ${message} (${type})`);
-        const toast = document.getElementById('notification-toast');
-        const messageEl = document.getElementById('notification-message');
-        const icon = toast?.querySelector('i');
-        
-        if (toast && messageEl) {
-            messageEl.textContent = message;
+        // ==================== NOTIFICATION FUNCTION ====================
+        function showNotification(message, type = 'info', duration = 3000) {
+            console.log(`Notification: ${message} (${type})`);
+            const toast = document.getElementById('notification-toast');
+            const messageEl = document.getElementById('notification-message');
             
-            if (type === 'success') {
-                toast.style.background = 'var(--success)';
-                if (icon) icon.className = 'fas fa-check-circle';
-            } else if (type === 'error') {
-                toast.style.background = 'var(--accent)';
-                if (icon) icon.className = 'fas fa-exclamation-circle';
-            } else if (type === 'warning') {
-                toast.style.background = 'linear-gradient(135deg, #ff9800 0%, #f57c00 100%)';
-                if (icon) icon.className = 'fas fa-exclamation-triangle';
-            } else {
-                toast.style.background = 'var(--primary)';
-                if (icon) icon.className = 'fas fa-info-circle';
-            }
-            
-            toast.style.display = 'flex';
-            
-            if (duration > 0) {
+            if (toast && messageEl) {
+                messageEl.textContent = message;
+                
+                if (type === 'success') {
+                    toast.style.background = 'var(--success)';
+                } else if (type === 'error') {
+                    toast.style.background = 'var(--accent)';
+                } else if (type === 'warning') {
+                    toast.style.background = 'linear-gradient(135deg, #ff9800 0%, #f57c00 100%)';
+                } else {
+                    toast.style.background = 'var(--primary)';
+                }
+                
+                toast.style.display = 'flex';
+                
                 setTimeout(() => {
                     toast.style.display = 'none';
                 }, duration);
             }
         }
-    }
-    window.showNotification = showNotification;
+        window.showNotification = showNotification;
 
-    // ==================== FIXED: Phase Validation ====================
-    function validateGamePhase(expectedPhase, action) {
-        if (gameState.gamePhase !== expectedPhase && gameState.gameStatus !== expectedPhase) {
-            console.warn(`Phase mismatch: Expected ${expectedPhase}, got ${gameState.gamePhase}/${gameState.gameStatus} for action: ${action}`);
-            return false;
-        }
-        return true;
-    }
-
-    // ==================== AUDIO MANAGEMENT ====================
-    function stopAllAudio() {
-        if (gameState.currentAudio) {
-            try {
-                gameState.currentAudio.pause();
-                gameState.currentAudio.currentTime = 0;
-            } catch (error) {}
-            gameState.currentAudio = null;
-        }
-        
-        Object.values(gameState.audioCache).forEach(audio => {
-            if (audio) {
-                try {
-                    audio.pause();
-                    audio.currentTime = 0;
-                } catch (error) {}
-            }
-        });
-    }
-
-    function initializeAudio() {
-        console.log('Initializing audio system...');
-        
-        const audioPrompt = document.getElementById('audio-prompt');
-        if (audioPrompt) {
-            audioPrompt.style.display = 'none';
-        }
-        
-        gameState.audioInitialized = true;
-        gameState.audioEnabled = true;
-        
-        updateAudioToggle();
-        
-        showNotification('Sound enabled!', 'success', 2000);
-    }
-    window.initializeAudio = initializeAudio;
-
-    function showAudioPrompt() {
-        if (!gameState.audioInitialized) {
+        // ==================== AUDIO FUNCTIONS ====================
+        function initializeAudio() {
+            console.log('Initializing audio...');
+            
             const audioPrompt = document.getElementById('audio-prompt');
-            if (audioPrompt) {
-                audioPrompt.style.display = 'flex';
+            if (audioPrompt) audioPrompt.style.display = 'none';
+            
+            gameState.audioInitialized = true;
+            gameState.audioEnabled = true;
+            
+            updateAudioToggle();
+            preloadAudioFiles();
+        }
+        window.initializeAudio = initializeAudio;
+
+        function showAudioPrompt() {
+            if (!gameState.audioInitialized) {
+                document.getElementById('audio-prompt').style.display = 'flex';
             }
         }
-    }
 
-    async function preloadAudioFiles() {
-        if (!gameState.audioInitialized) return false;
-        
-        console.log('Preloading MP3 audio files...');
-        
-        try {
-            let loadedCount = 0;
+        async function preloadAudioFiles() {
+            if (!gameState.audioInitialized) return;
             
-            for (let i = 1; i <= 75; i++) {
-                const audio = new Audio();
-                audio.preload = 'auto';
-                audio.volume = gameState.audioEnabled ? 1.0 : 0;
-                
-                audio.oncanplaythrough = () => {
-                    loadedCount++;
-                    gameState.audioCache[i] = audio;
-                };
-                
-                audio.onerror = () => {
-                    loadedCount++;
-                    gameState.audioCache[i] = null;
-                };
-                
-                audio.src = `${SOUNDS_BASE_URL}/${i}.mp3`;
-                audio.load();
-                
-                if (i % 5 === 0) {
-                    await new Promise(resolve => setTimeout(resolve, 50));
-                }
-            }
+            console.log('Preloading audio files...');
             
-            console.log('Audio files preloaded');
-            return true;
-            
-        } catch (error) {
-            console.error('Error preloading audio:', error);
-            return false;
-        }
-    }
-
-    function playNumberAudio(number) {
-        if (!gameState.audioEnabled || !gameState.audioInitialized) return;
-        
-        if (gameState.winnerAnnounced || gameState.isWinnerDisplayActive) return;
-        
-        const audio = gameState.audioCache[number];
-        if (!audio) return;
-        
-        if (gameState.currentAudio) {
             try {
-                gameState.currentAudio.pause();
-                gameState.currentAudio.currentTime = 0;
+                for (let i = 1; i <= 75; i++) {
+                    const audio = new Audio();
+                    audio.preload = 'auto';
+                    audio.volume = gameState.audioEnabled ? 1.0 : 0;
+                    
+                    audio.oncanplaythrough = () => {
+                        gameState.audioCache[i] = audio;
+                    };
+                    
+                    audio.src = `${SOUNDS_BASE_URL}/${i}.mp3`;
+                    audio.load();
+                    
+                    if (i % 10 === 0) await new Promise(r => setTimeout(r, 50));
+                }
+            } catch (error) {
+                console.error('Error preloading audio:', error);
+            }
+        }
+
+        function playNumberAudio(number) {
+            if (!gameState.audioEnabled || !gameState.audioInitialized || gameState.winnerAnnounced) return;
+            
+            const audio = gameState.audioCache[number];
+            if (!audio) return;
+            
+            try {
+                audio.currentTime = 0;
+                audio.play().catch(() => {});
             } catch (error) {}
         }
-        
-        try {
-            audio.currentTime = 0;
-            audio.volume = gameState.audioEnabled ? 1.0 : 0;
-            audio.play().catch(() => {});
-            gameState.currentAudio = audio;
-        } catch (error) {}
-    }
 
-    function playWinnerSound() {
-        if (!gameState.audioEnabled || !gameState.audioInitialized) return;
-        
-        stopAllAudio();
-        
-        try {
-            const winnerAudio = new Audio();
-            winnerAudio.volume = gameState.audioEnabled ? 0.7 : 0;
-            winnerAudio.src = `${SOUNDS_BASE_URL}/winner.mp3`;
-            winnerAudio.play().catch(() => {});
-        } catch (error) {}
-    }
-
-    function toggleAudio() {
-        if (!gameState.audioInitialized) {
-            initializeAudio();
-            return;
-        }
-        
-        gameState.audioEnabled = !gameState.audioEnabled;
-        
-        Object.values(gameState.audioCache).forEach(audio => {
-            if (audio) audio.volume = gameState.audioEnabled ? 1.0 : 0;
-        });
-        
-        updateAudioToggle();
-    }
-    window.toggleAudio = toggleAudio;
-
-    function updateAudioToggle() {
-        const toggle = document.getElementById('audio-toggle');
-        const icon = toggle?.querySelector('i');
-        
-        if (toggle && icon) {
-            if (gameState.audioEnabled && gameState.audioInitialized) {
-                toggle.classList.remove('muted');
-                icon.className = 'fas fa-volume-up';
-                toggle.title = 'Mute sound';
-            } else {
-                toggle.classList.add('muted');
-                icon.className = 'fas fa-volume-mute';
-                toggle.title = 'Enable sound';
-            }
-        }
-    }
-
-    function getBingoLetter(number) {
-        if (number === 0) return '';
-        if (number <= 15) return 'B';
-        if (number <= 30) return 'I';
-        if (number <= 45) return 'N';
-        if (number <= 60) return 'G';
-        return 'O';
-    }
-
-    // ==================== FIXED: INSTANT CARD UPDATE - NEVER REBUILD GRID ====================
-    function instantCardUpdate(cardIndex, newStatus, cardData = null) {
-        console.log(`Instantly updating card ${cardIndex} to ${newStatus}`);
-        
-        const cardElement = gameState.cardsCache.cardElements[cardIndex];
-        if (!cardElement) {
-            console.warn(`Card ${cardIndex} not found in cache`);
-            return;
-        }
-        
-        cardElement.classList.remove('available', 'sold', 'owned', 'selected', 'purchasing');
-        
-        switch(newStatus) {
-            case 'sold':
-                cardElement.classList.add('sold');
-                cardElement.onclick = null;
-                cardElement.title = 'Sold';
-                gameState.cardsSold.add(cardIndex);
-                gameState.cardsCache.soldCards.add(cardIndex);
-                break;
-                
-            case 'owned':
-                cardElement.classList.add('owned');
-                cardElement.onclick = () => handleCardSelection(cardIndex, cardElement);
-                cardElement.title = 'Your card';
-                gameState.cardsSold.add(cardIndex);
-                gameState.cardsCache.soldCards.add(cardIndex);
-                gameState.cardsCache.ownedCardIndex = cardIndex;
-                
-                if (cardData && cardData.numbers) {
-                    gameState.selectedCardNumbers = cardData.numbers;
-                    gameState.selectedCardIndex = cardIndex;
-                    gameState.hasCard = true;
-                    
-                    document.getElementById('selected-card-id').textContent = `#${cardIndex}`;
-                    document.getElementById('player-card-id').textContent = cardIndex;
-                    document.getElementById('selected-card-info').style.display = 'block';
-                    showCardPreview();
-                    
-                    if (gameState.gamePhase === 'active') {
-                        renderPlayerCard();
-                    }
-                }
-                break;
-                
-            case 'available':
-                cardElement.classList.add('available');
-                cardElement.onclick = () => handleCardSelection(cardIndex, cardElement);
-                cardElement.title = 'Available';
-                gameState.cardsSold.delete(cardIndex);
-                gameState.cardsCache.soldCards.delete(cardIndex);
-                break;
-        }
-    }
-
-    // ==================== BINGO CLAIM ====================
-    async function claimBingo() {
-        if (!gameState.gameId || !gameState.hasCard) {
-            showNotification('You need a card to claim BINGO', 'error');
-            return;
-        }
-        
-        if (!validateGamePhase('active', 'claimBingo')) {
-            showNotification('Game is not active', 'error');
-            return;
-        }
-        
-        if (gameState.bingoClaimInProgress) return;
-        
-        const btn = document.getElementById('claim-bingo-btn');
-        if (btn) {
-            btn.innerHTML = `<div class="loading-spinner"></div> Claiming...`;
-            btn.disabled = true;
-        }
-        
-        gameState.bingoClaimInProgress = true;
-        
-        sendWebSocketMessage({
-            type: 'player_bingo_claim',
-            game_id: gameState.gameId,
-            user_id: gameState.userId,
-            timestamp: Date.now()
-        });
-        
-        setTimeout(() => {
-            if (gameState.bingoClaimInProgress) {
-                gameState.bingoClaimInProgress = false;
-                updateBingoButton();
-            }
-        }, 5000);
-    }
-    window.claimBingo = claimBingo;
-
-    // ==================== CHECK FOR BINGO ====================
-    function checkForBingo() {
-        try {
-            if (!gameState.hasCard || !Array.isArray(gameState.selectedCardNumbers) || 
-                gameState.selectedCardNumbers.length !== 25) {
-                return false;
-            }
-            
-            const grid = [];
-            for (let i = 0; i < 25; i += 5) {
-                grid.push(gameState.selectedCardNumbers.slice(i, i + 5));
-            }
-            
-            const markedSet = gameState.markedNumbers;
-            
-            // Check rows
-            for (let row = 0; row < 5; row++) {
-                let complete = true;
-                for (let col = 0; col < 5; col++) {
-                    if (row === 2 && col === 2) continue;
-                    if (!markedSet.has(grid[row][col])) {
-                        complete = false;
-                        break;
-                    }
-                }
-                if (complete) return true;
-            }
-            
-            // Check columns
-            for (let col = 0; col < 5; col++) {
-                let complete = true;
-                for (let row = 0; row < 5; row++) {
-                    if (row === 2 && col === 2) continue;
-                    if (!markedSet.has(grid[row][col])) {
-                        complete = false;
-                        break;
-                    }
-                }
-                if (complete) return true;
-            }
-            
-            // Check diagonals
-            let diag1Complete = true;
-            for (let i = 0; i < 5; i++) {
-                if (i === 2) continue;
-                if (!markedSet.has(grid[i][i])) {
-                    diag1Complete = false;
-                    break;
-                }
-            }
-            if (diag1Complete) return true;
-            
-            let diag2Complete = true;
-            for (let i = 0; i < 5; i++) {
-                if (i === 2) continue;
-                if (!markedSet.has(grid[i][4 - i])) {
-                    diag2Complete = false;
-                    break;
-                }
-            }
-            if (diag2Complete) return true;
-            
-            // Check 4 corners
-            const corners = [grid[0][0], grid[0][4], grid[4][0], grid[4][4]];
-            if (corners.every(num => markedSet.has(num))) {
-                return true;
-            }
-            
-            return false;
-                
-        } catch (error) {
-            console.error('Error checking bingo:', error);
-            return false;
-        }
-    }
-
-    // ==================== UPDATE BINGO BUTTON ====================
-    function updateBingoButton() {
-        const btn = document.getElementById('claim-bingo-btn');
-        if (!btn) return;
-        
-        if (gameState.gameComplete || gameState.winnerAnnounced) {
-            btn.innerHTML = `<i class="fas fa-trophy"></i> Game Complete`;
-            btn.disabled = true;
-            return;
-        }
-        
-        if (gameState.gamePhase !== 'active') {
-            btn.innerHTML = `<i class="fas fa-shopping-cart"></i> Buy Card to Play`;
-            btn.disabled = true;
-            return;
-        }
-        
-        if (!gameState.hasCard) {
-            btn.innerHTML = `<i class="fas fa-shopping-cart"></i> Buy Card to Play`;
-            btn.disabled = true;
-            return;
-        }
-        
-        const hasBingo = checkForBingo();
-        btn.disabled = !hasBingo || gameState.bingoClaimInProgress || gameState.hasClaimedBingo;
-        
-        if (hasBingo && !gameState.bingoClaimInProgress && !gameState.hasClaimedBingo) {
-            const prizeFromDB = gameState.prizePool || 0;
-            btn.innerHTML = `<i class="fas fa-trophy"></i> BINGO! WIN ${prizeFromDB.toFixed(2)} birr!`;
-        } else if (gameState.bingoClaimInProgress) {
-            btn.innerHTML = `<div class="loading-spinner"></div> Verifying...`;
-        } else if (gameState.hasClaimedBingo) {
-            btn.innerHTML = `<i class="fas fa-check-circle"></i> BINGO Claimed!`;
-        } else {
-            btn.innerHTML = `<i class="fas fa-bell"></i> BINGO`;
-            btn.disabled = true;
-        }
-    }
-
-    // ==================== FIXED: SERVER NUMBER HANDLER ====================
-    function handleServerNumberCalled(number, allCalled) {
-        console.log(`Server called number: ${number}`);
-        
-        gameState.calledNumbers = allCalled;
-        
-        updateCalledNumbersDisplay();
-        updateCurrentCalledDisplay(number);
-        updateBingoGrid();
-        
-        if (gameState.audioEnabled && gameState.audioInitialized && !gameState.winnerAnnounced) {
-            playNumberAudio(number);
-        }
-        
-        if (checkForBingo() && !gameState.hasClaimedBingo) {
-            updateBingoButton();
-        }
-    }
-
-    function updateCurrentCalledDisplay(number) {
-        const display = document.getElementById('current-called-letter-number');
-        if (display) {
-            const letter = getBingoLetter(number);
-            display.textContent = letter ? `${letter}-${number}` : number || '--';
-        }
-    }
-
-    function handlePlayerCardClick(cell, number) {
-        if (!gameState.gameActive || !gameState.hasCard) return;
-        
-        if (number === 0 || number === '0') return;
-        
-        if (!gameState.calledNumbers.includes(number)) return;
-        
-        if (gameState.markedNumbers.has(number)) {
-            gameState.markedNumbers.delete(number);
-            cell.classList.remove('marked');
-        } else {
-            gameState.markedNumbers.add(number);
-            cell.classList.add('marked');
-        }
-        
-        if (checkForBingo() && !gameState.hasClaimedBingo) {
-            updateBingoButton();
-        }
-    }
-    window.handlePlayerCardClick = handlePlayerCardClick;
-
-    function getUserId() {
-        let userId = null;
-        
-        const urlParams = new URLSearchParams(window.location.search);
-        const userIdFromUrl = urlParams.get('user_id');
-        if (userIdFromUrl) {
-            userId = userIdFromUrl;
-        }
-        
-        if (!userId) {
-            let storedUserId = localStorage.getItem('habesha_bingo_user_id');
-            if (!storedUserId) {
-                storedUserId = Math.floor(Math.random() * 1000000) + 1;
-                localStorage.setItem('habesha_bingo_user_id', storedUserId);
-            }
-            userId = storedUserId;
-        }
-        
-        return userId;
-    }
-
-    // ==================== FIXED: WEBSOCKET FUNCTIONS ====================
-    function sendWebSocketMessage(message) {
-        if (!message.timestamp) {
-            message.timestamp = Date.now();
-        }
-        
-        if (gameState.websocket && gameState.websocket.readyState === WebSocket.OPEN) {
-            try {
-                gameState.websocket.send(JSON.stringify(message));
-                return true;
-            } catch (error) {
-                console.error('Error sending WebSocket message:', error);
-                gameState.pendingMessages.push(message);
-                return false;
-            }
-        } else {
-            gameState.pendingMessages.push(message);
-            if (!gameState.isReconnecting) {
-                gameState.isReconnecting = true;
-                initWebSocket();
-            }
-            return false;
-        }
-    }
-
-    async function initWebSocket() {
-        try {
-            const wsUrl = `${WS_BASE_URL}/ws`;
-            
-            gameState.reconnectAttempts++;
-            
-            if (gameState.websocket) {
-                try {
-                    gameState.websocket.onclose = null;
-                    gameState.websocket.close();
-                } catch (e) {}
-            }
-            
-            gameState.websocket = new WebSocket(wsUrl);
-            
-            gameState.websocket.onopen = function() {
-                console.log('WebSocket connected');
-                gameState.isConnected = true;
-                gameState.reconnectAttempts = 0;
-                gameState.isReconnecting = false;
-                
-                sendWebSocketMessage({
-                    type: 'auth',
-                    userId: gameState.userId
-                });
-                
-                // Send pending messages
-                gameState.pendingMessages.forEach(msg => {
-                    try {
-                        gameState.websocket.send(JSON.stringify(msg));
-                    } catch (e) {}
-                });
-                gameState.pendingMessages = [];
-            };
-            
-            gameState.websocket.onmessage = function(event) {
-                try {
-                    const data = JSON.parse(event.data);
-                    handleWebSocketMessage(data);
-                } catch (error) {}
-            };
-            
-            gameState.websocket.onclose = function() {
-                console.log('WebSocket disconnected');
-                gameState.isConnected = false;
-                
-                const delay = Math.min(1000 * Math.pow(1.5, gameState.reconnectAttempts), 30000);
-                setTimeout(() => {
-                    if (!gameState.isConnected && !gameState.isReconnecting) {
-                        gameState.isReconnecting = true;
-                        initWebSocket();
-                    }
-                }, delay);
-            };
-            
-        } catch (error) {
-            console.error('WebSocket connection error:', error);
-        }
-    }
-
-    // ==================== FIXED: WEBSOCKET HANDLERS - COUNTDOWN ONLY FROM SERVER ====================
-    function handleWebSocketMessage(data) {
-        console.log('WebSocket message received:', data.type);
-        
-        gameState.lastUpdateTime = Date.now();
-        
-        if (data.game_id) {
-            gameState.gameId = data.game_id;
-        }
-        
-        switch (data.type) {
-            case 'winner_confirmed':
-                stopAllAudio();
-                handleWinnerConfirmed(data);
-                break;
-                
-            case 'winner_display_countdown':
-                if (gameState.isWinnerDisplayActive) {
-                    const timerElement = document.getElementById('winner-announcement-timer');
-                    if (timerElement && data.seconds_remaining !== undefined) {
-                        timerElement.textContent = `New round starting in ${data.seconds_remaining} seconds...`;
-                    }
-                }
-                break;
-                
-            case 'new_game_started':
-                handleNewRoundStarted(data);
-                break;
-                
-            case 'bingo_claim_verified':
-                gameState.bingoClaimInProgress = false;
-                gameState.hasClaimedBingo = true;
-                updateBingoButton();
-                break;
-                
-            case 'bingo_rejected':
-                gameState.bingoClaimInProgress = false;
-                updateBingoButton();
-                showNotification('Bingo claim rejected', 'error');
-                break;
-                
-            // FIXED: CRITICAL - Countdown updates directly from server
-            case 'countdown_update':
-                if (data.seconds_remaining !== undefined) {
-                    console.log(`📡 Server countdown: ${data.seconds_remaining}s`);
-                    gameState.countdown = data.seconds_remaining;
-                    updateCountdownDisplay(gameState.countdown);
-                    
-                    // If countdown reached 0, transition immediately
-                    if (data.seconds_remaining <= 0 && gameState.gamePhase === 'card_purchase') {
-                        gameState.gamePhase = 'active';
-                        gameState.gameActive = true;
-                        gameState.purchasePhaseActive = false;
-                        showScreen('game-screen');
-                        
-                        if (gameState.hasCard) {
-                            renderPlayerCard();
-                        }
-                    }
-                }
-                break;
-                
-            case 'phase_change_confirmed':
-                console.log(`Phase change: ${data.phase}`);
-                
-                gameState.gamePhase = data.phase;
-                gameState.lastConfirmedPhase = data.phase;
-                gameState.purchasePhaseActive = (data.phase === 'card_purchase');
-                
-                // FIXED: Immediately switch screens without delay
-                if (data.phase === 'active') {
-                    gameState.gameActive = true;
-                    showScreen('game-screen');
-                    if (gameState.hasCard) {
-                        renderPlayerCard();
-                    }
-                } else if (data.phase === 'card_purchase') {
-                    gameState.gameActive = false;
-                    showScreen('waiting-screen');
-                }
-                
-                if (data.countdown !== undefined) {
-                    gameState.countdown = data.countdown;
-                    updateCountdownDisplay(gameState.countdown);
-                }
-                break;
-                
-            case 'number_called':
-                if (data.game_id === gameState.gameId && data.number) {
-                    handleServerNumberCalled(
-                        data.number, 
-                        data.called_numbers || []
-                    );
-                }
-                break;
-                
-            case 'card_purchased':
-                if (data.prize_pool !== undefined) {
-                    gameState.prizePool = data.prize_pool;
-                }
-                if (data.total_players !== undefined) {
-                    gameState.totalPlayers = data.total_players;
-                }
-                
-                if (gameState.gamePhase === 'card_purchase' && data.card_index) {
-                    const cardIndex = data.card_index;
-                    if (cardIndex !== gameState.selectedCardIndex) {
-                        instantCardUpdate(cardIndex, 'sold');
-                    }
-                }
-                updateGameStats();
-                break;
-                
-            case 'fake_users_added':
-            case 'early_state_update':
-                if (data.prize_pool !== undefined) {
-                    gameState.prizePool = data.prize_pool;
-                }
-                if (data.total_players !== undefined) {
-                    gameState.totalPlayers = data.total_players;
-                }
-                if (data.fake_players !== undefined) {
-                    gameState.fakePlayers = data.fake_players;
-                }
-                if (data.real_players !== undefined) {
-                    gameState.realPlayers = data.real_players;
-                }
-                
-                // Show fake cards immediately without rebuilding grid
-                if (data.fake_card_indices && Array.isArray(data.fake_card_indices)) {
-                    data.fake_card_indices.forEach(index => {
-                        instantCardUpdate(index, 'sold');
-                    });
-                }
-                
-                updateGameStats();
-                break;
-        }
-    }
-
-    // ==================== WINNER HANDLERS ====================
-    function handleWinnerConfirmed(data) {
-        console.log('Winner confirmed:', data);
-        
-        gameState.winnerAnnounced = true;
-        gameState.gameActive = false;
-        gameState.gameComplete = data.is_final_winner || false;
-        
-        showWinnerAnnouncementScreen(data);
-    }
-
-    function showWinnerAnnouncementScreen(winnerData) {
-        const announcement = document.getElementById('winner-announcement');
-        const winnersCompactContainer = document.getElementById('winners-compact-container');
-        const timerElement = document.getElementById('winner-announcement-timer');
-        
-        if (!announcement) return;
-        
-        winnersCompactContainer.innerHTML = '';
-        
-        const allWinners = winnerData.winners || [winnerData];
-        const displayDuration = winnerData.display_duration || 10;
-        
-        allWinners.forEach((winner, index) => {
-            const winnerCard = document.createElement('div');
-            winnerCard.className = 'winner-compact-card';
-            
-            const cardNumbers = winner.card_numbers || [];
-            const winningPattern = winner.winning_pattern || [];
-            const patternSet = new Set();
-            
-            if (Array.isArray(winningPattern)) {
-                winningPattern.forEach(num => patternSet.add(num.toString()));
-            }
-            
-            let cardHTML = `
-                <div class="winner-compact-header">
-                    <span class="winner-compact-name">${winner.username || `Winner ${index + 1}`}</span>
-                    <span class="winner-compact-prize">Card #${winner.card_index || 0} • ${winner.prize_amount || 0} birr</span>
-                </div>
-                <div class="winner-card-grid-display">
-            `;
-            
-            for (let i = 0; i < 25; i++) {
-                const num = cardNumbers[i] !== undefined ? cardNumbers[i] : '?';
-                const isFree = (i === 12 || num === 0);
-                const isMarked = patternSet.has(num.toString());
-                
-                cardHTML += `
-                    <div class="winner-card-cell ${isFree ? 'free' : ''} ${isMarked ? 'marked' : ''}">
-                        ${isFree ? 'FREE' : num}
-                    </div>
-                `;
-            }
-            
-            cardHTML += '</div>';
-            winnerCard.innerHTML = cardHTML;
-            winnersCompactContainer.appendChild(winnerCard);
-        });
-        
-        if (timerElement) {
-            timerElement.textContent = `New round starting in ${displayDuration} seconds...`;
-        }
-        
-        announcement.style.display = 'flex';
-        
-        if (gameState.audioEnabled && gameState.audioInitialized) {
-            playWinnerSound();
-        }
-        
-        gameState.isWinnerDisplayActive = true;
-        gameState.winnerDisplayCountdown = displayDuration;
-    }
-
-    // ==================== FIXED: NEW ROUND HANDLER - NO GRID REBUILD ====================
-    function handleNewRoundStarted(data) {
-        console.log('New round started:', data);
-        
-        const winnerAnnouncement = document.getElementById('winner-announcement');
-        if (winnerAnnouncement) {
-            winnerAnnouncement.style.display = 'none';
-        }
-        
-        gameState.gameId = data.game_id;
-        gameState.gamePhase = 'card_purchase';
-        gameState.gameStatus = 'card_purchase';
-        gameState.lastConfirmedPhase = 'card_purchase';
-        gameState.gameActive = false;
-        gameState.purchasePhaseActive = true;
-        gameState.currentRound = data.round_number || (gameState.currentRound + 1);
-        gameState.countdown = data.countdown_seconds || 30;
-        gameState.gameComplete = false;
-        gameState.winnerAnnounced = false;
-        gameState.isWinnerDisplayActive = false;
-        gameState.winnerData = null;
-        gameState.hasCard = false;
-        gameState.selectedCardIndex = null;
-        gameState.selectedCardNumbers = [];
-        gameState.markedNumbers.clear();
-        gameState.calledNumbers = [];
-        gameState.hasClaimedBingo = false;
-        gameState.bingoClaimInProgress = false;
-        
-        // FIXED: Clear sold cards tracking but KEEP grid elements
-        gameState.cardsSold.clear();
-        gameState.cardsCache.soldCards.clear();
-        gameState.cardsCache.ownedCardIndex = null;
-        
-        // FIXED: Update existing card elements to available, DO NOT rebuild grid
-        for (let i = 1; i <= 400; i++) {
-            const cardElement = gameState.cardsCache.cardElements[i];
-            if (cardElement) {
-                cardElement.classList.remove('sold', 'owned', 'selected');
-                cardElement.classList.add('available');
-                cardElement.onclick = () => handleCardSelection(i, cardElement);
-                cardElement.title = 'Available';
-            }
-        }
-        
-        updateCountdownDisplay(gameState.countdown);
-        
-        showScreen('waiting-screen');
-        
-        updateCalledNumbersDisplay();
-        updateCurrentCalledDisplay('--');
-        updateBingoGrid();
-        
-        renderEmptyPlayerCard();
-        
-        document.getElementById('selected-card-info').style.display = 'none';
-        document.getElementById('current-round-number').textContent = gameState.currentRound;
-        
-        updateGameStats();
-    }
-
-    // ==================== FIXED: UI UPDATE FUNCTIONS ====================
-    function showScreen(screenId) {
-        document.getElementById('waiting-screen').classList.remove('active');
-        document.getElementById('game-screen').classList.remove('active');
-        
-        const screen = document.getElementById(screenId);
-        if (screen) {
-            screen.classList.add('active');
-        }
-    }
-
-    function updateGameUI() {
-        if (gameState.isWinnerDisplayActive) return;
-        
-        if (gameState.gamePhase === 'card_purchase') {
-            showScreen('waiting-screen');
-            updateCountdownDisplay(gameState.countdown);
-            
-            if (!gameState.hasCard) {
-                document.getElementById('selected-card-info').style.display = 'none';
-            } else {
-                document.getElementById('selected-card-info').style.display = 'block';
-            }
-            
-        } else if (gameState.gamePhase === 'active') {
-            showScreen('game-screen');
-            
-            updateCalledNumbersDisplay();
-            updateCurrentCalledDisplay();
-            updateBingoGrid();
-            
-            if (gameState.hasCard) {
-                renderPlayerCard();
-            } else {
-                renderEmptyPlayerCard();
-            }
-        }
-        
-        updateGameStats();
-    }
-
-    function updateCountdownDisplay(seconds) {
-        const timerElement = document.getElementById('countdown-timer');
-        const progressBar = document.getElementById('countdown-progress-bar');
-        
-        if (timerElement) {
-            timerElement.textContent = seconds;
-        }
-        
-        if (progressBar) {
-            const progress = ((30 - seconds) / 30) * 100;
-            progressBar.style.width = `${Math.min(100, Math.max(0, progress))}%`;
-        }
-    }
-
-    function updateGameStats() {
-        document.getElementById('card-price').textContent = `${CARD_PRICE.toFixed(2)} birr`;
-        document.getElementById('wallet-balance').textContent = `${gameState.walletBalance.toFixed(2)} birr`;
-        document.getElementById('game-prize-pool').textContent = `${gameState.prizePool.toFixed(2)} birr`;
-        
-        const totalPlayers = gameState.totalPlayers || (gameState.realPlayers + gameState.fakePlayers);
-        document.getElementById('game-player-count').textContent = totalPlayers;
-        
-        document.getElementById('called-numbers-stat').textContent = gameState.calledNumbers.length;
-        document.getElementById('called-count').textContent = gameState.calledNumbers.length;
-        document.getElementById('current-round-number').textContent = gameState.currentRound;
-    }
-
-    function updateBingoGrid() {
-        const columnsContainer = document.getElementById('bingo-grid');
-        if (!columnsContainer) return;
-        
-        columnsContainer.innerHTML = '';
-        
-        const columnRanges = [
-            { letter: 'B', min: 1, max: 15 },
-            { letter: 'I', min: 16, max: 30 },
-            { letter: 'N', min: 31, max: 45 },
-            { letter: 'G', min: 46, max: 60 },
-            { letter: 'O', min: 61, max: 75 }
-        ];
-        
-        const calledSet = new Set(gameState.calledNumbers);
-        
-        columnRanges.forEach(col => {
-            const columnDiv = document.createElement('div');
-            columnDiv.className = 'bingo-column';
-            
-            for (let num = col.min; num <= col.max; num++) {
-                const cell = document.createElement('div');
-                cell.className = 'bingo-number-cell';
-                cell.textContent = num;
-                
-                if (calledSet.has(num)) {
-                    cell.classList.add('called');
-                }
-                
-                columnDiv.appendChild(cell);
-            }
-            
-            columnsContainer.appendChild(columnDiv);
-        });
-    }
-
-    function showCardPreview() {
-        const previewGrid = document.getElementById('card-preview-grid');
-        if (!previewGrid || !Array.isArray(gameState.selectedCardNumbers)) return;
-        
-        previewGrid.innerHTML = '';
-        
-        gameState.selectedCardNumbers.forEach((num, index) => {
-            const cell = document.createElement('div');
-            cell.className = 'card-preview-cell';
-            
-            if (num === 0 || num === '0') {
-                cell.classList.add('free');
-                cell.textContent = 'FREE';
-            } else {
-                cell.textContent = num;
-            }
-            
-            previewGrid.appendChild(cell);
-        });
-    }
-
-    function renderPlayerCard() {
-        const grid = document.getElementById('player-card-grid');
-        if (!grid || !Array.isArray(gameState.selectedCardNumbers)) {
-            renderEmptyPlayerCard();
-            return;
-        }
-        
-        grid.innerHTML = '';
-        document.getElementById('player-card-id').textContent = gameState.selectedCardIndex || 'None';
-        
-        gameState.selectedCardNumbers.forEach((num, index) => {
-            const cell = document.createElement('div');
-            cell.className = 'player-card-cell';
-            cell.dataset.number = num;
-            cell.dataset.index = index;
-            
-            if (num === 0 || num === '0') {
-                cell.className += ' free';
-                cell.textContent = 'FREE';
-            } else {
-                cell.textContent = num;
-                
-                if (gameState.markedNumbers.has(num)) {
-                    cell.classList.add('marked');
-                }
-                
-                cell.onclick = () => handlePlayerCardClick(cell, num);
-            }
-            
-            grid.appendChild(cell);
-        });
-        
-        updateBingoButton();
-    }
-
-    function renderEmptyPlayerCard() {
-        const grid = document.getElementById('player-card-grid');
-        if (!grid) return;
-        
-        grid.innerHTML = '';
-        document.getElementById('player-card-id').textContent = 'None';
-        
-        for (let i = 0; i < 25; i++) {
-            const cell = document.createElement('div');
-            cell.className = 'player-card-cell empty';
-            
-            if (i === 12) {
-                cell.textContent = 'FREE';
-            } else {
-                cell.textContent = '?';
-            }
-            
-            grid.appendChild(cell);
-        }
-    }
-
-    function updateCalledNumbersDisplay() {
-        const grid = document.getElementById('called-numbers-grid');
-        const countElement = document.getElementById('called-numbers-stat');
-        const calledCountElement = document.getElementById('called-count');
-        
-        if (grid) {
-            grid.innerHTML = '';
-            
-            const recentNumbers = gameState.calledNumbers.slice(-20);
-            recentNumbers.forEach(num => {
-                const bubble = document.createElement('div');
-                bubble.className = 'called-number';
-                bubble.textContent = num;
-                
-                if (num === gameState.calledNumbers[gameState.calledNumbers.length - 1]) {
-                    bubble.classList.add('recent');
-                }
-                
-                grid.appendChild(bubble);
-            });
-        }
-        
-        if (countElement) countElement.textContent = gameState.calledNumbers.length;
-        if (calledCountElement) calledCountElement.textContent = gameState.calledNumbers.length;
-    }
-
-    // ==================== FIXED: LOAD CARDS GRID - ONLY CALLED ONCE! ====================
-    async function loadCardsGrid() {
-        if (gameState.isLoadingCards || gameState.cardsLoaded) {
-            console.log('Cards already loaded, skipping grid rebuild');
-            return;
-        }
-        
-        gameState.isLoadingCards = true;
-        
-        try {
-            if (!gameState.gameId) return;
-            
-            const grid = document.getElementById('cards-grid');
-            if (!grid) return;
-            
-            grid.innerHTML = '';
-            gameState.cardsCache.cardElements = {};
-            
-            // Get sold cards
-            let soldCards = [];
-            try {
-                const response = await fetch(`${API_BASE_URL}/game/${gameState.gameId}/sold-cards`);
-                if (response.ok) {
-                    const data = await response.json();
-                    if (data.success) {
-                        soldCards = data.sold_cards || [];
-                        gameState.cardsSold = new Set(soldCards);
-                        gameState.cardsCache.soldCards = new Set(soldCards);
-                    }
-                }
-            } catch (error) {
-                console.error('Error fetching sold cards:', error);
-            }
-            
-            // Create all 400 cards at once
-            const fragment = document.createDocumentFragment();
-            
-            for (let i = 1; i <= 400; i++) {
-                const cardElement = document.createElement('div');
-                cardElement.className = 'card-item';
-                cardElement.innerHTML = i;
-                cardElement.dataset.cardIndex = i;
-                
-                const isSold = gameState.cardsSold.has(i);
-                const isOwned = (gameState.selectedCardIndex === i);
-                
-                if (isOwned) {
-                    cardElement.classList.add('owned');
-                    cardElement.onclick = () => handleCardSelection(i, cardElement);
-                } else if (isSold) {
-                    cardElement.classList.add('sold');
-                    cardElement.onclick = null;
-                } else {
-                    cardElement.classList.add('available');
-                    cardElement.onclick = () => handleCardSelection(i, cardElement);
-                }
-                
-                gameState.cardsCache.cardElements[i] = cardElement;
-                fragment.appendChild(cardElement);
-            }
-            
-            grid.appendChild(fragment);
-            console.log(`✅ Cards grid loaded (${Object.keys(gameState.cardsCache.cardElements).length} cards)`);
-            
-            gameState.cardsLoaded = true;
-            
-        } catch (error) {
-            console.error('Error loading cards grid:', error);
-        } finally {
-            gameState.isLoadingCards = false;
-        }
-    }
-
-    // ==================== CARD SELECTION HANDLER ====================
-    async function handleCardSelection(cardIndex, element) {
-        if (!validateGamePhase('card_purchase', 'handleCardSelection')) {
-            showNotification('Card purchase only available during purchase phase', 'error');
-            return;
-        }
-        
-        if (gameState.isCardOperationInProgress) return;
-        
-        if (!gameState.gameId) return;
-        
-        if (gameState.selectedCardIndex === cardIndex) {
-            await toggleCardPurchase(cardIndex, element, 'refund');
-            return;
-        }
-        
-        if (gameState.hasCard && gameState.selectedCardIndex !== cardIndex) {
-            // Auto-replace card
-            gameState.isCardOperationInProgress = true;
+        function playWinnerSound() {
+            if (!gameState.audioEnabled || !gameState.audioInitialized) return;
             
             try {
-                const oldCardElement = gameState.cardsCache.cardElements[gameState.selectedCardIndex];
-                if (oldCardElement) oldCardElement.classList.add('purchasing');
-                element.classList.add('purchasing');
-                
-                // Refund old card
-                const refundResponse = await fetch(`${API_BASE_URL}/game/${gameState.gameId}/toggle-card`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ 
-                        user_id: gameState.userId,
-                        card_index: gameState.selectedCardIndex,
-                        action: 'refund'
-                    })
-                });
-                
-                const refundData = await refundResponse.json();
-                
-                if (!refundData.success) {
-                    throw new Error(refundData.message || 'Failed to refund card');
-                }
-                
-                instantCardUpdate(gameState.selectedCardIndex, 'available');
-                
-                gameState.hasCard = false;
-                gameState.selectedCardIndex = null;
-                gameState.selectedCardNumbers = [];
-                gameState.markedNumbers.clear();
-                gameState.walletBalance = refundData.new_balance || gameState.walletBalance;
-                
-                document.getElementById('selected-card-info').style.display = 'none';
-                
-                // Buy new card
-                const buyResponse = await fetch(`${API_BASE_URL}/game/${gameState.gameId}/toggle-card`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ 
-                        user_id: gameState.userId,
-                        card_index: cardIndex,
-                        action: 'buy'
-                    })
-                });
-                
-                const buyData = await buyResponse.json();
-                
-                if (!buyData.success) {
-                    throw new Error(buyData.message || 'Failed to buy card');
-                }
-                
-                instantCardUpdate(cardIndex, 'owned', {
-                    numbers: buyData.card_numbers,
-                    prize_pool: buyData.prize_pool,
-                    total_players: buyData.total_players,
-                    wallet_balance: buyData.new_balance
-                });
-                
-                if (oldCardElement) oldCardElement.classList.remove('purchasing');
-                element.classList.remove('purchasing');
-                
-                gameState.prizePool = buyData.prize_pool || gameState.prizePool;
-                gameState.totalPlayers = buyData.total_players || gameState.totalPlayers;
-                
-                updateGameStats();
-                
-            } catch (error) {
-                console.error('Error during card replacement:', error);
-                element.classList.remove('purchasing');
-                showNotification(error.message || 'Failed to replace card', 'error');
-            } finally {
-                gameState.isCardOperationInProgress = false;
-            }
-            
-            return;
+                const winnerAudio = new Audio();
+                winnerAudio.volume = 0.7;
+                winnerAudio.src = `${SOUNDS_BASE_URL}/winner.mp3`;
+                winnerAudio.play().catch(() => {});
+            } catch (error) {}
         }
-        
-        if (!gameState.hasCard) {
-            if (gameState.cardsSold.has(cardIndex)) {
-                showNotification('This card is already sold', 'error');
+
+        function toggleAudio() {
+            if (!gameState.audioInitialized) {
+                initializeAudio();
                 return;
             }
             
-            await toggleCardPurchase(cardIndex, element, 'buy');
-        }
-    }
-    window.handleCardSelection = handleCardSelection;
-
-    // ==================== TOGGLE CARD PURCHASE ====================
-    async function toggleCardPurchase(cardIndex, element, action) {
-        if (!validateGamePhase('card_purchase', 'toggleCardPurchase')) {
-            showNotification('Card purchase only available during purchase phase', 'error');
-            if (element) element.classList.remove('purchasing');
-            gameState.isCardOperationInProgress = false;
-            return;
-        }
-        
-        gameState.isCardOperationInProgress = true;
-        
-        if (!gameState.gameId) {
-            gameState.isCardOperationInProgress = false;
-            return;
-        }
-        
-        if (action === 'buy' && gameState.walletBalance < CARD_PRICE) {
-            showNotification(`Insufficient balance. Need ${CARD_PRICE} birr`, 'error');
-            gameState.isCardOperationInProgress = false;
-            return;
-        }
-        
-        try {
-            if (element) element.classList.add('purchasing');
+            gameState.audioEnabled = !gameState.audioEnabled;
             
-            const response = await fetch(`${API_BASE_URL}/game/${gameState.gameId}/toggle-card`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                    user_id: gameState.userId,
-                    card_index: cardIndex,
-                    action: action
-                })
+            Object.values(gameState.audioCache).forEach(audio => {
+                if (audio) audio.volume = gameState.audioEnabled ? 1.0 : 0;
             });
             
-            const data = await response.json();
+            updateAudioToggle();
+        }
+        window.toggleAudio = toggleAudio;
+
+        function updateAudioToggle() {
+            const toggle = document.getElementById('audio-toggle');
+            const icon = toggle?.querySelector('i');
             
-            if (data.success) {
-                if (action === 'buy') {
-                    instantCardUpdate(cardIndex, 'owned', {
-                        numbers: data.card_numbers,
-                        prize_pool: data.prize_pool,
-                        total_players: data.total_players,
-                        wallet_balance: data.new_balance
+            if (toggle && icon) {
+                if (gameState.audioEnabled) {
+                    toggle.classList.remove('muted');
+                    icon.className = 'fas fa-volume-up';
+                } else {
+                    toggle.classList.add('muted');
+                    icon.className = 'fas fa-volume-mute';
+                }
+            }
+        }
+
+        function getBingoLetter(number) {
+            if (number <= 15) return 'B';
+            if (number <= 30) return 'I';
+            if (number <= 45) return 'N';
+            if (number <= 60) return 'G';
+            return 'O';
+        }
+
+        // ==================== USER ID ====================
+        function getUserId() {
+            let userId = null;
+            
+            const urlParams = new URLSearchParams(window.location.search);
+            userId = urlParams.get('user_id');
+            
+            if (!userId) {
+                userId = localStorage.getItem('habesha_bingo_user_id');
+                if (!userId) {
+                    userId = Math.floor(Math.random() * 1000000) + 1;
+                    localStorage.setItem('habesha_bingo_user_id', userId);
+                }
+            }
+            
+            return userId;
+        }
+
+        // ==================== WEBSOCKET ====================
+        function sendWebSocketMessage(message) {
+            if (!message.timestamp) message.timestamp = Date.now();
+            
+            if (gameState.websocket?.readyState === WebSocket.OPEN) {
+                try {
+                    gameState.websocket.send(JSON.stringify(message));
+                    return true;
+                } catch (error) {
+                    gameState.pendingMessages.push(message);
+                    return false;
+                }
+            } else {
+                gameState.pendingMessages.push(message);
+                if (!gameState.isReconnecting) initWebSocket();
+                return false;
+            }
+        }
+
+        async function initWebSocket() {
+            try {
+                gameState.reconnectAttempts++;
+                
+                if (gameState.websocket) {
+                    try { gameState.websocket.close(); } catch (e) {}
+                }
+                
+                gameState.websocket = new WebSocket(`${WS_BASE_URL}/ws`);
+                
+                gameState.websocket.onopen = function() {
+                    console.log('WebSocket connected');
+                    gameState.isConnected = true;
+                    gameState.reconnectAttempts = 0;
+                    
+                    sendWebSocketMessage({
+                        type: 'auth',
+                        userId: gameState.userId
                     });
                     
-                } else if (action === 'refund') {
-                    instantCardUpdate(cardIndex, 'available');
+                    gameState.pendingMessages.forEach(msg => {
+                        try { gameState.websocket.send(JSON.stringify(msg)); } catch (e) {}
+                    });
+                    gameState.pendingMessages = [];
+                };
+                
+                gameState.websocket.onmessage = function(event) {
+                    try {
+                        const data = JSON.parse(event.data);
+                        handleWebSocketMessage(data);
+                    } catch (error) {}
+                };
+                
+                gameState.websocket.onclose = function() {
+                    console.log('WebSocket disconnected');
+                    gameState.isConnected = false;
+                    
+                    const delay = Math.min(1000 * Math.pow(1.5, gameState.reconnectAttempts), 30000);
+                    setTimeout(() => {
+                        if (!gameState.isConnected) initWebSocket();
+                    }, delay);
+                };
+                
+            } catch (error) {
+                console.error('WebSocket error:', error);
+            }
+        }
+
+        // ==================== FIXED: WEBSOCKET MESSAGE HANDLER ====================
+        function handleWebSocketMessage(data) {
+            console.log('WebSocket message:', data.type, data);
+            
+            if (data.game_id) gameState.gameId = data.game_id;
+            
+            switch (data.type) {
+                case 'countdown_update':
+                    if (data.seconds_remaining !== undefined) {
+                        console.log(`📡 Countdown: ${data.seconds_remaining}s`);
+                        gameState.countdown = data.seconds_remaining;
+                        gameState.lastCountdownUpdate = Date.now();
+                        updateCountdownDisplay(gameState.countdown);
+                        
+                        // FIXED: If countdown reaches 0, immediately switch to game screen
+                        if (data.seconds_remaining <= 0 && gameState.gamePhase === 'card_purchase') {
+                            console.log('Countdown reached 0, switching to game screen');
+                            gameState.gamePhase = 'active';
+                            gameState.gameActive = true;
+                            gameState.purchasePhaseActive = false;
+                            showScreen('game-screen');
+                            
+                            if (gameState.hasCard) {
+                                renderPlayerCard();
+                            }
+                        }
+                    }
+                    break;
+                    
+                case 'phase_change_confirmed':
+                    console.log(`Phase change: ${data.phase}`);
+                    
+                    gameState.gamePhase = data.phase;
+                    gameState.purchasePhaseActive = (data.phase === 'card_purchase');
+                    
+                    if (data.phase === 'active') {
+                        gameState.gameActive = true;
+                        showScreen('game-screen');
+                        if (gameState.hasCard) renderPlayerCard();
+                        
+                        // FIXED: Reset winner flags when game starts
+                        gameState.winnerAnnounced = false;
+                        gameState.isWinnerDisplayActive = false;
+                        gameState.winnerDisplayCompleted = false;
+                        
+                    } else if (data.phase === 'card_purchase') {
+                        gameState.gameActive = false;
+                        
+                        // FIXED: Only switch if not in winner display
+                        if (!gameState.isWinnerDisplayActive) {
+                            showScreen('waiting-screen');
+                        }
+                    }
+                    
+                    if (data.countdown !== undefined) {
+                        gameState.countdown = data.countdown;
+                        updateCountdownDisplay(gameState.countdown);
+                    }
+                    break;
+                    
+                case 'winner_confirmed':
+                    console.log('Winner confirmed:', data);
+                    
+                    gameState.winnerAnnounced = true;
+                    gameState.gameActive = false;
+                    gameState.isWinnerDisplayActive = true;
+                    gameState.winnerDisplayCompleted = false;
+                    
+                    // FIXED: Hide game screen, show winner
+                    showWinnerAnnouncementScreen(data);
+                    break;
+                    
+                case 'winner_display_completed':
+                    console.log('Winner display completed');
+                    
+                    // FIXED: Transition back to card purchase
+                    gameState.isWinnerDisplayActive = false;
+                    gameState.winnerAnnounced = false;
+                    gameState.winnerDisplayCompleted = true;
+                    gameState.gamePhase = 'card_purchase';
+                    gameState.gameStatus = 'card_purchase';
+                    gameState.purchasePhaseActive = true;
+                    gameState.gameActive = false;
+                    
+                    // FIXED: Hide winner announcement
+                    document.getElementById('winner-announcement').style.display = 'none';
+                    
+                    // FIXED: Reset for new round
+                    resetForNewRound();
+                    
+                    showScreen('waiting-screen');
+                    break;
+                    
+                case 'number_called':
+                    if (data.game_id === gameState.gameId && data.number) {
+                        handleServerNumberCalled(data.number, data.called_numbers || []);
+                    }
+                    break;
+                    
+                case 'card_purchased':
+                    if (data.prize_pool !== undefined) gameState.prizePool = data.prize_pool;
+                    if (data.total_players !== undefined) gameState.totalPlayers = data.total_players;
+                    
+                    if (gameState.gamePhase === 'card_purchase' && data.card_index) {
+                        if (data.card_index !== gameState.selectedCardIndex) {
+                            instantCardUpdate(data.card_index, 'sold');
+                        }
+                    }
+                    updateGameStats();
+                    break;
+                    
+                case 'fake_users_added':
+                case 'early_state_update':
+                    if (data.prize_pool !== undefined) gameState.prizePool = data.prize_pool;
+                    if (data.total_players !== undefined) gameState.totalPlayers = data.total_players;
+                    if (data.fake_players !== undefined) gameState.fakePlayers = data.fake_players;
+                    if (data.real_players !== undefined) gameState.realPlayers = data.real_players;
+                    
+                    if (data.fake_card_indices && Array.isArray(data.fake_card_indices)) {
+                        data.fake_card_indices.forEach(index => {
+                            instantCardUpdate(index, 'sold');
+                        });
+                    }
+                    
+                    updateGameStats();
+                    break;
+                    
+                case 'new_game_started':
+                    console.log('New game started');
+                    resetForNewRound();
+                    break;
+            }
+        }
+
+        // ==================== FIXED: RESET FOR NEW ROUND ====================
+        function resetForNewRound() {
+            console.log('Resetting for new round');
+            
+            gameState.gameId = null;
+            gameState.gamePhase = 'card_purchase';
+            gameState.gameStatus = 'card_purchase';
+            gameState.purchasePhaseActive = true;
+            gameState.gameActive = false;
+            
+            gameState.hasCard = false;
+            gameState.selectedCardIndex = null;
+            gameState.selectedCardNumbers = [];
+            gameState.markedNumbers.clear();
+            gameState.calledNumbers = [];
+            gameState.hasClaimedBingo = false;
+            gameState.bingoClaimInProgress = false;
+            
+            gameState.cardsSold.clear();
+            gameState.cardsCache.soldCards.clear();
+            gameState.cardsCache.ownedCardIndex = null;
+            
+            gameState.winnerAnnounced = false;
+            gameState.isWinnerDisplayActive = false;
+            gameState.winnerData = null;
+            
+            gameState.countdown = 30;
+            
+            // Update UI
+            for (let i = 1; i <= 400; i++) {
+                const cardElement = gameState.cardsCache.cardElements[i];
+                if (cardElement) {
+                    cardElement.classList.remove('sold', 'owned', 'selected');
+                    cardElement.classList.add('available');
+                    cardElement.onclick = () => handleCardSelection(i, cardElement);
+                }
+            }
+            
+            document.getElementById('selected-card-info').style.display = 'none';
+            renderEmptyPlayerCard();
+            updateCountdownDisplay(30);
+            
+            // Fetch new game
+            setTimeout(fetchActiveGame, 500);
+        }
+
+        // ==================== SERVER NUMBER HANDLER ====================
+        function handleServerNumberCalled(number, allCalled) {
+            console.log(`Number called: ${number}`);
+            
+            gameState.calledNumbers = allCalled;
+            
+            updateCalledNumbersDisplay();
+            updateCurrentCalledDisplay(number);
+            updateBingoGrid();
+            
+            if (gameState.audioEnabled && gameState.audioInitialized && !gameState.winnerAnnounced) {
+                playNumberAudio(number);
+            }
+            
+            if (checkForBingo() && !gameState.hasClaimedBingo) {
+                updateBingoButton();
+            }
+        }
+
+        function updateCurrentCalledDisplay(number) {
+            const display = document.getElementById('current-called-letter-number');
+            if (display) {
+                const letter = getBingoLetter(number);
+                display.textContent = letter ? `${letter}-${number}` : number || '--';
+            }
+        }
+
+        // ==================== BINGO FUNCTIONS ====================
+        async function claimBingo() {
+            if (!gameState.gameId || !gameState.hasCard) {
+                showNotification('You need a card to claim BINGO', 'error');
+                return;
+            }
+            
+            if (gameState.gamePhase !== 'active') {
+                showNotification('Game is not active', 'error');
+                return;
+            }
+            
+            if (gameState.bingoClaimInProgress) return;
+            
+            document.getElementById('claim-bingo-btn').disabled = true;
+            gameState.bingoClaimInProgress = true;
+            
+            sendWebSocketMessage({
+                type: 'player_bingo_claim',
+                game_id: gameState.gameId,
+                user_id: gameState.userId
+            });
+        }
+        window.claimBingo = claimBingo;
+
+        function checkForBingo() {
+            try {
+                if (!gameState.hasCard || !Array.isArray(gameState.selectedCardNumbers) || 
+                    gameState.selectedCardNumbers.length !== 25) return false;
+                
+                const grid = [];
+                for (let i = 0; i < 25; i += 5) {
+                    grid.push(gameState.selectedCardNumbers.slice(i, i + 5));
+                }
+                
+                const markedSet = gameState.markedNumbers;
+                
+                // Check rows
+                for (let row = 0; row < 5; row++) {
+                    let complete = true;
+                    for (let col = 0; col < 5; col++) {
+                        if (row === 2 && col === 2) continue;
+                        if (!markedSet.has(grid[row][col])) {
+                            complete = false;
+                            break;
+                        }
+                    }
+                    if (complete) return true;
+                }
+                
+                // Check columns
+                for (let col = 0; col < 5; col++) {
+                    let complete = true;
+                    for (let row = 0; row < 5; row++) {
+                        if (row === 2 && col === 2) continue;
+                        if (!markedSet.has(grid[row][col])) {
+                            complete = false;
+                            break;
+                        }
+                    }
+                    if (complete) return true;
+                }
+                
+                // Check diagonals
+                let diag1 = true, diag2 = true;
+                for (let i = 0; i < 5; i++) {
+                    if (i !== 2) {
+                        if (!markedSet.has(grid[i][i])) diag1 = false;
+                        if (!markedSet.has(grid[i][4 - i])) diag2 = false;
+                    }
+                }
+                if (diag1 || diag2) return true;
+                
+                // Check 4 corners
+                const corners = [grid[0][0], grid[0][4], grid[4][0], grid[4][4]];
+                if (corners.every(num => markedSet.has(num))) return true;
+                
+                return false;
+            } catch (error) {
+                console.error('Error checking bingo:', error);
+                return false;
+            }
+        }
+
+        function updateBingoButton() {
+            const btn = document.getElementById('claim-bingo-btn');
+            if (!btn) return;
+            
+            if (gameState.winnerAnnounced || gameState.isWinnerDisplayActive) {
+                btn.innerHTML = `<i class="fas fa-trophy"></i> Game Complete`;
+                btn.disabled = true;
+                return;
+            }
+            
+            if (gameState.gamePhase !== 'active') {
+                btn.innerHTML = `<i class="fas fa-shopping-cart"></i> Buy Card to Play`;
+                btn.disabled = true;
+                return;
+            }
+            
+            if (!gameState.hasCard) {
+                btn.innerHTML = `<i class="fas fa-shopping-cart"></i> Buy Card to Play`;
+                btn.disabled = true;
+                return;
+            }
+            
+            const hasBingo = checkForBingo();
+            
+            if (hasBingo && !gameState.bingoClaimInProgress && !gameState.hasClaimedBingo) {
+                btn.innerHTML = `<i class="fas fa-trophy"></i> BINGO! WIN ${gameState.prizePool.toFixed(2)} birr!`;
+                btn.classList.add('bingo-btn-gold');
+                btn.disabled = false;
+            } else {
+                btn.innerHTML = `<i class="fas fa-bell"></i> BINGO`;
+                btn.classList.remove('bingo-btn-gold');
+                btn.disabled = true;
+            }
+        }
+
+        // ==================== WINNER ANNOUNCEMENT ====================
+        function showWinnerAnnouncementScreen(winnerData) {
+            const announcement = document.getElementById('winner-announcement');
+            const container = document.getElementById('winners-compact-container');
+            const timerEl = document.getElementById('winner-announcement-timer');
+            
+            if (!announcement) return;
+            
+            container.innerHTML = '';
+            
+            const allWinners = winnerData.winners || [winnerData];
+            const displayDuration = winnerData.display_duration || 10;
+            
+            allWinners.forEach((winner, index) => {
+                const winnerCard = document.createElement('div');
+                winnerCard.className = 'winner-compact-card';
+                
+                const cardNumbers = winner.card_numbers || [];
+                const winningPattern = winner.winning_pattern || [];
+                const patternSet = new Set(winningPattern.map(String));
+                
+                let cardHTML = `
+                    <div class="winner-compact-header">
+                        <span class="winner-compact-name">${winner.username || `Winner ${index + 1}`}</span>
+                        <span class="winner-compact-prize">Card #${winner.card_index || 0} • ${winner.prize_amount || 0} birr</span>
+                    </div>
+                    <div class="winner-card-grid-display">
+                `;
+                
+                for (let i = 0; i < 25; i++) {
+                    const num = cardNumbers[i] !== undefined ? cardNumbers[i] : '?';
+                    const isFree = (i === 12 || num === 0);
+                    const isMarked = patternSet.has(String(num));
+                    
+                    cardHTML += `
+                        <div class="winner-card-cell ${isFree ? 'free' : ''} ${isMarked ? 'marked' : ''}">
+                            ${isFree ? 'FREE' : num}
+                        </div>
+                    `;
+                }
+                
+                cardHTML += '</div>';
+                winnerCard.innerHTML = cardHTML;
+                container.appendChild(winnerCard);
+            });
+            
+            if (timerEl) {
+                timerEl.textContent = `New round starting in ${displayDuration} seconds...`;
+            }
+            
+            announcement.style.display = 'flex';
+            
+            if (gameState.audioEnabled && gameState.audioInitialized) {
+                playWinnerSound();
+            }
+            
+            // FIXED: Winner display will automatically transition when server sends winner_display_completed
+        }
+
+        // ==================== INSTANT CARD UPDATE ====================
+        function instantCardUpdate(cardIndex, newStatus, cardData = null) {
+            const cardElement = gameState.cardsCache.cardElements[cardIndex];
+            if (!cardElement) return;
+            
+            cardElement.classList.remove('available', 'sold', 'owned', 'selected', 'purchasing');
+            
+            switch(newStatus) {
+                case 'sold':
+                    cardElement.classList.add('sold');
+                    cardElement.onclick = null;
+                    gameState.cardsSold.add(cardIndex);
+                    gameState.cardsCache.soldCards.add(cardIndex);
+                    break;
+                    
+                case 'owned':
+                    cardElement.classList.add('owned');
+                    cardElement.onclick = () => handleCardSelection(cardIndex, cardElement);
+                    gameState.cardsSold.add(cardIndex);
+                    gameState.cardsCache.soldCards.add(cardIndex);
+                    gameState.cardsCache.ownedCardIndex = cardIndex;
+                    
+                    if (cardData && cardData.numbers) {
+                        gameState.selectedCardNumbers = cardData.numbers;
+                        gameState.selectedCardIndex = cardIndex;
+                        gameState.hasCard = true;
+                        
+                        document.getElementById('selected-card-id').textContent = `#${cardIndex}`;
+                        document.getElementById('player-card-id').textContent = cardIndex;
+                        document.getElementById('selected-card-info').style.display = 'block';
+                        showCardPreview();
+                        
+                        if (gameState.gamePhase === 'active') renderPlayerCard();
+                    }
+                    break;
+                    
+                case 'available':
+                    cardElement.classList.add('available');
+                    cardElement.onclick = () => handleCardSelection(cardIndex, cardElement);
+                    gameState.cardsSold.delete(cardIndex);
+                    gameState.cardsCache.soldCards.delete(cardIndex);
+                    break;
+            }
+        }
+
+        // ==================== LOAD CARDS GRID (ONCE) ====================
+        async function loadCardsGrid() {
+            if (gameState.isLoadingCards || gameState.cardsLoaded) return;
+            
+            gameState.isLoadingCards = true;
+            
+            try {
+                if (!gameState.gameId) return;
+                
+                const grid = document.getElementById('cards-grid');
+                if (!grid) return;
+                
+                grid.innerHTML = '';
+                gameState.cardsCache.cardElements = {};
+                
+                // Get sold cards
+                try {
+                    const response = await fetch(`${API_BASE_URL}/game/${gameState.gameId}/sold-cards`);
+                    if (response.ok) {
+                        const data = await response.json();
+                        if (data.success) {
+                            gameState.cardsSold = new Set(data.sold_cards || []);
+                            gameState.cardsCache.soldCards = new Set(data.sold_cards || []);
+                        }
+                    }
+                } catch (error) {
+                    console.error('Error fetching sold cards:', error);
+                }
+                
+                const fragment = document.createDocumentFragment();
+                
+                for (let i = 1; i <= 400; i++) {
+                    const cardElement = document.createElement('div');
+                    cardElement.className = 'card-item';
+                    cardElement.innerHTML = i;
+                    cardElement.dataset.cardIndex = i;
+                    
+                    const isSold = gameState.cardsSold.has(i);
+                    const isOwned = (gameState.selectedCardIndex === i);
+                    
+                    if (isOwned) {
+                        cardElement.classList.add('owned');
+                        cardElement.onclick = () => handleCardSelection(i, cardElement);
+                    } else if (isSold) {
+                        cardElement.classList.add('sold');
+                        cardElement.onclick = null;
+                    } else {
+                        cardElement.classList.add('available');
+                        cardElement.onclick = () => handleCardSelection(i, cardElement);
+                    }
+                    
+                    gameState.cardsCache.cardElements[i] = cardElement;
+                    fragment.appendChild(cardElement);
+                }
+                
+                grid.appendChild(fragment);
+                console.log('Cards grid loaded');
+                gameState.cardsLoaded = true;
+                
+            } catch (error) {
+                console.error('Error loading cards:', error);
+            } finally {
+                gameState.isLoadingCards = false;
+            }
+        }
+
+        // ==================== CARD SELECTION ====================
+        async function handleCardSelection(cardIndex, element) {
+            if (gameState.gamePhase !== 'card_purchase') {
+                showNotification('Card purchase only available during purchase phase', 'error');
+                return;
+            }
+            
+            if (gameState.isCardOperationInProgress) return;
+            if (!gameState.gameId) return;
+            
+            if (gameState.selectedCardIndex === cardIndex) {
+                await toggleCardPurchase(cardIndex, element, 'refund');
+                return;
+            }
+            
+            if (gameState.hasCard && gameState.selectedCardIndex !== cardIndex) {
+                // Auto-replace
+                gameState.isCardOperationInProgress = true;
+                
+                try {
+                    const oldCardElement = gameState.cardsCache.cardElements[gameState.selectedCardIndex];
+                    if (oldCardElement) oldCardElement.classList.add('purchasing');
+                    element.classList.add('purchasing');
+                    
+                    // Refund old
+                    const refundRes = await fetch(`${API_BASE_URL}/game/${gameState.gameId}/toggle-card`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ 
+                            user_id: gameState.userId,
+                            card_index: gameState.selectedCardIndex,
+                            action: 'refund'
+                        })
+                    });
+                    
+                    const refundData = await refundRes.json();
+                    if (!refundData.success) throw new Error(refundData.message);
+                    
+                    instantCardUpdate(gameState.selectedCardIndex, 'available');
                     
                     gameState.hasCard = false;
                     gameState.selectedCardIndex = null;
@@ -3330,193 +2092,353 @@
                     gameState.markedNumbers.clear();
                     
                     document.getElementById('selected-card-info').style.display = 'none';
-                    renderEmptyPlayerCard();
                     
-                    if (data.new_balance !== undefined) {
-                        gameState.walletBalance = data.new_balance;
-                    }
-                }
-                
-                gameState.prizePool = data.prize_pool || gameState.prizePool;
-                gameState.totalPlayers = data.total_players || gameState.totalPlayers;
-                
-                updateGameStats();
-                
-            } else {
-                showNotification(data.message || 'Failed to process card', 'error');
-            }
-            
-        } catch (error) {
-            console.error('Error toggling card:', error);
-            showNotification('Failed to process card', 'error');
-        } finally {
-            if (element) element.classList.remove('purchasing');
-            gameState.isCardOperationInProgress = false;
-        }
-    }
-    window.toggleCardPurchase = toggleCardPurchase;
-
-    // ==================== SYNC WITH SERVER (MINIMAL) ====================
-    async function syncWithServer() {
-        if (!gameState.gameId || gameState.isWinnerDisplayActive) return;
-        
-        try {
-            const response = await fetch(`${API_BASE_URL}/game/${gameState.gameId}/sync`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    user_id: gameState.userId,
-                    game_phase: gameState.gamePhase,
-                    countdown: gameState.countdown,
-                    timestamp: Date.now()
-                })
-            });
-            
-            if (!response.ok) return;
-            
-            const data = await response.json();
-            
-            if (data.server_state) {
-                const serverState = data.server_state;
-                
-                // Only update countdown if server sends it (frontend never decrements itself)
-                if (serverState.countdown_remaining !== undefined) {
-                    gameState.countdown = serverState.countdown_remaining;
-                    updateCountdownDisplay(gameState.countdown);
-                }
-                
-                // Update phase if changed
-                if (serverState.game_phase && serverState.game_phase !== gameState.gamePhase) {
-                    gameState.gamePhase = serverState.game_phase;
-                    gameState.purchasePhaseActive = (serverState.game_phase === 'card_purchase');
+                    // Buy new
+                    const buyRes = await fetch(`${API_BASE_URL}/game/${gameState.gameId}/toggle-card`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ 
+                            user_id: gameState.userId,
+                            card_index: cardIndex,
+                            action: 'buy'
+                        })
+                    });
                     
-                    if (serverState.game_phase === 'active') {
-                        gameState.gameActive = true;
-                        showScreen('game-screen');
-                    } else if (serverState.game_phase === 'card_purchase') {
-                        gameState.gameActive = false;
-                        showScreen('waiting-screen');
-                    }
+                    const buyData = await buyRes.json();
+                    if (!buyData.success) throw new Error(buyData.message);
+                    
+                    instantCardUpdate(cardIndex, 'owned', {
+                        numbers: buyData.card_numbers,
+                        prize_pool: buyData.prize_pool,
+                        total_players: buyData.total_players,
+                        wallet_balance: buyData.new_balance
+                    });
+                    
+                    if (oldCardElement) oldCardElement.classList.remove('purchasing');
+                    element.classList.remove('purchasing');
+                    
+                    gameState.prizePool = buyData.prize_pool || gameState.prizePool;
+                    gameState.totalPlayers = buyData.total_players || gameState.totalPlayers;
+                    
+                    updateGameStats();
+                    
+                } catch (error) {
+                    console.error('Error replacing card:', error);
+                    element.classList.remove('purchasing');
+                    showNotification(error.message || 'Failed to replace card', 'error');
+                } finally {
+                    gameState.isCardOperationInProgress = false;
                 }
                 
-                // Update called numbers if new
-                if (serverState.called_numbers && serverState.called_numbers.length > gameState.calledNumbers.length) {
-                    gameState.calledNumbers = serverState.called_numbers;
-                    updateCalledNumbersDisplay();
-                    updateBingoGrid();
-                }
-                
-                // Update stats
-                if (serverState.player_count !== undefined) {
-                    gameState.playerCount = serverState.player_count;
-                }
-                if (serverState.prize_pool !== undefined) {
-                    gameState.prizePool = serverState.prize_pool;
-                }
-                
-                updateGameStats();
-            }
-            
-            gameState.lastSyncTime = Date.now();
-            
-        } catch (error) {
-            console.warn('Sync failed:', error.message);
-        }
-    }
-
-    // ==================== GET USER BALANCE ====================
-    async function getUserBalance() {
-        try {
-            const response = await fetch(`/api/user/balance/${gameState.userId}`);
-            
-            if (!response.ok) {
-                gameState.walletBalance = 0.00;
-                updateGameStats();
                 return;
             }
             
-            const data = await response.json();
-            
-            if (data.success) {
-                gameState.walletBalance = parseFloat(data.balance) || 0.00;
-                updateGameStats();
-            } else {
-                gameState.walletBalance = 0.00;
-                updateGameStats();
-            }
-        } catch (error) {
-            console.error('Error fetching balance:', error);
-            gameState.walletBalance = 0.00;
-            updateGameStats();
-        }
-    }
-
-    // ==================== FETCH USER CARD ====================
-    async function fetchUserCardForGame(gameId) {
-        try {
-            const response = await fetch(`${API_BASE_URL}/game/${gameId}/user-state/${gameState.userId}`);
-            if (!response.ok) {
-                gameState.hasCard = false;
-                return false;
-            }
-            
-            const data = await response.json();
-            
-            if (data.success && data.has_card && data.user_card) {
-                gameState.hasCard = true;
-                gameState.selectedCardId = data.user_card.card_id;
-                gameState.selectedCardIndex = data.user_card.card_index;
-                
-                if (data.user_card.card_data) {
-                    try {
-                        let cardData = data.user_card.card_data;
-                        if (typeof cardData === 'string') {
-                            cardData = JSON.parse(cardData);
-                        }
-                        
-                        if (Array.isArray(cardData)) {
-                            gameState.selectedCardNumbers = cardData;
-                        }
-                    } catch (e) {}
+            if (!gameState.hasCard) {
+                if (gameState.cardsSold.has(cardIndex)) {
+                    showNotification('This card is already sold', 'error');
+                    return;
                 }
                 
-                document.getElementById('selected-card-id').textContent = `#${data.user_card.card_index || '0'}`;
-                document.getElementById('player-card-id').textContent = data.user_card.card_index || '0';
-                
-                if (gameState.gamePhase === 'active') {
-                    renderPlayerCard();
-                }
-                
-                return true;
-            } else {
-                gameState.hasCard = false;
-                return false;
+                await toggleCardPurchase(cardIndex, element, 'buy');
             }
-        } catch (error) {
-            console.error('Error fetching user card:', error);
-            gameState.hasCard = false;
-            return false;
         }
-    }
+        window.handleCardSelection = handleCardSelection;
 
-    // ==================== INITIALIZATION ====================
-    async function initGame() {
-        console.log('Initializing game...');
-        
-        gameState.userId = getUserId();
-        console.log('User ID:', gameState.userId);
-        
-        showAudioPrompt();
-        
-        await getUserBalance();
-        
-        // Get active game
-        try {
-            const response = await fetch('/api/game/active');
-            if (response.ok) {
+        async function toggleCardPurchase(cardIndex, element, action) {
+            if (gameState.gamePhase !== 'card_purchase') {
+                showNotification('Card purchase only available during purchase phase', 'error');
+                if (element) element.classList.remove('purchasing');
+                gameState.isCardOperationInProgress = false;
+                return;
+            }
+            
+            gameState.isCardOperationInProgress = true;
+            
+            try {
+                if (element) element.classList.add('purchasing');
+                
+                const response = await fetch(`${API_BASE_URL}/game/${gameState.gameId}/toggle-card`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        user_id: gameState.userId,
+                        card_index: cardIndex,
+                        action: action
+                    })
+                });
+                
                 const data = await response.json();
+                
                 if (data.success) {
-                    console.log('Active game found:', data.game_id);
+                    if (action === 'buy') {
+                        instantCardUpdate(cardIndex, 'owned', {
+                            numbers: data.card_numbers,
+                            prize_pool: data.prize_pool,
+                            total_players: data.total_players,
+                            wallet_balance: data.new_balance
+                        });
+                        
+                    } else if (action === 'refund') {
+                        instantCardUpdate(cardIndex, 'available');
+                        
+                        gameState.hasCard = false;
+                        gameState.selectedCardIndex = null;
+                        gameState.selectedCardNumbers = [];
+                        gameState.markedNumbers.clear();
+                        
+                        document.getElementById('selected-card-info').style.display = 'none';
+                        renderEmptyPlayerCard();
+                    }
+                    
+                    gameState.prizePool = data.prize_pool || gameState.prizePool;
+                    gameState.totalPlayers = data.total_players || gameState.totalPlayers;
+                    
+                    updateGameStats();
+                    
+                } else {
+                    showNotification(data.message || 'Failed', 'error');
+                }
+                
+            } catch (error) {
+                console.error('Error:', error);
+                showNotification('Failed to process card', 'error');
+            } finally {
+                if (element) element.classList.remove('purchasing');
+                gameState.isCardOperationInProgress = false;
+            }
+        }
+
+        // ==================== UI UPDATE FUNCTIONS ====================
+        function showScreen(screenId) {
+            document.getElementById('waiting-screen').classList.remove('active');
+            document.getElementById('game-screen').classList.remove('active');
+            document.getElementById(screenId).classList.add('active');
+        }
+
+        function updateCountdownDisplay(seconds) {
+            const timerEl = document.getElementById('countdown-timer');
+            const progressBar = document.getElementById('countdown-progress-bar');
+            
+            if (timerEl) timerEl.textContent = seconds;
+            if (progressBar) {
+                const progress = ((30 - seconds) / 30) * 100;
+                progressBar.style.width = `${Math.min(100, Math.max(0, progress))}%`;
+            }
+        }
+
+        function updateGameStats() {
+            document.getElementById('card-price').textContent = `${CARD_PRICE.toFixed(2)} birr`;
+            document.getElementById('wallet-balance').textContent = `${gameState.walletBalance.toFixed(2)} birr`;
+            document.getElementById('game-prize-pool').textContent = `${gameState.prizePool.toFixed(2)} birr`;
+            
+            const total = gameState.totalPlayers || (gameState.realPlayers + gameState.fakePlayers);
+            document.getElementById('game-player-count').textContent = total;
+            
+            document.getElementById('called-numbers-stat').textContent = gameState.calledNumbers.length;
+            document.getElementById('called-count').textContent = gameState.calledNumbers.length;
+        }
+
+        function updateBingoGrid() {
+            const container = document.getElementById('bingo-grid');
+            if (!container) return;
+            
+            container.innerHTML = '';
+            
+            const ranges = [
+                { min: 1, max: 15 },
+                { min: 16, max: 30 },
+                { min: 31, max: 45 },
+                { min: 46, max: 60 },
+                { min: 61, max: 75 }
+            ];
+            
+            const calledSet = new Set(gameState.calledNumbers);
+            
+            ranges.forEach(range => {
+                const col = document.createElement('div');
+                col.className = 'bingo-column';
+                
+                for (let num = range.min; num <= range.max; num++) {
+                    const cell = document.createElement('div');
+                    cell.className = 'bingo-number-cell';
+                    cell.textContent = num;
+                    if (calledSet.has(num)) cell.classList.add('called');
+                    col.appendChild(cell);
+                }
+                
+                container.appendChild(col);
+            });
+        }
+
+        function showCardPreview() {
+            const preview = document.getElementById('card-preview-grid');
+            if (!preview || !Array.isArray(gameState.selectedCardNumbers)) return;
+            
+            preview.innerHTML = '';
+            
+            gameState.selectedCardNumbers.forEach((num, i) => {
+                const cell = document.createElement('div');
+                cell.className = 'card-preview-cell';
+                
+                if (num === 0) {
+                    cell.classList.add('free');
+                    cell.textContent = 'FREE';
+                } else {
+                    cell.textContent = num;
+                }
+                
+                preview.appendChild(cell);
+            });
+        }
+
+        function renderPlayerCard() {
+            const grid = document.getElementById('player-card-grid');
+            if (!grid || !Array.isArray(gameState.selectedCardNumbers)) {
+                renderEmptyPlayerCard();
+                return;
+            }
+            
+            grid.innerHTML = '';
+            document.getElementById('player-card-id').textContent = gameState.selectedCardIndex || 'None';
+            
+            gameState.selectedCardNumbers.forEach((num, i) => {
+                const cell = document.createElement('div');
+                cell.className = 'player-card-cell';
+                
+                if (num === 0) {
+                    cell.className += ' free';
+                    cell.textContent = 'FREE';
+                } else {
+                    cell.textContent = num;
+                    if (gameState.markedNumbers.has(num)) cell.classList.add('marked');
+                    cell.onclick = () => {
+                        if (!gameState.calledNumbers.includes(num)) return;
+                        if (gameState.markedNumbers.has(num)) {
+                            gameState.markedNumbers.delete(num);
+                            cell.classList.remove('marked');
+                        } else {
+                            gameState.markedNumbers.add(num);
+                            cell.classList.add('marked');
+                        }
+                        updateBingoButton();
+                    };
+                }
+                
+                grid.appendChild(cell);
+            });
+            
+            updateBingoButton();
+        }
+
+        function renderEmptyPlayerCard() {
+            const grid = document.getElementById('player-card-grid');
+            if (!grid) return;
+            
+            grid.innerHTML = '';
+            document.getElementById('player-card-id').textContent = 'None';
+            
+            for (let i = 0; i < 25; i++) {
+                const cell = document.createElement('div');
+                cell.className = 'player-card-cell empty';
+                cell.textContent = i === 12 ? 'FREE' : '?';
+                grid.appendChild(cell);
+            }
+        }
+
+        function updateCalledNumbersDisplay() {
+            const grid = document.getElementById('called-numbers-grid');
+            if (!grid) return;
+            
+            grid.innerHTML = '';
+            
+            const recent = gameState.calledNumbers.slice(-20);
+            recent.forEach(num => {
+                const bubble = document.createElement('div');
+                bubble.className = 'called-number';
+                bubble.textContent = num;
+                if (num === gameState.calledNumbers[gameState.calledNumbers.length - 1]) {
+                    bubble.classList.add('recent');
+                }
+                grid.appendChild(bubble);
+            });
+        }
+
+        // ==================== SYNC WITH SERVER ====================
+        async function syncWithServer() {
+            if (!gameState.gameId || gameState.isWinnerDisplayActive) return;
+            
+            try {
+                const response = await fetch(`${API_BASE_URL}/game/${gameState.gameId}/sync`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        user_id: gameState.userId,
+                        game_phase: gameState.gamePhase,
+                        countdown: gameState.countdown
+                    })
+                });
+                
+                if (!response.ok) return;
+                
+                const data = await response.json();
+                
+                if (data.server_state) {
+                    const server = data.server_state;
+                    
+                    // Only update countdown if server sent it
+                    if (server.countdown_remaining !== undefined) {
+                        // FIXED: Only update if different by more than 2 seconds
+                        if (Math.abs(server.countdown_remaining - gameState.countdown) > 2) {
+                            gameState.countdown = server.countdown_remaining;
+                            updateCountdownDisplay(gameState.countdown);
+                        }
+                    }
+                    
+                    // Update phase if changed
+                    if (server.game_phase && server.game_phase !== gameState.gamePhase) {
+                        gameState.gamePhase = server.game_phase;
+                        gameState.purchasePhaseActive = (server.game_phase === 'card_purchase');
+                        
+                        if (server.game_phase === 'active') {
+                            gameState.gameActive = true;
+                            showScreen('game-screen');
+                            if (gameState.hasCard) renderPlayerCard();
+                        } else if (server.game_phase === 'card_purchase' && !gameState.isWinnerDisplayActive) {
+                            gameState.gameActive = false;
+                            showScreen('waiting-screen');
+                        }
+                    }
+                    
+                    // Update called numbers
+                    if (server.called_numbers && server.called_numbers.length > gameState.calledNumbers.length) {
+                        gameState.calledNumbers = server.called_numbers;
+                        updateCalledNumbersDisplay();
+                        updateBingoGrid();
+                    }
+                    
+                    // Update stats
+                    if (server.player_count !== undefined) gameState.playerCount = server.player_count;
+                    if (server.prize_pool !== undefined) gameState.prizePool = server.prize_pool;
+                    
+                    updateGameStats();
+                }
+                
+                gameState.lastSyncTime = Date.now();
+                
+            } catch (error) {
+                console.warn('Sync failed:', error);
+            }
+        }
+
+        // ==================== FETCH ACTIVE GAME ====================
+        async function fetchActiveGame() {
+            try {
+                const response = await fetch('/api/game/active');
+                if (!response.ok) return null;
+                
+                const data = await response.json();
+                
+                if (data.success) {
                     gameState.gameId = data.game_id;
                     gameState.gamePhase = data.status || 'card_purchase';
                     gameState.gameStatus = data.status || 'card_purchase';
@@ -3524,8 +2446,6 @@
                     gameState.currentRound = data.round_number || 1;
                     gameState.prizePool = parseFloat(data.prize_pool || 0);
                     gameState.totalPlayers = data.total_players || 0;
-                    gameState.realPlayers = data.real_players || 0;
-                    gameState.fakePlayers = data.fake_players || 0;
                     gameState.calledNumbers = data.numbers_called || [];
                     
                     document.getElementById('current-round-number').textContent = gameState.currentRound;
@@ -3533,73 +2453,134 @@
                     updateCalledNumbersDisplay();
                     updateBingoGrid();
                     
-                    // FIXED: Load cards grid ONCE at initialization
-                    await loadCardsGrid();
-                    
-                    // Check if user has a card
+                    // Check if user has card
                     await fetchUserCardForGame(gameState.gameId);
                     
                     // Show appropriate screen
                     if (gameState.gamePhase === 'active') {
                         gameState.gameActive = true;
                         showScreen('game-screen');
-                        if (gameState.hasCard) {
-                            renderPlayerCard();
-                        }
-                    } else {
+                        if (gameState.hasCard) renderPlayerCard();
+                    } else if (!gameState.isWinnerDisplayActive) {
                         showScreen('waiting-screen');
                     }
+                    
+                    return data;
                 }
+            } catch (error) {
+                console.error('Error fetching game:', error);
             }
-        } catch (error) {
-            console.error('Error fetching active game:', error);
+            return null;
         }
-        
-        // Connect WebSocket
-        await initWebSocket();
-        
-        // FIXED: Single sync interval (every 5 seconds, no local countdown)
-        if (gameState.syncInterval) clearInterval(gameState.syncInterval);
-        gameState.syncInterval = setInterval(syncWithServer, 5000);
-        
-        // Setup audio toggle
-        const audioToggle = document.getElementById('audio-toggle');
-        if (audioToggle) {
-            audioToggle.addEventListener('click', toggleAudio);
-        }
-        
-        // Setup click to initialize audio
-        document.addEventListener('click', function initAudioOnClick() {
-            if (!gameState.audioInitialized) {
-                initializeAudio();
-                preloadAudioFiles();
-            }
-            document.removeEventListener('click', initAudioOnClick);
-        });
-        
-        console.log('Game initialized successfully');
-    }
 
-    // Start the game
-    document.addEventListener('DOMContentLoaded', initGame);
-
-    // Cleanup on unload
-    window.addEventListener('beforeunload', function() {
-        if (gameState.syncInterval) clearInterval(gameState.syncInterval);
-        if (gameState.winnerDisplayInterval) clearInterval(gameState.winnerDisplayInterval);
-        
-        if (gameState.websocket && gameState.websocket.readyState === WebSocket.OPEN) {
-            gameState.websocket.onclose = null;
-            gameState.websocket.close();
-        }
-        
-        Object.values(gameState.audioCache).forEach(audio => {
-            if (audio) {
-                audio.pause();
-                audio.src = '';
+        // ==================== FETCH USER CARD ====================
+        async function fetchUserCardForGame(gameId) {
+            try {
+                const response = await fetch(`${API_BASE_URL}/game/${gameId}/user-state/${gameState.userId}`);
+                if (!response.ok) {
+                    gameState.hasCard = false;
+                    return false;
+                }
+                
+                const data = await response.json();
+                
+                if (data.success && data.has_card && data.user_card) {
+                    gameState.hasCard = true;
+                    gameState.selectedCardId = data.user_card.card_id;
+                    gameState.selectedCardIndex = data.user_card.card_index;
+                    
+                    if (data.user_card.card_data) {
+                        try {
+                            let cardData = data.user_card.card_data;
+                            if (typeof cardData === 'string') cardData = JSON.parse(cardData);
+                            if (Array.isArray(cardData)) gameState.selectedCardNumbers = cardData;
+                        } catch (e) {}
+                    }
+                    
+                    document.getElementById('selected-card-id').textContent = `#${data.user_card.card_index || '0'}`;
+                    document.getElementById('player-card-id').textContent = data.user_card.card_index || '0';
+                    
+                    if (gameState.gamePhase === 'active') renderPlayerCard();
+                    
+                    return true;
+                } else {
+                    gameState.hasCard = false;
+                    return false;
+                }
+            } catch (error) {
+                console.error('Error fetching card:', error);
+                gameState.hasCard = false;
+                return false;
             }
+        }
+
+        // ==================== GET USER BALANCE ====================
+        async function getUserBalance() {
+            try {
+                const response = await fetch(`/api/user/balance/${gameState.userId}`);
+                if (!response.ok) {
+                    gameState.walletBalance = 0;
+                    return;
+                }
+                
+                const data = await response.json();
+                if (data.success) {
+                    gameState.walletBalance = parseFloat(data.balance) || 0;
+                } else {
+                    gameState.walletBalance = 0;
+                }
+                
+                updateGameStats();
+            } catch (error) {
+                console.error('Error fetching balance:', error);
+                gameState.walletBalance = 0;
+                updateGameStats();
+            }
+        }
+
+        // ==================== INITIALIZATION ====================
+        async function initGame() {
+            console.log('Initializing game...');
+            
+            gameState.userId = getUserId();
+            console.log('User ID:', gameState.userId);
+            
+            showAudioPrompt();
+            await getUserBalance();
+            
+            // Get active game
+            const gameData = await fetchActiveGame();
+            
+            if (gameData && gameData.success) {
+                // Load cards grid once
+                await loadCardsGrid();
+            }
+            
+            // Connect WebSocket
+            await initWebSocket();
+            
+            // FIXED: Sync every 5 seconds
+            setInterval(syncWithServer, 5000);
+            
+            // Setup audio toggle
+            document.getElementById('audio-toggle').addEventListener('click', toggleAudio);
+            
+            // Click to initialize audio
+            document.addEventListener('click', function initAudio() {
+                if (!gameState.audioInitialized) initializeAudio();
+                document.removeEventListener('click', initAudio);
+            }, { once: true });
+            
+            console.log('Game initialized');
+        }
+
+        // Start the game
+        document.addEventListener('DOMContentLoaded', initGame);
+
+        // Cleanup
+        window.addEventListener('beforeunload', function() {
+            if (gameState.websocket) gameState.websocket.close();
         });
-    });
-</script>
+    </script>
 </body>
 </html>
