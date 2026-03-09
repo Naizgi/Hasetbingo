@@ -84,6 +84,11 @@
 # ==================== ADDED: CONFIGURABLE FAKE PLAYER LIMITS ====================
 # Added set_fake_player_range method to control min/max fake players from admin panel
 # Fake player limits can now be configured dynamically without restart
+# ==================== ADDED: PERIODIC STUCK GAME CHECKER ====================
+# Added periodic checker that runs every 30 seconds to identify and recover stuck games
+# Checks games in card_purchase, active, and winner_display phases
+# Automatically refunds players in abandoned games
+# Verifies number caller is running for active games
 # ============================================================
 
 import asyncio
@@ -206,6 +211,9 @@ class GameManager:
         
         # ==================== FIXED: 400 Pre-generated static cards ====================
         self.fixed_cards = self._load_fixed_cards()
+        
+        # ==================== NEW: Stuck game checker task ====================
+        self._stuck_game_checker = None
         
         logger.info(f"GameManager initialized with RANDOM FAKE PLAYERS ({self.min_fake_players}-{self.max_fake_players}) per game")
         logger.info(f"📇 Loaded {len(self.fixed_cards)} fixed cards for consistent gameplay")
@@ -959,8 +967,15 @@ class GameManager:
             
             # Check if game has been active too long (timeout)
             game = await Database.get_game(game_id)
-            game_start_time = game.get('game_start_time')
+            game_start_time = game.get('started_at')
             if game_start_time:
+                # Parse datetime
+                if isinstance(game_start_time, str):
+                    try:
+                        game_start_time = datetime.fromisoformat(game_start_time.replace('Z', '+00:00'))
+                    except:
+                        game_start_time = datetime.now()
+                
                 time_active = (datetime.now() - game_start_time).total_seconds()
                 if time_active > 180:  # 3 minutes timeout
                     logger.warning(f"Game {game_id} active for {time_active:.0f}s, forcing end")
@@ -1222,6 +1237,129 @@ class GameManager:
         """Generate random number of fake players between min_fake_players and max_fake_players"""
         return random.randint(self.min_fake_players, self.max_fake_players)
     
+    # ==================== NEW: Periodic stuck game checker ====================
+    
+    async def _check_for_stuck_games_periodically(self):
+        """
+        Periodically check for stuck games and recover them.
+        This runs as a background task alongside the main game loop.
+        """
+        while True:
+            try:
+                await asyncio.sleep(30)  # Check every 30 seconds
+                
+                from database.db import Database
+                
+                # Get all non-completed games
+                with Database.get_cursor() as cursor:
+                    cursor.execute("""
+                        SELECT game_id, status, current_phase, created_at, started_at, completed_at
+                        FROM games 
+                        WHERE status NOT IN ('completed', 'archived')
+                        ORDER BY created_at DESC
+                    """)
+                    rows = cursor.fetchall()
+                
+                for game in rows:
+                    game_id = game['game_id']
+                    status = game['status']
+                    phase = game['current_phase']
+                    created_at = game['created_at']
+                    
+                    # Skip the active game (let main loop handle it)
+                    if self.active_game and self.active_game.get('game_id') == game_id:
+                        continue
+                    
+                    # Check for games stuck in card_purchase for too long
+                    if status == 'card_purchase' and phase == 'card_purchase':
+                        if created_at:
+                            # Parse datetime
+                            if isinstance(created_at, str):
+                                try:
+                                    created_time = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+                                except:
+                                    created_time = datetime.now()
+                            else:
+                                created_time = created_at
+                            
+                            age_minutes = (datetime.now() - created_time).total_seconds() / 60
+                            
+                            if age_minutes > 5:  # Stuck for more than 5 minutes
+                                logger.warning(f"Found abandoned game {game_id} in card_purchase for {age_minutes:.1f} minutes")
+                                
+                                # Check if it has any active players
+                                cursor.execute("""
+                                    SELECT COUNT(*) as count FROM player_cards 
+                                    WHERE game_id = ? AND is_active = 1
+                                """, (game_id,))
+                                player_count = cursor.fetchone()['count'] or 0
+                                
+                                if player_count == 0:
+                                    # No players, safe to delete or mark as completed
+                                    logger.info(f"Game {game_id} has no players, marking as completed")
+                                    await Database.update_game_status(game_id, 'completed')
+                                    await Database.update_game_phase(game_id, 'completed')
+                                else:
+                                    # Has players, need to refund them
+                                    logger.warning(f"Game {game_id} has {player_count} players but is abandoned. Refunding...")
+                                    await self._refund_all_players(game_id)
+                                    await Database.update_game_status(game_id, 'completed')
+                                    await Database.update_game_phase(game_id, 'completed')
+                    
+                    # Check for games stuck in active phase with no number caller
+                    elif status == 'active' and phase == 'active':
+                        started_at = game.get('started_at')
+                        if started_at:
+                            # Parse datetime
+                            if isinstance(started_at, str):
+                                try:
+                                    start_time = datetime.fromisoformat(started_at.replace('Z', '+00:00'))
+                                except:
+                                    start_time = datetime.now()
+                            else:
+                                start_time = started_at
+                            
+                            active_duration = (datetime.now() - start_time).total_seconds()
+                            
+                            if active_duration > 180:  # Active for more than 3 minutes
+                                logger.warning(f"Game {game_id} active for {active_duration:.0f}s with no winners")
+                                
+                                # Check if number caller is still running
+                                from utils.number_caller import number_caller
+                                try:
+                                    is_calling = number_caller.is_calling_numbers_for_game(game_id)
+                                    if not is_calling:
+                                        logger.warning(f"Number caller not running for game {game_id}, forcing completion")
+                                        await self.force_game_completion(game_id)
+                                except:
+                                    # If we can't check, assume it's stuck
+                                    await self.force_game_completion(game_id)
+                    
+                    # Check for games stuck in winner display for too long
+                    elif status == 'winner_display' and phase == 'winner_display':
+                        completed_at = game.get('completed_at')
+                        if completed_at:
+                            # Parse datetime
+                            if isinstance(completed_at, str):
+                                try:
+                                    complete_time = datetime.fromisoformat(completed_at.replace('Z', '+00:00'))
+                                except:
+                                    complete_time = datetime.now()
+                            else:
+                                complete_time = completed_at
+                            
+                            display_duration = (datetime.now() - complete_time).total_seconds()
+                            
+                            if display_duration > 20:  # Winner display for more than 20 seconds
+                                logger.warning(f"Game {game_id} in winner display for {display_duration:.0f}s, forcing completion")
+                                await Database.update_game_status(game_id, 'completed')
+                                await Database.update_game_phase(game_id, 'completed')
+            
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"Error in periodic stuck game check: {e}")
+    
     async def initialize(self):
         """Initialize the game manager and start the single game loop"""
         if self._initialization_complete:
@@ -1249,9 +1387,12 @@ class GameManager:
                 # Start the single continuous game loop
                 self._game_loop_task = asyncio.create_task(self.run_game_loop())
                 
+                # Start periodic stuck game checker
+                self._stuck_game_checker = asyncio.create_task(self._check_for_stuck_games_periodically())
+                
                 self.is_initialized = True
                 self._initialization_complete = True
-                logger.info("GameManager initialized with continuous game loop")
+                logger.info("GameManager initialized with continuous game loop and stuck game checker")
                 return True
                 
             except Exception as e:
@@ -2140,6 +2281,17 @@ class GameManager:
             if hasattr(self, '_executor'):
                 self._executor.shutdown(wait=True)
                 logger.info("Thread pool executor shut down")
+            
+            # Cancel stuck game checker
+            if hasattr(self, '_stuck_game_checker') and self._stuck_game_checker:
+                self._stuck_game_checker.cancel()
+                try:
+                    await self._stuck_game_checker
+                except asyncio.CancelledError:
+                    pass
+                except Exception as e:
+                    logger.error(f"Error cancelling stuck game checker: {e}")
+                logger.info("Stuck game checker cancelled")
             
             # Cancel the main game loop
             if self._game_loop_task:
@@ -4035,6 +4187,7 @@ class GameManager:
                     'has_active_game': self.active_game is not None,
                     'active_game_id': self.active_game.get('game_id') if self.active_game else None,
                     'game_loop_running': self._game_loop_task is not None and not self._game_loop_task.done(),
+                    'stuck_game_checker_running': self._stuck_game_checker is not None and not self._stuck_game_checker.done(),
                     'auto_start_games': self.auto_start_games,
                     'cache_size': {
                         'called_numbers': len(self._called_numbers_cache),
