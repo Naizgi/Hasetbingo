@@ -2061,9 +2061,6 @@
         // FIXED: Track last phase for validation
         lastConfirmedPhase: 'card_purchase',
         phaseChangePending: false,
-        
-        // FIXED: Add immediate transition flag
-        immediateTransitionInProgress: false
     };
 
     // ==================== NOTIFICATION FUNCTION ====================
@@ -3190,7 +3187,7 @@
         document.getElementById('selected-card-info').style.display = 'none';
     }
 
-    // ==================== FIXED: OPTIMIZED GET COMPLETE GAME STATE ====================
+    // ==================== GET COMPLETE GAME STATE ====================
     async function getCompleteGameState() {
         if (!gameState.gameId) {
             console.log('No game ID for complete state fetch');
@@ -3221,6 +3218,13 @@
             
             if (data.success) {
                 console.log('Complete game state received:', data);
+                console.log('📊 Game state from database:');
+                console.log(`   Real players: ${data.real_players || 0}`);
+                console.log(`   Fake players: ${data.fake_players || 0}`);
+                console.log(`   Total players: ${data.total_players || 0}`);
+                console.log(`   Prize pool: ${data.prize_pool || 0} birr`);
+                console.log(`   Winners: ${data.winners_count || 0}`);
+                console.log(`   Game phase: ${data.game_phase}`);
                 
                 const previousPhase = gameState.gamePhase;
                 const previousCalledCount = gameState.calledNumbers.length;
@@ -3246,13 +3250,19 @@
                 }
                 
                 if (data.countdown_remaining !== undefined) {
-                    gameState.countdown = data.countdown_remaining;
-                    gameState.countdownTotal = data.countdown_remaining;
-                    updateCountdownDisplay(gameState.countdown);
-                    updateCountdownStatusText(gameState.countdown);
+                    if (Math.abs(data.countdown_remaining - gameState.countdown) > 2 || gameState.countdownInterval === null) {
+                        console.log(`Countdown updated from server: ${gameState.countdown} -> ${data.countdown_remaining}`);
+                        gameState.countdown = data.countdown_remaining;
+                        gameState.countdownTotal = data.countdown_remaining;
+                        updateCountdownDisplay(gameState.countdown);
+                        updateCountdownStatusText(gameState.countdown);
+                        
+                        if (gameState.gamePhase === 'card_purchase') {
+                            startServerCoordinatedCountdown();
+                        }
+                    }
                 }
                 
-                // Get user card data
                 if (data.user_has_card && data.user_card) {
                     console.log('User has card in this game');
                     gameState.hasCard = true;
@@ -3299,7 +3309,6 @@
                     gameState.markedNumbers.clear();
                 }
                 
-                // Handle winners
                 if (data.winners && data.winners.length > 0) {
                     console.log(`Game has ${data.winners.length} winner(s)`);
                     gameState.winners = data.winners;
@@ -3360,31 +3369,10 @@
                 updateBingoGrid();
                 updateGameStats();
                 
+                // FIXED: Update purchase phase active flag based on server phase
                 gameState.purchasePhaseActive = (gameState.gamePhase === 'card_purchase');
                 
-                // FIXED: Immediate transition without delays
-                if (gameState.gamePhase === 'active' && !gameState.immediateTransitionInProgress) {
-                    gameState.immediateTransitionInProgress = true;
-                    console.log('⚡ INSTANT TRANSITION: Card purchase -> Active game');
-                    
-                    // Immediately switch screen and render
-                    showScreen('game-screen');
-                    gameState.gameActive = true;
-                    gameState.gameStartConfirmed = true;
-                    
-                    if (gameState.hasCard) {
-                        renderPlayerCard();
-                    } else {
-                        renderEmptyPlayerCard();
-                    }
-                    
-                    updateCalledNumbersDisplay();
-                    updateCurrentCalledDisplay();
-                    updateBingoGrid();
-                    
-                    gameState.immediateTransitionInProgress = false;
-                    
-                } else if (gameState.gamePhase === 'card_purchase') {
+                if (gameState.gamePhase === 'card_purchase') {
                     showScreen('waiting-screen');
                     if (gameState.hasCard) {
                         showCardPreview();
@@ -3393,7 +3381,7 @@
                         document.getElementById('selected-card-info').style.display = 'none';
                     }
                     
-                    // Load cards immediately if needed
+                    // Load cards immediately
                     if (!gameState.cardsLoaded && !gameState.cardsLoadAttempted) {
                         gameState.cardsLoadAttempted = true;
                         if (document.getElementById('cards-grid').children.length === 0) {
@@ -3407,6 +3395,15 @@
                             updateCardsGridInstant();
                             gameState.cardsLoaded = true;
                         }
+                    }
+                } else if (gameState.gamePhase === 'active' || gameState.gameStatus === 'active') {
+                    gameState.gameActive = true;
+                    gameState.gameStartConfirmed = true;
+                    showScreen('game-screen');
+                    if (gameState.hasCard) {
+                        renderPlayerCard();
+                    } else {
+                        renderEmptyPlayerCard();
                     }
                 } else if (gameState.gamePhase === 'winner_display' && gameState.winnerData) {
                     showWinnerAnnouncementScreen(gameState.winnerData);
@@ -3448,6 +3445,20 @@
         
         document.getElementById('current-round-number').textContent = gameState.currentRound;
     }
+
+    function verifyGameData() {
+        console.log('=== VERIFYING GAME DATA FROM BACKEND ===');
+        console.log('Game ID:', gameState.gameId);
+        console.log('Real players:', gameState.realPlayers);
+        console.log('Fake players:', gameState.fakePlayers);
+        console.log('Total players:', gameState.totalPlayers);
+        console.log('Prize pool from server:', gameState.prizePool, 'birr');
+        console.log('Called numbers:', gameState.calledNumbers.length);
+        console.log('Winners:', gameState.winnersCount);
+        console.log('Game phase:', gameState.gamePhase);
+        console.log('='.repeat(40));
+    }
+    window.verifyGameData = verifyGameData;
 
     // ==================== FIXED: COUNTDOWN FUNCTIONS - FRONTEND AS FOLLOWER ====================
     function startServerCoordinatedCountdown() {
@@ -3547,7 +3558,7 @@
         // This will be handled in the WebSocket message handler
     }
 
-    // ==================== FIXED: WEBSOCKET HANDLERS WITH IMMEDIATE TRANSITION ====================
+    // ==================== WEBSOCKET HANDLERS ====================
     function handleWebSocketMessage(data) {
         console.log('WebSocket message received:', data.type, data);
         
@@ -3747,12 +3758,7 @@
                             statusElement.textContent = 'Game starting...';
                         }
                         
-                        // FIXED: Immediate transition when countdown hits 0
-                        if (!gameState.immediateTransitionInProgress) {
-                            gameState.immediateTransitionInProgress = true;
-                            console.log('⚡ IMMEDIATE TRANSITION FROM WEBSOCKET COUNTDOWN');
-                            getCompleteGameState();
-                        }
+                        setTimeout(() => getCompleteGameState(), 500);
                     }
                 }
                 break;
@@ -5738,9 +5744,9 @@
             console.log('Active game found:', gameData.game_id);
             gameState.gameId = gameData.game_id;
             gameState.gameType = gameData.game_type || 'round_based';
-            gameState.gameStatus = data.status || 'unknown';
-            gameState.gamePhase = data.status || 'card_purchase';
-            gameState.lastConfirmedPhase = data.status || 'card_purchase';
+            gameState.gameStatus = gameData.status || 'unknown';
+            gameState.gamePhase = gameData.status || 'card_purchase';
+            gameState.lastConfirmedPhase = gameData.status || 'card_purchase';
             
             gameState.prizePool = parseFloat(gameData.prize_pool || 0);
             gameState.totalPlayers = gameData.total_players || 0;
