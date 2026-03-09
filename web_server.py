@@ -2420,6 +2420,200 @@ async def admin_update_profile(request):
             'success': False,
             'message': 'Server error'
         }, status=500)
+        
+        
+ # ==================== FAKE PLAYER SETTINGS ENDPOINTS ====================
+
+@routes.get('/api/admin/fake-users-status')
+async def admin_fake_users_status(request):
+    """Get current fake users status and configuration"""
+    try:
+        from utils.game_manager import game_manager
+        
+        # Get fake users status from game manager
+        status = await game_manager.get_fake_users_status()
+        
+        return web.json_response({
+            'success': True,
+            'fake_users_enabled': game_manager.fake_users_enabled,
+            'min_fake_players': game_manager.min_fake_players,
+            'max_fake_players': game_manager.max_fake_players,
+            'total_fake_users': len(game_manager.fake_user_manager.fake_users) if hasattr(game_manager, 'fake_user_manager') else 0,
+            'current_game_fake': len(game_manager.fake_user_manager.game_fake_cards.get(game_manager.active_game.get('game_id') if game_manager.active_game else '', {})) if hasattr(game_manager, 'fake_user_manager') else 0,
+            'message': 'Fake users status retrieved successfully',
+            'timestamp': datetime.now().isoformat()
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting fake users status: {e}")
+        return web.json_response({
+            'success': False,
+            'message': str(e)
+        }, status=500)
+
+
+@routes.post('/api/admin/set_fake_player_range')
+async def admin_set_fake_player_range(request):
+    """Set minimum and maximum fake players per game"""
+    try:
+        data = await request.json()
+        min_fake = data.get('min_fake')
+        max_fake = data.get('max_fake')
+        admin_id = data.get('admin_id')
+        
+        if not min_fake or not max_fake or not admin_id:
+            return web.json_response({
+                'success': False,
+                'message': 'min_fake, max_fake, and admin_id are required'
+            }, status=400)
+        
+        # Validate inputs
+        if min_fake < 2:
+            return web.json_response({
+                'success': False,
+                'message': 'Minimum fake players must be at least 2'
+            }, status=400)
+        
+        if max_fake < min_fake:
+            return web.json_response({
+                'success': False,
+                'message': 'Maximum fake players must be greater than or equal to minimum'
+            }, status=400)
+        
+        if max_fake > 400:
+            return web.json_response({
+                'success': False,
+                'message': 'Maximum fake players cannot exceed 400'
+            }, status=400)
+        
+        from utils.game_manager import game_manager
+        
+        # Call the game manager method to set the range
+        old_min = game_manager.min_fake_players
+        old_max = game_manager.max_fake_players
+        
+        game_manager.min_fake_players = min_fake
+        game_manager.max_fake_players = max_fake
+        
+        logger.info(f"Admin {admin_id} set fake player range from {old_min}-{old_max} to {min_fake}-{max_fake}")
+        
+        # Record admin transaction
+        try:
+            from database.db import Database
+            await Database.record_admin_transaction(
+                admin_id=admin_id,
+                action='set_fake_player_range',
+                target_type='config',
+                target_id='fake_players',
+                details={
+                    'old_min': old_min,
+                    'old_max': old_max,
+                    'new_min': min_fake,
+                    'new_max': max_fake
+                }
+            )
+        except Exception as tx_error:
+            logger.warning(f"Could not record admin transaction: {tx_error}")
+        
+        return web.json_response({
+            'success': True,
+            'message': f'Fake player range set to {min_fake} - {max_fake}',
+            'old_min_fake_players': old_min,
+            'old_max_fake_players': old_max,
+            'min_fake_players': min_fake,
+            'max_fake_players': max_fake
+        })
+        
+    except Exception as e:
+        logger.error(f"Error setting fake player range: {e}", exc_info=True)
+        return web.json_response({
+            'success': False,
+            'message': str(e)
+        }, status=500)
+ 
+# ==================== USER TRANSACTIONS WITH PAGINATION ====================
+
+@routes.get('/api/admin/user/{user_id}/transactions')
+async def admin_user_transactions(request):
+    """Get paginated transactions for a specific user"""
+    try:
+        user_id_str = request.match_info['user_id']
+        user_id = parse_user_id(user_id_str)
+        
+        # Get pagination parameters
+        page = int(request.query.get('page', 1))
+        limit = int(request.query.get('limit', 10))
+        offset = (page - 1) * limit
+        
+        from database.db import Database
+        
+        with Database.get_cursor() as cursor:
+            # Get total count for pagination
+            cursor.execute("""
+                SELECT COUNT(*) as total 
+                FROM transactions 
+                WHERE user_id = ?
+            """, (user_id,))
+            total_row = cursor.fetchone()
+            total = total_row[0] if total_row else 0
+            
+            # Get paginated transactions
+            cursor.execute("""
+                SELECT id, user_id, amount, balance_after, transaction_type, 
+                       description, game_id, created_at
+                FROM transactions 
+                WHERE user_id = ?
+                ORDER BY created_at DESC
+                LIMIT ? OFFSET ?
+            """, (user_id, limit, offset))
+            
+            rows = cursor.fetchall()
+            transactions = []
+            
+            for row in rows:
+                tx = {
+                    'id': row[0],
+                    'user_id': row[1],
+                    'amount': float(row[2]) if row[2] else 0,
+                    'balance_after': float(row[3]) if row[3] else None,
+                    'transaction_type': row[4],
+                    'description': row[5],
+                    'game_id': row[6],
+                    'created_at': row[7].isoformat() if row[7] else None
+                }
+                transactions.append(tx)
+            
+            # Get username for reference
+            cursor.execute("SELECT username FROM users WHERE user_id = ?", (user_id,))
+            user_row = cursor.fetchone()
+            username = user_row[0] if user_row else None
+            
+            # Add username to each transaction
+            for tx in transactions:
+                tx['username'] = username
+            
+            total_pages = (total + limit - 1) // limit if total > 0 else 0
+            
+            return web.json_response({
+                'success': True,
+                'transactions': transactions,
+                'pagination': {
+                    'page': page,
+                    'limit': limit,
+                    'total': total,
+                    'pages': total_pages
+                },
+                'timestamp': datetime.now().isoformat()
+            }, dumps=lambda obj: json.dumps(obj, cls=CustomJSONEncoder))
+            
+    except Exception as e:
+        logger.error(f"Error getting user transactions: {e}", exc_info=True)
+        return web.json_response({
+            'success': False,
+            'message': str(e)
+        }, status=500)        
+               
+        
 
 @routes.get('/api/admin/profile/{admin_id}')
 async def admin_get_profile(request):
