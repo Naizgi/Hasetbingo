@@ -151,7 +151,7 @@ class Database:
                     prize_won REAL DEFAULT 0.00,
                     bingo_claimed_at TIMESTAMP DEFAULT NULL,
                     purchase_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                     created_at TIMESTAMP,
                     is_active INTEGER DEFAULT 1,
                     is_fake INTEGER DEFAULT 0,
                     refunded_at TIMESTAMP DEFAULT NULL,
@@ -1050,19 +1050,31 @@ class Database:
             
     @classmethod
     async def fix_missing_created_at_column(cls):
-        """Force add created_at column to player_cards if missing"""
+        """Force add created_at column to player_cards if missing, or make it nullable"""
         try:
             with cls.get_cursor() as cursor:
                 # Check if created_at column exists
                 cursor.execute("PRAGMA table_info(player_cards)")
                 columns = [column[1] for column in cursor.fetchall()]
-            
+        
                 if 'created_at' not in columns:
                     logger.info("Adding created_at column to player_cards table...")
-                    cursor.execute("ALTER TABLE player_cards ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
-                    logger.info("✅ created_at column added to player_cards table")
+                    # Add WITHOUT DEFAULT to make it nullable
+                    cursor.execute("ALTER TABLE player_cards ADD COLUMN created_at TIMESTAMP")
+                    logger.info("✅ created_at column added to player_cards table (nullable)")
                     return True
                 else:
+                    # Check if the column has a DEFAULT constraint
+                    cursor.execute("PRAGMA table_info(player_cards)")
+                    for column in cursor.fetchall():
+                        if column[1] == 'created_at':
+                            # Column already exists, check if it has a default value
+                            if column[4] is not None:  # dflt_value column
+                                logger.info("✅ created_at column already exists with default value")
+                                # Note: SQLite doesn't support modifying column constraints directly
+                                # If you need to remove the default, you'd need to recreate the table
+                                # For now, we'll leave it as is
+                            break
                     logger.info("✅ created_at column already exists in player_cards")
                     return True
         except Exception as e:
