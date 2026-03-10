@@ -2396,25 +2396,28 @@
     }
 
     function playWinnerSound() {
-        if (!gameState.audioEnabled || !gameState.audioInitialized) return;
-        
-        stopAllAudio();
-        
-        try {
-            const winnerAudio = new Audio();
-            winnerAudio.volume = gameState.audioEnabled ? 0.7 : 0;
-            winnerAudio.src = `${SOUNDS_BASE_URL}/winner.mp3`;
-            
-            winnerAudio.play()
-                .then(() => console.log('Winner sound playing'))
-                .catch(error => {
-                    console.log('Winner sound play failed:', error.message);
-                });
-        } catch (error) {
-            console.warn('Error playing winner sound:', error);
-        }
-    }
 
+    if (gameState.winnerSoundPlayed) return;
+
+    if (!gameState.audioEnabled || !gameState.audioInitialized) return;
+
+    gameState.winnerSoundPlayed = true;
+
+    stopAllAudio();
+
+    try {
+        const winnerAudio = new Audio();
+        winnerAudio.volume = gameState.audioEnabled ? 0.7 : 0;
+        winnerAudio.src = `${SOUNDS_BASE_URL}/winner.mp3`;
+
+        winnerAudio.play()
+            .then(() => console.log('Winner sound playing'))
+            .catch(error => console.log('Winner sound play failed:', error.message));
+
+    } catch (error) {
+        console.warn('Error playing winner sound:', error);
+    }
+}
     function toggleAudio() {
         console.log('Toggling audio, current state:', gameState.audioEnabled);
         
@@ -4257,6 +4260,7 @@
         }
         
         gameState.winnerAnnounced = false;
+        gameState.winnerSoundPlayed = false;
         gameState.gameComplete = false;
         gameState.isWinnerDisplayActive = false;
         gameState.winnerData = null;

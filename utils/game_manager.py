@@ -809,7 +809,7 @@ class GameManager:
         }, game_id)
         
         # Countdown from 30 to 0 - ensure we reach 0 exactly
-        for seconds_remaining in range(30, -1, -1):
+        for seconds_remaining in range(30, 0, -1):
             # Update countdown in database
             await Database.update_game_countdown(game_id, seconds_remaining)
             
