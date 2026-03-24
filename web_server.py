@@ -296,130 +296,18 @@ class ValidationWebSocketServer:
         except Exception as e:
             logger.error(f"Error handling message type {msg_type} from {connection_id}: {e}")
     
-    # ==================== FIXED: WINNER DISPLAY BROADCAST METHOD ====================
-    async def broadcast_winner_display(self, game_id: str, winner_data: dict):
-        """Broadcast winner display with proper card and pattern - FIXED: Shows correct prize"""
-        try:
-            from utils.game_manager import game_manager
-            from database.db import Database
-            
-            # Get real and fake player counts for logging
-            real_players = await Database.count_game_players(game_id)
-            fake_players = len(game_manager.fake_user_manager.game_fake_cards.get(game_id, {}))
-            total_players = real_players + fake_players
-            correct_prize_pool = total_players * 8
-            
-            logger.info(f"🎯 Winner broadcast - Game {game_id}: Total players: {total_players}, Prize pool: {correct_prize_pool}")
-            
-            # Format winner data with complete card information
-            display_data = {
-                'type': 'winner_confirmed',
-                'game_id': game_id,
-                'user_id': winner_data.get('user_id'),
-                'username': winner_data.get('username', f"User_{winner_data.get('user_id')}"),
-                'full_name': winner_data.get('full_name', ''),
-                'prize_amount': float(winner_data.get('prize_amount', 0)),
-                'total_prize_pool': correct_prize_pool,  # ADDED: Show total prize pool
-                'card_index': winner_data.get('card_index'),
-                'card_numbers': winner_data.get('card_numbers', []),  # Full 25 numbers
-                'winning_pattern': winner_data.get('winning_pattern', []),  # Pattern numbers
-                'pattern_type': winner_data.get('pattern_type', 'unknown'),
-                'is_fake': winner_data.get('is_fake', False),
-                'display_duration': 10,  # 10 seconds winner display
-                'next_phase_delay': 3,   # 3 seconds after display
-                'real_players': real_players,  # ADDED: For debugging
-                'fake_players': fake_players,  # ADDED: For debugging
-                'total_players': total_players,  # ADDED: For debugging
-                'timestamp': datetime.now().isoformat()
-            }
-            
-            # Broadcast to all connected clients
-            await self.broadcast_with_retry(display_data)
-            
-            logger.info(f"🎯 Winner display broadcast for game {game_id}: {winner_data.get('username')} won {winner_data.get('prize_amount')} (Total pool: {correct_prize_pool})")
-            
-        except Exception as e:
-            logger.error(f"Error broadcasting winner display: {e}")
     
     # ==================== FIXED: PHASE CHANGE BROADCAST METHOD ====================
-    async def broadcast_phase_change(self, game_id: str, phase: str, countdown: int = None):
-        """Broadcast phase change with correct countdown"""
-        try:
-            from utils.game_manager import game_manager
-            
-            # Get accurate countdown from game_manager
-            if countdown is None:
-                game_status = await game_manager.get_game_status(game_id)
-                countdown = game_status.get('countdown_remaining', 30) if game_status.get('success') else 30
-            
-            phase_data = {
-                'type': 'phase_change_confirmed',
-                'game_id': game_id,
-                'phase': phase,
-                'countdown': countdown,
-                'max_winners': getattr(game_manager, 'max_winners', 2),
-                'min_fake_players': getattr(game_manager, 'min_fake_players', 300),
-                'max_fake_players': getattr(game_manager, 'max_fake_players', 400),
-                'timestamp': datetime.now().isoformat()
-            }
-            
-            await self.broadcast_with_retry(phase_data)
-            logger.info(f"🔄 Phase change broadcast: {game_id} -> {phase} (countdown: {countdown}s)")
-            
-        except Exception as e:
-            logger.error(f"Error broadcasting phase change: {e}")
+    
     
     # ==================== FIXED: PLAYER COUNT UPDATE METHOD ====================
-    async def broadcast_player_count(self, game_id: str, real_players: int, fake_players: int):
-        """Broadcast updated player counts"""
-        try:
-            count_data = {
-                'type': 'player_count_update',
-                'game_id': game_id,
-                'real_players': real_players,
-                'fake_players': fake_players,
-                'total_players': real_players + fake_players,
-                'timestamp': datetime.now().isoformat()
-            }
-            
-            await self.broadcast_with_retry(count_data)
-            
-        except Exception as e:
-            logger.error(f"Error broadcasting player count: {e}")
+    
     
     # ==================== FIXED: GAME READY METHOD ====================
-    async def broadcast_game_ready(self, game_id: str):
-        """Broadcast that game is ready to start"""
-        try:
-            ready_data = {
-                'type': 'game_ready',
-                'game_id': game_id,
-                'timestamp': datetime.now().isoformat()
-            }
-            
-            await self.broadcast_with_retry(ready_data)
-            logger.info(f"✅ Game ready broadcast for {game_id}")
-            
-        except Exception as e:
-            logger.error(f"Error broadcasting game ready: {e}")
+    
     
     # ==================== FIXED: CARD REFUNDED METHOD ====================
-    async def broadcast_card_refunded(self, game_id: str, user_id: int, card_index: int, prize_pool: float):
-        """Broadcast that a card was refunded"""
-        try:
-            refund_data = {
-                'type': 'card_refunded',
-                'game_id': game_id,
-                'user_id': user_id,
-                'card_index': card_index,
-                'prize_pool': prize_pool,
-                'timestamp': datetime.now().isoformat()
-            }
-            
-            await self.broadcast_with_retry(refund_data)
-            
-        except Exception as e:
-            logger.error(f"Error broadcasting card refund: {e}")
+    
     
     async def _handle_auth(self, ws: web.WebSocketResponse, data: dict, connection_id: str):
         """Handle authentication"""
@@ -1277,39 +1165,56 @@ class ValidationWebSocketServer:
             return False
     
     async def broadcast_with_retry(self, message: dict, max_retries: int = 3):
-        """Broadcast message to all connections"""
+        """
+        Broadcast message to all connections simultaneously using gather.
+        FIXED: Replaced sequential loop with concurrent tasks.
+        """
         if not self.connections:
             return True
-        
+    
         try:
-            message_json = json.dumps(self.convert_to_json_serializable(message), cls=CustomJSONEncoder)
+        # Serialize once to save CPU cycles during the broadcast
+            message_json = json.dumps(
+                self.convert_to_json_serializable(message), 
+                cls=CustomJSONEncoder
+            )
         except Exception as e:
             logger.error(f"Error converting message to JSON: {e}")
             return False
-        
-        disconnected = set()
-        
-        for ws in list(self.connections):
+    
+    # Define a helper to handle individual sends so we can catch 
+    # errors per-user without stopping the whole broadcast
+        async def send_to_one(ws):
             try:
-                if ws.closed:
-                    disconnected.add(ws)
-                    continue
-                    
-                await ws.send_str(message_json)
+                if not ws.closed:
+                    await ws.send_str(message_json)
+                    return None # Success
+                return ws # Mark for removal
             except Exception as e:
-                logger.debug(f"Error broadcasting: {e}")
-                disconnected.add(ws)
-        
-        # Remove disconnected connections
+                logger.debug(f"Individual send error: {e}")
+                return ws # Mark for removal
+
+    # 1. Create a task for every active connection
+        tasks = [send_to_one(ws) for ws in list(self.connections)]
+    
+    # 2. Execute ALL sends at once
+    # return_exceptions=True prevents one crash from stopping other broadcasts
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+    
+    # 3. Clean up disconnected sockets (those that returned themselves)
+        disconnected = {res for res in results if isinstance(res, (type(None).__class__, object)) and res is not None}
+    
         if disconnected:
             for ws in disconnected:
-                self.connections.discard(ws)
-                
-                for user_id, connection_ws in list(self.user_connections.items()):
-                    if connection_ws == ws:
-                        del self.user_connections[user_id]
-                        break
-        
+            # Check if it's actually a websocket object before discarding
+                if hasattr(ws, 'closed'):
+                    self.connections.discard(ws)
+                # Cleanup user mapping
+                    for user_id, connection_ws in list(self.user_connections.items()):
+                        if connection_ws == ws:
+                            del self.user_connections[user_id]
+                            break
+    
         return True
     
     async def send_to_user(self, user_id: str, message: dict) -> bool:

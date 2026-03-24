@@ -1106,6 +1106,28 @@ class Database:
             return 0
     
     @classmethod
+    def _count_game_players(cls, game_id: str) -> int:
+        """
+        Count distinct real players in a game - FIXED to count only ACTIVE real cards
+        This is the critical fix for the real_players count issue
+        """
+        try:
+            with cls.get_cursor() as cursor:
+                cursor.execute("""
+                    SELECT COUNT(DISTINCT user_id) as count 
+                    FROM player_cards 
+                    WHERE game_id = ? AND is_active = 1 AND is_fake = 0
+                """, (game_id,))
+                result = cursor.fetchone()
+                if result:
+                    return result[0] if result[0] is not None else 0
+                return 0
+                
+        except Exception as e:
+            logger.error(f"Error counting game players: {e}")
+            return 0
+    
+    @classmethod
     async def count_active_game_players(cls, game_id: str) -> int:
         """Count real active players in a game (alias for count_game_players)"""
         return await cls.count_game_players(game_id)
@@ -1353,6 +1375,46 @@ class Database:
     
     @classmethod
     async def get_drawn_numbers(cls, game_id: str) -> List[int]:
+        """Get all drawn numbers for a game"""
+        try:
+            with cls.get_cursor() as cursor:
+                # Try to get from games table first (most efficient)
+                cursor.execute("SELECT called_numbers FROM games WHERE game_id = ?", (game_id,))
+                result = cursor.fetchone()
+                
+                if result and result[0]:
+                    try:
+                        numbers = json.loads(result[0])
+                        if numbers and isinstance(numbers, list):
+                            return numbers
+                    except:
+                        pass
+                
+                # Fallback to called_numbers table
+                cursor.execute("""
+                    SELECT number FROM called_numbers 
+                    WHERE game_id = ? 
+                    ORDER BY called_at
+                """, (game_id,))
+                rows = cursor.fetchall()
+                
+                if rows:
+                    return [row[0] for row in rows] if rows else []
+                
+                # Fallback to drawn_numbers if called_numbers is empty
+                cursor.execute("""
+                    SELECT number FROM drawn_numbers 
+                    WHERE game_id = ? 
+                    ORDER BY drawn_at
+                """, (game_id,))
+                rows = cursor.fetchall()
+                return [row[0] for row in rows] if rows else []
+                
+        except Exception as e:
+            logger.error(f"Error getting drawn numbers: {e}")
+            return []
+    @classmethod
+    def _get_drawn_numbers(cls, game_id: str) -> List[int]:
         """Get all drawn numbers for a game"""
         try:
             with cls.get_cursor() as cursor:
@@ -1843,6 +1905,22 @@ class Database:
         except Exception as e:
             logger.error(f"Error counting sold cards: {e}")
             return 0
+    @classmethod
+    def _count_sold_cards(cls, game_id: str) -> int:
+        """Count sold cards for a game"""
+        try:
+            with cls.get_cursor() as cursor:
+                cursor.execute(
+                    "SELECT COUNT(*) as count FROM player_cards WHERE game_id = ? AND is_active = 1",
+                    (game_id,)
+                )
+                result = cursor.fetchone()
+                if result and len(result) > 0:
+                    return result[0]
+                return 0
+        except Exception as e:
+            logger.error(f"Error counting sold cards: {e}")
+            return 0
     
     @classmethod
     async def can_user_buy_card(cls, game_id: str, user_id: int) -> Dict[str, Any]:
@@ -2017,6 +2095,47 @@ class Database:
     
     @classmethod
     async def get_game(cls, game_id: str) -> Optional[Dict]:
+        """Get game by ID - FIXED VERSION with timestamp parsing fix"""
+        try:
+            with cls.get_cursor() as cursor:
+                cursor.execute("SELECT * FROM games WHERE game_id = ?", (game_id,))
+                row = cursor.fetchone()
+                
+                if not row:
+                    logger.debug(f"Game {game_id} not found")
+                    return None
+                
+                # Create dictionary from row
+                game = dict(row)
+                
+                # Convert decimals to float for JSON serialization
+                for key in ['prize_pool', 'card_price', 'winner_payout']:
+                    if game.get(key) is not None:
+                        try:
+                            game[key] = float(game[key])
+                        except (ValueError, TypeError):
+                            game[key] = 0.0
+                
+                # Parse called_numbers JSON
+                if game.get('called_numbers'):
+                    try:
+                        if isinstance(game['called_numbers'], str):
+                            game['called_numbers'] = json.loads(game['called_numbers'])
+                        else:
+                            game['called_numbers'] = list(game['called_numbers'])
+                    except Exception:
+                        game['called_numbers'] = []
+                else:
+                    game['called_numbers'] = []
+                
+                return game
+                    
+        except Exception as e:
+            logger.error(f"Error getting game {game_id}: {e}", exc_info=True)
+            return None
+        
+    @classmethod
+    def _get_game(cls, game_id: str) -> Optional[Dict]:
         """Get game by ID - FIXED VERSION with timestamp parsing fix"""
         try:
             with cls.get_cursor() as cursor:
@@ -2246,6 +2365,46 @@ class Database:
     
     @classmethod
     async def get_admin_games(cls, limit: int = 20, offset: int = 0) -> List[Dict]:
+        """Get admin games with pagination - FIXED VERSION"""
+        try:
+            with cls.get_cursor() as cursor:
+                cursor.execute("""
+                    SELECT g.*, 
+                           u.username as winner_username,
+                           COUNT(DISTINCT pc.user_id) as unique_players
+                    FROM games g
+                    LEFT JOIN users u ON g.winner_id = u.user_id
+                    LEFT JOIN player_cards pc ON g.game_id = pc.game_id AND pc.is_active = 1
+                    GROUP BY g.game_id
+                    ORDER BY g.created_at DESC
+                    LIMIT ? OFFSET ?
+                """, (limit, offset))
+                rows = cursor.fetchall()
+                
+                games = []
+                for row in rows:
+                    game = dict(row)
+                    # Convert decimals to float
+                    for key in ['prize_pool', 'card_price', 'winner_payout']:
+                        if game.get(key) is not None:
+                            game[key] = float(game[key])
+                    
+                    # Parse called_numbers
+                    if game.get('called_numbers'):
+                        try:
+                            game['called_numbers'] = json.loads(game['called_numbers'])
+                        except:
+                            game['called_numbers'] = []
+                    
+                    games.append(game)
+                
+                return games
+        except Exception as e:
+            logger.error(f"Error getting admin games: {e}")
+            return []
+    
+    @classmethod
+    def _get_admin_games(cls, limit: int = 20, offset: int = 0) -> List[Dict]:
         """Get admin games with pagination - FIXED VERSION"""
         try:
             with cls.get_cursor() as cursor:
@@ -4144,6 +4303,19 @@ class Database:
         except Exception as e:
             logger.error(f"Error getting total users: {e}")
             return 0
+    @classmethod
+    def _get_total_users(cls) -> int:
+        """Get total number of users"""
+        try:
+            with cls.get_cursor() as cursor:
+                cursor.execute("SELECT COUNT(*) as count FROM users WHERE deleted_at IS NULL")
+                result = cursor.fetchone()
+                if result and len(result) > 0:
+                    return result[0]
+                return 0
+        except Exception as e:
+            logger.error(f"Error getting total users: {e}")
+            return 0
     
     @classmethod
     async def get_total_users_count(cls) -> int:
@@ -4196,6 +4368,20 @@ class Database:
     
     @classmethod
     async def get_total_games(cls) -> int:
+        """Get total number of games"""
+        try:
+            with cls.get_cursor() as cursor:
+                cursor.execute("SELECT COUNT(*) as count FROM games")
+                result = cursor.fetchone()
+                if result and len(result) > 0:
+                    return result[0]
+                return 0
+        except Exception as e:
+            logger.error(f"Error getting total games: {e}")
+            return 0
+    
+    @classmethod
+    def _get_total_games(cls) -> int:
         """Get total number of games"""
         try:
             with cls.get_cursor() as cursor:
@@ -4306,9 +4492,80 @@ class Database:
         except Exception as e:
             logger.error(f"Error getting admin users: {e}")
             return []
+    @classmethod
+    def _get_admin_users(cls, limit: int = 20, offset: int = 0) -> List[Dict]:
+        """Get admin users with pagination"""
+        try:
+            with cls.get_cursor() as cursor:
+                cursor.execute("""
+                    SELECT u.*,
+                           (SELECT COUNT(*) FROM player_cards pc 
+                            WHERE pc.user_id = u.user_id AND pc.is_active = 1) as total_cards,
+                           (SELECT COUNT(*) FROM transactions t 
+                            WHERE t.user_id = u.user_id AND t.transaction_type = 'bingo_win') as total_wins,
+                           (SELECT COALESCE(SUM(amount), 0) FROM transactions t 
+                            WHERE t.user_id = u.user_id AND t.transaction_type = 'bingo_win') as total_winnings_amount
+                    FROM users u
+                    WHERE u.deleted_at IS NULL
+                    ORDER BY u.created_at DESC
+                    LIMIT ? OFFSET ?
+                """, (limit, offset))
+                rows = cursor.fetchall()
+                
+                users = []
+                for row in rows:
+                    user = dict(row)
+                    # Convert decimals to float
+                    for key in ['balance', 'total_winnings', 'total_winnings_amount']:
+                        if user.get(key) is not None:
+                            user[key] = float(user[key])
+                    users.append(user)
+                
+                return users
+        except Exception as e:
+            logger.error(f"Error getting admin users: {e}")
+            return []
     
     @classmethod
     async def get_admin_payments(cls, limit: int = 20, offset: int = 0, status: str = 'all') -> List[Dict]:
+        """Get admin payments with pagination"""
+        try:
+            with cls.get_cursor() as cursor:
+                if status == 'all':
+                    cursor.execute("""
+                        SELECT p.*, u.username, u.full_name, u.balance
+                        FROM payments p
+                        LEFT JOIN users u ON p.user_id = u.user_id
+                        ORDER BY p.created_at DESC
+                        LIMIT ? OFFSET ?
+                    """, (limit, offset))
+                else:
+                    cursor.execute("""
+                        SELECT p.*, u.username, u.full_name, u.balance
+                        FROM payments p
+                        LEFT JOIN users u ON p.user_id = u.user_id
+                        WHERE p.status = ?
+                        ORDER BY p.created_at DESC
+                        LIMIT ? OFFSET ?
+                    """, (status, limit, offset))
+                
+                rows = cursor.fetchall()
+                
+                payments = []
+                for row in rows:
+                    payment = dict(row)
+                    # Convert decimals to float
+                    for key in ['amount', 'balance']:
+                        if payment.get(key) is not None:
+                            payment[key] = float(payment[key])
+                    payments.append(payment)
+                
+                return payments
+        except Exception as e:
+            logger.error(f"Error getting admin payments: {e}")
+            return []
+    @classmethod
+    def _get_admin_payments(cls, limit: int = 20, offset: int = 0, status: str = 'all') -> List[Dict]:
         """Get admin payments with pagination"""
         try:
             with cls.get_cursor() as cursor:
@@ -4403,6 +4660,23 @@ class Database:
         except Exception as e:
             logger.error(f"Error getting total payments: {e}")
             return 0
+    @classmethod
+    def _get_total_payments(cls, status: str = 'all') -> int:
+        """Get total number of payments"""
+        try:
+            with cls.get_cursor() as cursor:
+                if status == 'all':
+                    cursor.execute("SELECT COUNT(*) as count FROM payments")
+                else:
+                    cursor.execute("SELECT COUNT(*) as count FROM payments WHERE status = ?", (status,))
+                
+                result = cursor.fetchone()
+                if result and len(result) > 0:
+                    return result[0]
+                return 0
+        except Exception as e:
+            logger.error(f"Error getting total payments: {e}")
+            return 0
     
     @classmethod
     async def get_total_transactions(cls, transaction_type: str = 'all') -> int:
@@ -4461,9 +4735,68 @@ class Database:
         except Exception as e:
             logger.error(f"Error getting filtered admin transactions: {e}")
             return []
+    
+    @classmethod
+    def _get_admin_transactions_filtered(cls, limit: int = 20, offset: int = 0, transaction_types: List[str] = None) -> List[Dict]:
+        """
+        Get transactions with filtering by type
+        """
+        try:
+            with cls.get_cursor() as cursor:
+                if transaction_types and len(transaction_types) > 0:
+                    placeholders = ','.join(['?'] * len(transaction_types))
+                    cursor.execute(f"""
+                        SELECT t.*, u.username 
+                        FROM transactions t
+                        LEFT JOIN users u ON t.user_id = u.user_id
+                        WHERE t.transaction_type IN ({placeholders})
+                        ORDER BY t.created_at DESC
+                        LIMIT ? OFFSET ?
+                    """, (*transaction_types, limit, offset))
+                else:
+                    cursor.execute("""
+                        SELECT t.*, u.username 
+                        FROM transactions t
+                        LEFT JOIN users u ON t.user_id = u.user_id
+                        ORDER BY t.created_at DESC
+                        LIMIT ? OFFSET ?
+                    """, (limit, offset))
+                rows = cursor.fetchall()
+                transactions = []
+                for row in rows:
+                    transaction = dict(row)
+                    if isinstance(transaction.get('amount'), decimal.Decimal):
+                        transaction['amount'] = float(transaction['amount'])
+                    transactions.append(transaction)
+                return transactions
+        except Exception as e:
+            logger.error(f"Error getting filtered admin transactions: {e}")
+            return []
 
     @classmethod
     async def get_total_transactions_filtered(cls, transaction_types: List[str] = None) -> int:
+        """
+        Get total count of transactions with filtering by type
+        """
+        try:
+            with cls.get_cursor() as cursor:
+                if transaction_types and len(transaction_types) > 0:
+                    placeholders = ','.join(['?'] * len(transaction_types))
+                    cursor.execute(f"""
+                        SELECT COUNT(*) as total 
+                        FROM transactions 
+                        WHERE transaction_type IN ({placeholders})
+                    """, transaction_types)
+                else:
+                    cursor.execute("SELECT COUNT(*) as total FROM transactions")
+            
+                row = cursor.fetchone()
+                return row[0] if row else 0
+        except Exception as e:
+             logger.error(f"Error getting filtered total transactions: {e}")
+             return 0
+    @classmethod
+    def _get_total_transactions_filtered(cls, transaction_types: List[str] = None) -> int:
         """
         Get total count of transactions with filtering by type
         """

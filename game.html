@@ -3,9 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Habesha Bingo - Server-Coordinated Game</title>
+    <title>haset Bingo - Server-Coordinated Game</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <!-- Telegram Web App Script -->
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
  <style>
     :root {
         --primary: #8B4513; /* Brown - for owned cards */
@@ -1706,7 +1708,15 @@
     }
 
     /* REMOVED: Round transition overlay - no longer needed */
-    
+    #access-denied {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: #1a1a2e; color: white;
+            z-index: 9999; flex-direction: column;
+            align-items: center; justify-content: center;
+            text-align: center; padding: 20px;
+        }
     /* FIXED: Card purchase error message */
     .phase-error-message {
         background: rgba(255, 0, 0, 0.2);
@@ -1726,6 +1736,16 @@
 </style>
 </head>
 <body>
+    
+    <div id="access-denied">
+        <i class="fas fa-lock" style="font-size: 50px; color: #f44336; margin-bottom: 20px;"></i>
+        <h2>Access Restricted</h2>
+        <p>This game can only be played inside the Telegram App.</p>
+    </div>
+
+
+
+
     <!-- Connection Status Indicator -->
     <div id="connection-status" style="position: fixed; top: 10px; right: 10px; z-index: 1000; background: rgba(0,0,0,0.7); padding: 5px 10px; border-radius: 5px; font-size: 12px; display: none;">
         <span id="status-indicator" style="width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 5px;"></span>
@@ -1957,7 +1977,7 @@
         </div>
     </div>
 
-   <script>
+  <script>
     // ==================== CONFIGURATION ====================
     const API_BASE_URL = `${window.location.protocol}//${window.location.host}/api`;
     const WS_BASE_URL = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}`;
@@ -2050,18 +2070,29 @@
         lastCountdownSync: 0,
         countdownSyncThreshold: 5,
         
-        // Track if cards have been loaded for this round
         cardsLoaded: false,
         cardsLoadAttempted: false,
         countdownStartTime: null,
-        
-        // FIXED: Track server-confirmed game start
         gameStartConfirmed: false,
-        
-        // FIXED: Track last phase for validation
         lastConfirmedPhase: 'card_purchase',
         phaseChangePending: false,
     };
+
+
+
+
+
+    // 1. TELEGRAM-ONLY ACCESS CHECK
+    const isTelegram = window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData !== "";
+    if (!isTelegram) {
+        document.getElementById('access-denied').style.display = 'flex';
+        // Stop execution
+        throw new Error("Unauthorized: Outside Telegram Environment");
+    }
+
+    const tg = window.Telegram.WebApp;
+    tg.expand();
+
 
     // ==================== NOTIFICATION FUNCTION ====================
     function showNotification(message, type = 'info', duration = 3000) {
@@ -2103,7 +2134,6 @@
         if (gameState.gamePhase !== expectedPhase && gameState.gameStatus !== expectedPhase) {
             console.warn(`Phase mismatch: Expected ${expectedPhase}, got ${gameState.gamePhase}/${gameState.gameStatus} for action: ${action}`);
             
-            // Show error message to user
             const errorMsg = document.getElementById('phase-error-message');
             const errorText = document.getElementById('phase-error-text');
             if (errorMsg && errorText) {
@@ -2118,7 +2148,6 @@
                 }, 5000);
             }
             
-            // If we're trying to purchase but game is active, force a full sync
             if (expectedPhase === 'card_purchase' && gameState.gamePhase === 'active') {
                 getCompleteGameState();
             }
@@ -2268,7 +2297,7 @@
                     };
                 });
                 
-                audio.src = `${SOUNDS_BASE_URL}/${i}.mp3`;
+                audio.src = `${SOUNDS_BASE_URL}/${i}.m4a`;
                 audio.load();
                 loadPromises.push(loadPromise);
                 
@@ -2472,8 +2501,6 @@
         return 'O';
     }
 
-    // ==================== REMOVED: STAGGERED ANIMATION ====================
-    // Now showing all fake cards at once for a natural feel
     function updateFakeCardsImmediately(fakeCardIndices) {
         if (!fakeCardIndices || fakeCardIndices.length === 0) return;
         
@@ -2525,7 +2552,6 @@
             return;
         }
         
-        // FIXED: Validate game phase
         if (!validateGamePhase('active', 'claimBingo')) {
             showNotification('Can only claim bingo during active game play', 'error');
             return;
@@ -2691,7 +2717,6 @@
             return;
         }
         
-        // FIXED: Check game phase properly
         if (gameState.gamePhase !== 'active' && gameState.gameStatus !== 'active') {
             btn.innerHTML = `<i class="fas fa-shopping-cart"></i> Buy Card to Play`;
             btn.className = 'bingo-btn bingo-btn-inactive';
@@ -2818,10 +2843,10 @@
         }
         
         if (!userId) {
-            let storedUserId = localStorage.getItem('habesha_bingo_user_id');
+            let storedUserId = localStorage.getItem('haset_bingo_user_id');
             if (!storedUserId) {
                 storedUserId = Math.floor(Math.random() * 1000000) + 1;
-                localStorage.setItem('habesha_bingo_user_id', storedUserId);
+                localStorage.setItem('haset_bingo_user_id', storedUserId);
             }
             userId = storedUserId;
         }
@@ -3073,7 +3098,7 @@
         }
     }
 
-    // ==================== INSTANT CARD UPDATE FUNCTION (NEVER REBUILDS GRID) ====================
+    // ==================== INSTANT CARD UPDATE FUNCTION ====================
     function instantCardUpdate(cardIndex, newStatus, cardData = null) {
         console.log(`Instantly updating card ${cardIndex} to ${newStatus}`);
         
@@ -3144,31 +3169,27 @@
         }
     }
 
-    // ==================== RESET CARDS FOR NEW ROUND (NO REBUILD) ====================
+    // ==================== RESET CARDS FOR NEW ROUND ====================
     function resetCardsForNewRound() {
         console.log('Resetting cards for new round - no grid rebuild');
         
         const grid = document.getElementById('cards-grid');
         if (!grid) return;
         
-        // Stop any ongoing staggered animation (if any)
         if (gameState.staggeredAnimationInterval) {
             clearInterval(gameState.staggeredAnimationInterval);
             gameState.staggeredAnimationInterval = null;
         }
         gameState.pendingFakeCardIndices = [];
         
-        // Reset cards loaded flag for new round
         gameState.cardsLoaded = false;
         gameState.cardsLoadAttempted = false;
         
-        // If grid is empty, load it first
         if (grid.children.length === 0) {
             loadCardsGrid();
             return;
         }
         
-        // Reset all existing cards to available
         for (let i = 1; i <= 400; i++) {
             const cardElement = gameState.cardsCache.cardElements[i];
             if (cardElement) {
@@ -3179,7 +3200,6 @@
             }
         }
         
-        // Clear all sold/owned tracking
         gameState.cardsSold.clear();
         gameState.cardsCache.soldCards.clear();
         gameState.cardsCache.ownedCardIndex = null;
@@ -3262,6 +3282,21 @@
                         
                         if (gameState.gamePhase === 'card_purchase') {
                             startServerCoordinatedCountdown();
+                        }
+                        
+                        // ==================== CRITICAL FIX: Immediate transition when countdown hits 0 ====================
+                        if (data.countdown_remaining <= 0 && gameState.gamePhase === 'card_purchase') {
+                            console.log('🚀 Countdown reached 0 in getCompleteGameState - IMMEDIATELY transitioning');
+                            
+                            if (gameState.countdownInterval) {
+                                clearInterval(gameState.countdownInterval);
+                                gameState.countdownInterval = null;
+                            }
+                            
+                            const statusElement = document.getElementById('countdown-status-text');
+                            if (statusElement) {
+                                statusElement.textContent = 'Game starting...';
+                            }
                         }
                     }
                 }
@@ -3372,7 +3407,6 @@
                 updateBingoGrid();
                 updateGameStats();
                 
-                // FIXED: Update purchase phase active flag based on server phase
                 gameState.purchasePhaseActive = (gameState.gamePhase === 'card_purchase');
                 
                 if (gameState.gamePhase === 'card_purchase') {
@@ -3384,7 +3418,6 @@
                         document.getElementById('selected-card-info').style.display = 'none';
                     }
                     
-                    // Load cards immediately
                     if (!gameState.cardsLoaded && !gameState.cardsLoadAttempted) {
                         gameState.cardsLoadAttempted = true;
                         if (document.getElementById('cards-grid').children.length === 0) {
@@ -3463,7 +3496,7 @@
     }
     window.verifyGameData = verifyGameData;
 
-    // ==================== FIXED: COUNTDOWN FUNCTIONS - FRONTEND AS FOLLOWER ====================
+    // ==================== FIXED: COUNTDOWN FUNCTIONS ====================
     function startServerCoordinatedCountdown() {
         console.log('Starting server-coordinated countdown - frontend is follower');
         
@@ -3477,13 +3510,11 @@
             return;
         }
         
-        // Ensure cards are loaded
         if (!gameState.cardsLoaded && !gameState.cardsLoadAttempted) {
             console.log('Countdown started - loading cards immediately');
             gameState.cardsLoadAttempted = true;
             gameState.countdownStartTime = Date.now();
             
-            // Load cards immediately
             if (document.getElementById('cards-grid').children.length === 0) {
                 loadCardsGrid().then(() => {
                     gameState.cardsLoaded = true;
@@ -3496,16 +3527,13 @@
             }
         }
         
-        // Display the current countdown from server
         updateCountdownDisplay(gameState.countdown);
         updateCountdownStatusText(gameState.countdown);
         
         gameState.lastCountdownSync = Date.now();
         
-        // Set up interval to sync with server (request fresh countdown every 2 seconds)
         gameState.countdownInterval = setInterval(async () => {
             try {
-                // Request current server countdown via sync
                 const response = await fetch(`${API_BASE_URL}/game/${gameState.gameId}/sync`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -3514,7 +3542,7 @@
                         game_phase: gameState.gamePhase,
                         countdown: gameState.countdown,
                         timestamp: Date.now(),
-                        need_countdown_only: true  // Signal we only need countdown
+                        need_countdown_only: true
                     })
                 });
                 
@@ -3523,7 +3551,6 @@
                     if (data.server_state && data.server_state.countdown_remaining !== undefined) {
                         const serverCountdown = data.server_state.countdown_remaining;
                         
-                        // Update display with server countdown
                         if (serverCountdown !== gameState.countdown) {
                             console.log(`📡 Countdown synced: local=${gameState.countdown} → server=${serverCountdown}`);
                             gameState.countdown = serverCountdown;
@@ -3531,8 +3558,9 @@
                             updateCountdownStatusText(gameState.countdown);
                         }
                         
-                        // If countdown reached 0, trigger game start
+                        // ==================== CRITICAL FIX: Immediate transition when countdown hits 0 ====================
                         if (serverCountdown <= 0) {
+                            console.log('🚀 Countdown reached 0 in sync - IMMEDIATELY transitioning');
                             clearInterval(gameState.countdownInterval);
                             gameState.countdownInterval = null;
                             
@@ -3541,24 +3569,28 @@
                                 statusElement.textContent = 'Game starting...';
                             }
                             
-                            // Wait for server to confirm game start
-                            setTimeout(() => getCompleteGameState(), 500);
+                            // Immediately get game state - don't wait
+                            getCompleteGameState();
                         }
                     }
                 }
             } catch (error) {
                 console.warn('Countdown sync error:', error);
-                // Fallback: gentle local decrement only if sync fails and we have reasonable countdown
                 if (gameState.countdown > 0 && gameState.gamePhase === 'card_purchase') {
                     gameState.countdown--;
                     updateCountdownDisplay(gameState.countdown);
                     updateCountdownStatusText(gameState.countdown);
+                    
+                    // ==================== CRITICAL FIX: Even in fallback mode, transition when local countdown hits 0 ====================
+                    if (gameState.countdown <= 0) {
+                        console.log('🚀 Local countdown reached 0 (fallback) - transitioning');
+                        clearInterval(gameState.countdownInterval);
+                        gameState.countdownInterval = null;
+                        getCompleteGameState();
+                    }
                 }
             }
-        }, 2000); // Sync every 2 seconds (more than frequent enough)
-        
-        // Also listen for WebSocket countdown updates
-        // This will be handled in the WebSocket message handler
+        }, 2000);
     }
 
     // ==================== WEBSOCKET HANDLERS ====================
@@ -3567,7 +3599,6 @@
         
         gameState.lastUpdateTime = Date.now();
         
-        // Always update game ID if present in message
         if (data.game_id) {
             gameState.gameId = data.game_id;
             console.log('✅ Game ID updated from message:', gameState.gameId);
@@ -3679,7 +3710,6 @@
                 if (gameState.gamePhase === 'card_purchase' && data.card_index) {
                     const cardIndex = data.card_index;
                     if (cardIndex !== gameState.selectedCardIndex) {
-                        // Real player purchase - instant update
                         instantCardUpdate(cardIndex, 'sold');
                     }
                 }
@@ -3749,8 +3779,10 @@
                     updateCountdownDisplay(gameState.countdown);
                     updateCountdownStatusText(gameState.countdown);
                     
-                    // If countdown reached 0, trigger game start
+                    // ==================== CRITICAL FIX: Immediate transition when countdown hits 0 ====================
                     if (data.countdown_remaining <= 0 && gameState.gamePhase === 'card_purchase') {
+                        console.log('🚀 Countdown reached 0 (WebSocket) - IMMEDIATELY transitioning');
+                        
                         if (gameState.countdownInterval) {
                             clearInterval(gameState.countdownInterval);
                             gameState.countdownInterval = null;
@@ -3761,23 +3793,21 @@
                             statusElement.textContent = 'Game starting...';
                         }
                         
-                        setTimeout(() => getCompleteGameState(), 500);
+                        // Immediately get game state - don't wait
+                        getCompleteGameState();
                     }
                 }
                 break;
                 
-            // Single handler for fake_card_purchased
             case 'fake_card_purchased':
                 console.log('🎭 Fake card purchased:', data);
                 
-                // Update stats
                 if (data.prize_pool !== undefined) gameState.prizePool = data.prize_pool;
                 if (data.total_players !== undefined) gameState.totalPlayers = data.total_players;
                 if (data.fake_players !== undefined) gameState.fakePlayers = data.fake_players;
                 if (data.real_players !== undefined) gameState.realPlayers = data.real_players;
                 updateGameStats();
                 
-                // Mark the card as sold instantly (same as real player)
                 if (data.card_index) {
                     instantCardUpdate(data.card_index, 'sold');
                     console.log(`🎭 Fake player bought card #${data.card_index} - marked sold instantly`);
@@ -3801,20 +3831,16 @@
                 }
                 updateGameStats();
                 
-                // Show all fake cards at once
                 if (data.fake_card_indices && Array.isArray(data.fake_card_indices) && data.fake_card_indices.length > 0) {
                     console.log(`Received ${data.fake_card_indices.length} fake card indices`);
                     
-                    // Check if grid is loaded
                     if (!gameState.cardsLoaded && document.getElementById('cards-grid').children.length === 0) {
                         console.log('🔄 Grid not loaded yet, loading cards first...');
-                        // Load grid first, then update cards
                         loadCardsGrid().then(() => {
                             console.log('✅ Grid loaded, now updating fake cards');
                             updateFakeCardsImmediately(data.fake_card_indices);
                         });
                     } else {
-                        // Grid is already loaded, update directly
                         updateFakeCardsImmediately(data.fake_card_indices);
                     }
                 }
@@ -3842,11 +3868,9 @@
                 }
                 updateGameStats();
                 
-                // Show all fake cards at once
                 if (data.fake_card_indices && Array.isArray(data.fake_card_indices) && data.fake_card_indices.length > 0) {
                     console.log(`Showing ${data.fake_card_indices.length} early fake cards immediately at once`);
                     
-                    // Check if grid is loaded
                     if (!gameState.cardsLoaded && document.getElementById('cards-grid').children.length === 0) {
                         console.log('🔄 Grid not loaded yet for early update, loading cards first...');
                         loadCardsGrid().then(() => {
@@ -3864,10 +3888,8 @@
             case 'full_state_update':
                 console.log('Full state update received');
                 
-                // Don't reset if we're in card purchase with cards loaded
                 if (gameState.gamePhase === 'card_purchase' && gameState.cardsLoaded) {
                     console.log('Already in card purchase with cards loaded, ignoring full_state_update to prevent wipe');
-                    // Still update stats if provided
                     if (data.game_state) {
                         if (data.game_state.prize_pool !== undefined) {
                             gameState.prizePool = data.game_state.prize_pool;
@@ -4086,7 +4108,7 @@
         showWinnerAnnouncementScreen(gameState.winnerData);
     }
 
-    // ==================== SHOW WINNER ANNOUNCEMENT WITH CARD INDEX ====================
+    // ==================== SHOW WINNER ANNOUNCEMENT ====================
     function showWinnerAnnouncementScreen(winnerData) {
         const announcement = document.getElementById('winner-announcement');
         const winnersCompactContainer = document.getElementById('winners-compact-container');
@@ -4284,7 +4306,6 @@
         gameState.countdown = 30;
         gameState.countdownTotal = 30;
         
-        // Reset cards loaded flag for new round
         gameState.cardsLoaded = false;
         gameState.cardsLoadAttempted = false;
         
@@ -4298,7 +4319,6 @@
         
         document.getElementById('selected-card-info').style.display = 'none';
         
-        // Reset cards WITHOUT rebuilding grid
         resetCardsForNewRound();
         
         setTimeout(() => {
@@ -4319,11 +4339,10 @@
         }, 200);
     }
 
-    // ==================== FIXED: New Round Started Handler ====================
+    // ==================== NEW ROUND STARTED HANDLER ====================
     function handleNewRoundStarted(data) {
         console.log('New round started:', data);
         
-        // Stop any ongoing staggered animation (if any)
         if (gameState.staggeredAnimationInterval) {
             clearInterval(gameState.staggeredAnimationInterval);
             gameState.staggeredAnimationInterval = null;
@@ -4340,10 +4359,8 @@
             gameState.winnerDisplayInterval = null;
         }
         
-        // Don't reset if we're already in card purchase with cards loaded
         if (gameState.gamePhase === 'card_purchase' && gameState.cardsLoaded) {
             console.log('Already in card purchase with cards loaded, updating only game ID and round number');
-            // Just update the basic info
             gameState.gameId = data.game_id;
             gameState.currentRound = data.round_number || (gameState.currentRound + 1);
             gameState.countdown = data.countdown_seconds || 30;
@@ -4354,7 +4371,6 @@
             return;
         }
         
-        // Only do full reset if we're not already in card purchase
         gameState.gameId = data.game_id;
         gameState.gamePhase = data.phase || 'card_purchase';
         gameState.gameStatus = data.status || 'card_purchase';
@@ -4390,7 +4406,6 @@
         gameState.cardsCache.soldCards = new Set();
         gameState.cardsCache.ownedCardIndex = null;
         
-        // Reset cards loaded flag for new round
         gameState.cardsLoaded = false;
         gameState.cardsLoadAttempted = false;
         
@@ -4409,7 +4424,6 @@
         
         updateGameStats();
         
-        // Reset cards WITHOUT rebuilding grid
         resetCardsForNewRound();
         
         document.getElementById('current-round-number').textContent = gameState.currentRound;
@@ -4456,7 +4470,6 @@
             gameState.lastConfirmedPhase = 'card_purchase';
         }
         
-        // FIXED: Update purchase phase flag
         gameState.purchasePhaseActive = (gameState.gamePhase === 'card_purchase');
         
         gameState.hasCard = false;
@@ -4473,11 +4486,9 @@
         updateGameStats();
         
         setTimeout(() => {
-            // Reset cards WITHOUT rebuilding grid
             if (document.getElementById('cards-grid').children.length === 0) {
                 loadCardsGrid();
             } else {
-                // Fetch sold cards and update
                 fetch(`${API_BASE_URL}/game/${gameState.gameId}/sold-cards`)
                     .then(res => res.json())
                     .then(data => {
@@ -4523,7 +4534,6 @@
         gameState.lastConfirmedPhase = data.phase;
         gameState.phaseChangeRequested = false;
         
-        // FIXED: Update purchase phase flag
         gameState.purchasePhaseActive = (data.phase === 'card_purchase');
         
         if (data.phase === 'active') {
@@ -4552,7 +4562,6 @@
             startServerCoordinatedCountdown();
             
             setTimeout(() => {
-                // Only load if grid is empty, otherwise just update
                 if (document.getElementById('cards-grid').children.length === 0) {
                     loadCardsGrid();
                 } else {
@@ -4603,8 +4612,6 @@
         console.log('Updating from server state:', serverState);
         
         if (serverState.countdown_remaining !== undefined) {
-            // Only correct countdown if difference is more than 2 seconds AND we're not near the end
-            // This prevents corrections at 5s, 4s, 3s from wiping the view
             const diff = Math.abs(serverState.countdown_remaining - gameState.countdown);
             if (diff > 2 && serverState.countdown_remaining > 5) {
                 console.log(`Countdown synced: local=${gameState.countdown}, server=${serverState.countdown_remaining}`);
@@ -4612,11 +4619,28 @@
                 updateCountdownDisplay(gameState.countdown);
                 updateCountdownStatusText(gameState.countdown);
             } else if (diff > 5) {
-                // If difference is more than 5 seconds, always correct
                 console.log(`Large countdown difference: local=${gameState.countdown}, server=${serverState.countdown_remaining}`);
                 gameState.countdown = serverState.countdown_remaining;
                 updateCountdownDisplay(gameState.countdown);
                 updateCountdownStatusText(gameState.countdown);
+            }
+            
+            // ==================== CRITICAL FIX: Immediate transition when countdown hits 0 ====================
+            if (serverState.countdown_remaining <= 0 && gameState.gamePhase === 'card_purchase') {
+                console.log('🚀 Countdown reached 0 in server state - IMMEDIATELY transitioning');
+                
+                if (gameState.countdownInterval) {
+                    clearInterval(gameState.countdownInterval);
+                    gameState.countdownInterval = null;
+                }
+                
+                const statusElement = document.getElementById('countdown-status-text');
+                if (statusElement) {
+                    statusElement.textContent = 'Game starting...';
+                }
+                
+                // Immediately get game state
+                getCompleteGameState();
             }
         }
         
@@ -4742,6 +4766,24 @@
                         updateCountdownDisplay(gameState.countdown);
                         updateCountdownStatusText(gameState.countdown);
                     }
+                    
+                    // ==================== CRITICAL FIX: Immediate transition when countdown hits 0 ====================
+                    if (serverState.countdown_remaining <= 0 && gameState.gamePhase === 'card_purchase') {
+                        console.log('🚀 Countdown reached 0 in sync response - IMMEDIATELY transitioning');
+                        
+                        if (gameState.countdownInterval) {
+                            clearInterval(gameState.countdownInterval);
+                            gameState.countdownInterval = null;
+                        }
+                        
+                        const statusElement = document.getElementById('countdown-status-text');
+                        if (statusElement) {
+                            statusElement.textContent = 'Game starting...';
+                        }
+                        
+                        // Immediately get game state
+                        getCompleteGameState();
+                    }
                 }
                 
                 if (serverState.game_phase && serverState.game_phase !== gameState.gamePhase) {
@@ -4824,13 +4866,11 @@
     }
 
     function showCardSelection() {
-        // FIXED: Validate phase before showing card selection
         if (!validateGamePhase('card_purchase', 'showCardSelection')) {
             return;
         }
         
         showScreen('waiting-screen');
-        // Only load if grid is empty
         if (document.getElementById('cards-grid').children.length === 0) {
             loadCardsGrid();
         } else {
@@ -4884,7 +4924,6 @@
             }
             
             if (gameState.purchasePhaseActive) {
-                // Ensure cards are loaded
                 if (!gameState.cardsLoaded && !gameState.cardsLoadAttempted) {
                     gameState.cardsLoadAttempted = true;
                     if (document.getElementById('cards-grid').children.length === 0) {
@@ -5262,7 +5301,6 @@
     async function handleCardSelection(cardIndex, element) {
         console.log('Card selection clicked:', cardIndex);
         
-        // FIXED: Validate phase before allowing card purchase
         if (!validateGamePhase('card_purchase', 'handleCardSelection')) {
             showNotification('Card purchase is only available during purchase phase. The game may have already started.', 'error');
             return;
@@ -5437,7 +5475,6 @@
     async function toggleCardPurchase(cardIndex, element, action) {
         console.log(`${action} card:`, cardIndex);
         
-        // FIXED: Validate phase before allowing card purchase
         if (!validateGamePhase('card_purchase', 'toggleCardPurchase')) {
             showNotification('Card purchase is only available during purchase phase. The game may have already started.', 'error');
             if (element) {
@@ -5726,7 +5763,7 @@
 
     // ==================== INITIALIZATION ====================
     async function initGame() {
-        console.log('Initializing Habesha Bingo (Server-Coordinated)...');
+        console.log('Initializing haset Bingo (Server-Coordinated)...');
         updateConnectionStatus('Initializing...', 'orange');
         
         gameState.userId = getUserId();
@@ -5763,7 +5800,6 @@
             gameState.countdownTotal = gameData.countdown_remaining || 30;
             gameState.calledNumbers = gameData.numbers_called || [];
             
-            // FIXED: Set purchase phase flag
             gameState.purchasePhaseActive = (gameState.gamePhase === 'card_purchase');
             
             console.log(`Initial countdown from server: ${gameState.countdown}s`);
@@ -5792,7 +5828,6 @@
             updateCurrentCalledDisplay();
             updateBingoGrid();
             
-            // Load cards immediately at initialization
             if (!gameState.cardsLoaded && !gameState.cardsLoadAttempted) {
                 gameState.cardsLoadAttempted = true;
                 setTimeout(() => {

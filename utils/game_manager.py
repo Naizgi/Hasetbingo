@@ -89,6 +89,10 @@
 # Checks games in card_purchase, active, and winner_display phases
 # Automatically refunds players in abandoned games
 # Verifies number caller is running for active games
+# ==================== FIXED: FAKE WINNER PROCESSING SYNCHRONOUS ====================
+# Fake winners now processed synchronously with thread pool to prevent race conditions
+# Added _execute_fake_winner_transaction for thread-safe DB operations
+# Added _generate_fallback_pattern helper method
 # ============================================================
 
 import asyncio
@@ -815,6 +819,7 @@ class GameManager:
             
             # Broadcast countdown update
             if seconds_remaining % 5 == 0 or seconds_remaining <= 10:
+                
                 await self._safe_broadcast({
                     'type': 'countdown_update',
                     'game_id': game_id,
@@ -1204,33 +1209,33 @@ class GameManager:
             functools.partial(func, *args, **kwargs)
         )
     
-    # ==================== SAFE BROADCAST HELPER ====================
+    # ==================== FIXED: SAFE BROADCAST HELPER - SENDS TO ALL CLIENTS SIMULTANEOUSLY ====================
     async def _safe_broadcast(self, message: dict, game_id: str = None):
-        """Safely broadcast WebSocket message with duplicate prevention"""
+        """
+        Safely triggers a simultaneous broadcast to all clients.
+        """
         if not websocket_server:
             logger.debug("WebSocket server not available, broadcast skipped")
             return
-        
-        # Add timestamp if not present
+
         if 'timestamp' not in message:
             message['timestamp'] = datetime.now().isoformat()
-        
-        # Check for duplicate broadcasts to prevent spam
-        if game_id and message.get('type') in ['game_state_update', 'full_state_update']:
+     
+        if game_id:
             current_time = time.time()
-            last_time = self._last_broadcast_times.get(f"{game_id}_{message.get('type')}", 0)
-            
-            # Only allow one state update per second to prevent spam
-            if current_time - last_time < 1.0:
-                logger.debug(f"Throttling duplicate broadcast for game {game_id}")
-                return
-            
-            self._last_broadcast_times[f"{game_id}_{message.get('type')}"] = current_time
-        
+            # Update tracking for debugging
+            self._last_broadcast_times[f"{game_id}_{message.get('type', 'unknown')}"] = current_time
+
         try:
+            # We now await the gathered broadcast
             await websocket_server.broadcast_with_retry(message)
+        
+            # Log critical game events
+            if message.get('type') in ['winner_confirmed', 'phase_change_confirmed']:
+                logger.info(f"📢 GATHERED BROADCAST SUCCESS: {message.get('type')} for game {game_id}")
+            
         except Exception as e:
-            logger.error(f"Failed to broadcast: {e}")
+            logger.error(f"Failed to initiate gathered broadcast: {e}")
     
     # ==================== NEW: Get random fake player count for a game ====================
     def _get_random_fake_count(self) -> int:
@@ -1666,16 +1671,17 @@ class GameManager:
             fake_updated, fake_winners = self.fake_user_manager.mark_number_on_fake_cards(game_id, number)
             logger.info(f"✅ Marked number {number} on {fake_updated} fake cards in game {game_id}")
             
-            # Process any fake winners with error handling
+            # Process any fake winners with error handling - NOW SYNCHRONOUS
             for fake_card, pattern_type in fake_winners:
                 user_id = fake_card['user_id']
                 logger.info(f"🎭 FAKE WINNER: User {user_id} got BINGO with pattern: {pattern_type}")
                 
-                # Process fake winner with error handling - NOW WITH TRUE CLAIM
+                # Process fake winner SYNCHRONOUSLY (not in background) with lock
                 try:
-                    asyncio.create_task(self.process_fake_winner(game_id, user_id, fake_card, pattern_type))
+                    # This will now run with proper locking and thread pool
+                    await self.process_fake_winner(game_id, user_id, fake_card, pattern_type)
                 except Exception as e:
-                    logger.error(f"Failed to create fake winner task: {e}")
+                    logger.error(f"Failed to process fake winner: {e}")
             
             return len(fake_winners)
             
@@ -1683,334 +1689,404 @@ class GameManager:
             logger.error(f"Error marking number on all cards: {e}")
             return 0
     
-    # ==================== FIXED: Fake winner processing with money going to house ====================
-    async def process_fake_winner(self, game_id: str, user_id: int, fake_card: Dict, pattern_type: str):
+    # ==================== NEW: Synchronous fake winner transaction ====================
+    
+    def _execute_fake_winner_transaction(self, game_id: str, user_id: int, fake_card: Dict, pattern_type: str) -> dict:
         """
-        Process a fake winner with TRUE claim data
-        - Uses actual card numbers from fake_card
-        - Determines winning pattern based on actual numbers
-        - Creates realistic winner announcement with proper grid
-        - WINNINGS GO TO HOUSE BALANCE (not fake user)
-        - Uses special ×10 commission rate via record_fake_winner_commission()
-        - FIXED: ALWAYS sends complete winner data for EVERY winner
+        Synchronous version of process_fake_winner that runs in thread pool
+        to prevent race conditions with process_winner
         """
+        from database.db import Database
+        import json
+        from datetime import datetime
+
         try:
-            from database.db import Database
-            # Import websocket_server at function level to avoid circular imports
-            from web_server import websocket_server
-            
-            logger.info(f"🎭 Processing fake winner with TRUE claim: User {user_id} in game {game_id} with pattern {pattern_type}")
-            
-            # Get game details
-            game = await Database.get_game(game_id)
-            if not game:
-                logger.error(f"Game {game_id} not found for fake winner")
-                return None
-            
-            # Check if we can add another winner
-            if not await self.can_add_winner(game_id):
-                logger.info(f"Game {game_id} already has maximum winners, cannot add fake winner")
-                return None
-            
-            # Check if game already has winner(s) and number calling should be stopped
-            game_status = game.get('status', 'card_purchase')
-            winners_count = await self.get_winners_count(game_id)
-            
-            # Stop number calling on first winner only
-            if winners_count == 0 and game_status != 'winner_display':
-                from utils.number_caller import number_caller
-                await number_caller.stop_number_calling_for_game(game_id)
-            
-            # Get prize pool
-            prize_pool = float(game.get('prize_pool', 0.00))
-            if prize_pool <= 0:
-                logger.error(f"No prize pool in game {game_id} for fake winner")
-                return None
-            
-            # Count total players
-            real_players = await Database.count_game_players(game_id)
-            fake_count = len(self.fake_user_manager.game_fake_cards.get(game_id, {}))
-            total_players = real_players + fake_count
-            
-            # Get fake user details
-            fake_user = self.fake_user_manager.fake_users.get(user_id, {})
-            username = fake_user.get('username', f'FakeUser_{user_id}')
-            full_name = fake_user.get('full_name', username)
-            
-            # Extract card numbers - this is the REAL card data
-            card_numbers = []
+            logger.info(f"🎭 [SYNC] Processing fake winner transaction: User {user_id} in game {game_id}")
+        
+            with transaction() as cursor:
+                # Get game details
+                cursor.execute("SELECT * FROM games WHERE game_id = ?", (game_id,))
+                game_row = cursor.fetchone()
+                if not game_row:
+                    return {'success': False, 'error': 'Game not found'}
+                
+                # Convert row to dict for easier access
+                game = dict(game_row)
+                
+                # Get prize pool
+                prize_pool = float(game.get('prize_pool', 0.00))
+                if prize_pool <= 0:
+                    return {'success': False, 'error': 'No prize pool'}
+                
+                # Count real players
+                cursor.execute("""
+                    SELECT COUNT(*) as real_players
+                    FROM player_cards 
+                    WHERE game_id = ? AND is_fake = 0 AND is_active = 1
+                """, (game_id,))
+                real_players_row = cursor.fetchone()
+                real_players = real_players_row['real_players'] if real_players_row else 0
+                
+                # Extract card numbers
+                card_numbers = []
+                try:
+                    if isinstance(fake_card.get('card_numbers'), str):
+                        card_numbers = json.loads(fake_card['card_numbers'])
+                    else:
+                        card_numbers = fake_card.get('card_numbers', [])
+                except:
+                    card_numbers = []
+                
+                # Get called numbers
+                cursor.execute("""
+                    SELECT number FROM drawn_numbers 
+                    WHERE game_id = ? ORDER BY drawn_at
+                """, (game_id,))
+                called_rows = cursor.fetchall()
+                called_numbers = [row['number'] for row in called_rows]
+                
+                # Create winner data base (without username/fullname which we'll add in async part)
+                winner_data = {
+                    'user_id': user_id,
+                    'card_index': fake_card.get('card_index'),
+                    'card_numbers': card_numbers,
+                    'pattern_type': pattern_type,
+                    'is_fake': True,
+                    'timestamp': datetime.now().isoformat()
+                }
+                
+                return {
+                    'success': True,
+                    'game': game,
+                    'real_players': real_players,
+                    'card_numbers': card_numbers,
+                    'winner_data': winner_data,
+                    'called_numbers': called_numbers,
+                    'prize_pool': prize_pool
+                }
+                
+        except Exception as e:
+            logger.error(f"Error in sync fake winner transaction: {e}", exc_info=True)
+            return {'success': False, 'error': str(e)}
+    
+    # ==================== NEW: Generate fallback pattern ====================
+    
+    def _generate_fallback_pattern(self, card_numbers, pattern_type):
+        """Generate fallback pattern when verification fails"""
+        winning_pattern = []
+    
+        if not card_numbers or len(card_numbers) < 25:
+            return []
+    
+        if pattern_type == "four_corners":
+            winning_pattern = [card_numbers[0], card_numbers[4], card_numbers[20], card_numbers[24]]
+            winning_pattern = [num for num in winning_pattern if num != 0]
+    
+        elif pattern_type.startswith("row_"):
             try:
-                card_numbers = json.loads(fake_card['card_numbers'])
-                logger.info(f"🎭 Fake winner card numbers: {card_numbers[:10]}... (first 10 of 25)")
-            except Exception as e:
-                logger.error(f"Error parsing fake card numbers: {e}")
-                card_numbers = fake_card.get('card_numbers', [])
-                if isinstance(card_numbers, str):
-                    try:
-                        card_numbers = json.loads(card_numbers)
-                    except:
-                        card_numbers = []
-            
-            # Get called numbers to verify pattern
-            called_numbers = await Database.get_drawn_numbers(game_id)
-            called_set = set(called_numbers)
-            
-            # ========== VERIFY the winning pattern using actual card numbers ==========
-            # This ensures the fake winner's claim is TRUE
-            winning_pattern = []
-            verified_pattern_type = pattern_type  # Use the pattern type from detection
-            
-            # Double-check the pattern is actually valid
-            has_bingo, verified_pattern, verified_type = await self._fast_verify_bingo_with_pattern(
-                {'card_numbers': json.dumps(card_numbers) if isinstance(card_numbers, list) else card_numbers}, 
-                called_numbers
-            )
-            
-            if has_bingo:
-                # Use the verified pattern numbers
-                winning_pattern = verified_pattern
-                verified_pattern_type = verified_type
-                logger.info(f"🎯 Verified fake winner pattern: {verified_type} with numbers {winning_pattern}")
-            else:
-                # Fallback: generate pattern based on pattern_type
-                logger.warning(f"⚠️ Fake winner pattern verification failed, using generated pattern")
-                if pattern_type == "four_corners" and len(card_numbers) >= 25:
-                    winning_pattern = [card_numbers[0], card_numbers[4], card_numbers[20], card_numbers[24]]
-                    # Filter out 0 (FREE)
-                    winning_pattern = [num for num in winning_pattern if num != 0]
-                elif pattern_type.startswith("row_") and len(card_numbers) >= 25:
-                    row_num = int(pattern_type.split("_")[1])
+                row_num = int(pattern_type.split("_")[1])
+                if 0 <= row_num <= 4:
                     start_idx = row_num * 5
                     winning_pattern = card_numbers[start_idx:start_idx+5]
                     winning_pattern = [num for num in winning_pattern if num != 0]
-                elif pattern_type.startswith("column_") and len(card_numbers) >= 25:
-                    col_num = int(pattern_type.split("_")[1])
+            except:
+                pass
+    
+        elif pattern_type.startswith("column_"):
+            try:
+                col_num = int(pattern_type.split("_")[1])
+                if 0 <= col_num <= 4:
                     indices = [col_num + (i*5) for i in range(5)]
                     winning_pattern = [card_numbers[i] for i in indices]
                     winning_pattern = [num for num in winning_pattern if num != 0]
-                elif pattern_type == "main_diagonal" and len(card_numbers) >= 25:
-                    indices = [i*5 + i for i in range(5)]
-                    winning_pattern = [card_numbers[i] for i in indices]
-                    winning_pattern = [num for num in winning_pattern if num != 0]
-                elif pattern_type == "anti_diagonal" and len(card_numbers) >= 25:
-                    indices = [i*5 + (4-i) for i in range(5)]
-                    winning_pattern = [card_numbers[i] for i in indices]
-                    winning_pattern = [num for num in winning_pattern if num != 0]
-                else:
-                    winning_pattern = []
-            
-            # Create winner data with TRUE claim information
-            winner_data = {
-                'user_id': user_id,
-                'username': username,
-                'full_name': full_name,
-                'card_index': fake_card.get('card_index'),
-                'card_numbers': card_numbers,  # Full 25 numbers for grid display
-                'winning_pattern': winning_pattern,  # Actual winning numbers
-                'pattern_type': verified_pattern_type,  # Verified pattern type
-                'is_fake': True,
-                'timestamp': datetime.now().isoformat()
-            }
-            
-            # Add to winners list
-            added = await self.add_winner(game_id, winner_data)
-            if not added:
-                logger.info(f"Could not add fake winner to game {game_id}")
-                return None
-            
-            winners_count = await self.get_winners_count(game_id)
-            logger.info(f"🎭 Fake winner added. Game {game_id} now has {winners_count} winner(s)")
-            
-            # Increment state version
-            self._game_state_versions[game_id] = self._game_state_versions.get(game_id, 0) + 1
-            
-            # Calculate payouts based on number of winners
-            all_winners = await self.get_winners(game_id)
-            payouts = await self.calculate_winner_payouts(game_id, prize_pool)
-            
-            # Get this winner's payout
-            winner_index = next((i for i, w in enumerate(all_winners) if w.get('user_id') == user_id), 0)
-            winner_payout = payouts[winner_index] if winner_index < len(payouts) else prize_pool
-            
-            # ========== CRITICAL: Fake winner money goes to HOUSE BALANCE ==========
-            if winner_payout > 0:
-                await Database.add_to_house_balance(
-                    amount=winner_payout,
-                    description=f'Fake winner #{winners_count} in game {game_id} ({verified_pattern_type})',
-                    game_id=game_id
+            except:
+                pass
+    
+        elif pattern_type == "main_diagonal":
+            indices = [i*5 + i for i in range(5)]
+            winning_pattern = [card_numbers[i] for i in indices]
+            winning_pattern = [num for num in winning_pattern if num != 0]
+    
+        elif pattern_type == "anti_diagonal":
+            indices = [i*5 + (4-i) for i in range(5)]
+            winning_pattern = [card_numbers[i] for i in indices]
+            winning_pattern = [num for num in winning_pattern if num != 0]
+    
+        return winning_pattern
+    
+    # ==================== FIXED: Fake winner processing with money going to house ====================
+    async def process_fake_winner(self, game_id: str, user_id: int, fake_card: Dict, pattern_type: str):
+        """
+        Process a fake winner - NOW RUNS SYNCHRONOUSLY with thread pool to prevent race conditions
+        Supports 2-winner system with real/fake combinations
+        """
+        try:
+            # First, acquire the verification lock to prevent race conditions with real winners
+            async with self._verification_lock:
+                logger.info(f"🎭 Processing fake winner with lock: User {user_id} in game {game_id} with pattern {pattern_type}")
+                
+                # Check if we can add another winner (respects 2-winner limit)
+                if not await self.can_add_winner(game_id):
+                    logger.info(f"Game {game_id} already has maximum winners (2), cannot add fake winner")
+                    return None
+                
+                # Get game details
+                game = await Database.get_game(game_id)
+                if not game:
+                    logger.error(f"Game {game_id} not found for fake winner")
+                    return None
+                
+                game_status = game.get('status', 'card_purchase')
+                winners_count_before = await self.get_winners_count(game_id)
+                logger.info(f"Current winners before adding: {winners_count_before}/2")
+                
+                # Stop number calling on first winner only
+                if winners_count_before == 0 and game_status != 'winner_display':
+                    from utils.number_caller import number_caller
+                    await number_caller.stop_number_calling_for_game(game_id)
+                    logger.info(f"Stopped number calling for game {game_id} (first winner)")
+                
+                # Get called numbers for verification
+                called_numbers = await Database.get_drawn_numbers(game_id)
+                
+                # Extract card numbers for verification
+                card_numbers_for_verify = []
+                try:
+                    if isinstance(fake_card.get('card_numbers'), str):
+                        card_numbers_for_verify = json.loads(fake_card['card_numbers'])
+                    else:
+                        card_numbers_for_verify = fake_card.get('card_numbers', [])
+                except:
+                    card_numbers_for_verify = []
+                
+                # Verify the bingo pattern
+                has_bingo, verified_pattern, verified_type = await self._fast_verify_bingo_with_pattern(
+                    {'card_numbers': json.dumps(card_numbers_for_verify) if isinstance(card_numbers_for_verify, list) else str(card_numbers_for_verify)}, 
+                    called_numbers
                 )
-                logger.info(f"🏦 Added {winner_payout} birr to house balance from fake winner")
-            
-            # ========== SET WINNER DISPLAY STATE ON FIRST WINNER ONLY ==========
-            if winners_count == 1:
-                winner_display_duration = 10  # 10 seconds for winner display
-                winner_display_end = datetime.now() + timedelta(seconds=winner_display_duration)
                 
-                # Update game status and phase
-                await Database.update_game_status(game_id, 'winner_display')
-                await Database.update_game_phase(game_id, 'winner_display')
-                await Database.set_winner_display_end(game_id, winner_display_end)
+                if not has_bingo:
+                    logger.warning(f"⚠️ Fake winner pattern verification failed for user {user_id}, using provided pattern {pattern_type}")
+                else:
+                    logger.info(f"✅ Verified fake winner pattern: {verified_type}")
+                    pattern_type = verified_type  # Use verified pattern type
                 
-                # Update local cache
-                async with self._lock:
-                    self.active_game = await Database.get_game(game_id)
+                # Run the synchronous transaction in thread pool for DB operations
+                result = await self._run_in_transaction(
+                    self._execute_fake_winner_transaction,
+                    game_id, user_id, fake_card, pattern_type
+                )
                 
-                # Start winner display monitor (backup)
-                if game_id not in self._winner_display_tasks:
-                    self._winner_display_tasks[game_id] = asyncio.create_task(
-                        self._monitor_winner_display_countdown(game_id, winner_display_end)
+                if not result.get('success'):
+                    logger.error(f"Fake winner transaction failed: {result.get('error')}")
+                    return None
+                
+                # Extract results from transaction
+                game_data = result.get('game', {})
+                real_players = result.get('real_players', 0)
+                card_numbers = result.get('card_numbers', [])
+                winner_data_base = result.get('winner_data', {})
+                prize_pool = result.get('prize_pool', 0)
+                
+                # Get fake user details
+                fake_user = self.fake_user_manager.fake_users.get(user_id, {})
+                username = fake_user.get('username', f'FakeUser_{user_id}')
+                full_name = fake_user.get('full_name', username)
+                
+                # Determine winning pattern
+                winning_pattern = verified_pattern if has_bingo else self._generate_fallback_pattern(card_numbers, pattern_type)
+                
+                # Get fake count
+                fake_count = len(self.fake_user_manager.game_fake_cards.get(game_id, {}))
+                total_players = real_players + fake_count
+                
+                # Create complete winner data
+                winner_data = {
+                    **winner_data_base,
+                    'username': username,
+                    'full_name': full_name,
+                    'winning_pattern': winning_pattern,
+                    'pattern_type': pattern_type
+                }
+                
+                # Add to winners list (async operation with winner_lock)
+                added = await self.add_winner(game_id, winner_data)
+                if not added:
+                    logger.info(f"Could not add fake winner to game {game_id} - maybe already has 2 winners")
+                    return None
+                
+                winners_count = await self.get_winners_count(game_id)
+                logger.info(f"🎭 Fake winner added. Game {game_id} now has {winners_count}/2 winner(s)")
+                
+                # Increment state version
+                self._game_state_versions[game_id] = self._game_state_versions.get(game_id, 0) + 1
+                
+                # Get all winners and calculate payouts
+                all_winners = await self.get_winners(game_id)
+                payouts = await self.calculate_winner_payouts(game_id, prize_pool)
+                
+                # Get this winner's payout
+                winner_index = next((i for i, w in enumerate(all_winners) if w.get('user_id') == user_id), 0)
+                winner_payout = payouts[winner_index] if winner_index < len(payouts) else prize_pool
+                
+                logger.info(f"Winner #{winner_index + 1} payout: {winner_payout} birr (total prize pool: {prize_pool})")
+                
+                # CRITICAL: Fake winner money goes to HOUSE BALANCE
+                if winner_payout > 0:
+                    await Database.add_to_house_balance(
+                        amount=winner_payout,
+                        description=f'Fake winner #{winners_count} in game {game_id} ({pattern_type})',
+                        game_id=game_id
                     )
-            
-            # ========== FIXED: ALWAYS SEND COMPLETE WINNER DATA FOR ALL WINNERS ==========
-            # This sends complete data for EVERY winner, regardless of whether it's first or final
-            
-            # Get all winners with their complete data
-            final_all_winners = await self.get_winners(game_id)
-            final_payouts = await self.calculate_winner_payouts(game_id, prize_pool)
-            
-            # Prepare complete winners data with all details
-            complete_winners_data = []
-            for i, w in enumerate(final_all_winners):
-                # Ensure each winner has valid card numbers
-                w = await self._ensure_winner_card_numbers(game_id, w)
+                    logger.info(f"🏦 Added {winner_payout} birr to house balance from fake winner")
                 
-                # Get this winner's card numbers and winning pattern
-                winner_card_numbers = w.get('card_numbers', [])
-                winner_winning_pattern = w.get('winning_pattern', [])
-                
-                # Ensure winning pattern is valid
-                if not winner_winning_pattern or len(winner_winning_pattern) == 0:
-                    # Try to generate from pattern type
-                    pattern_type = w.get('pattern_type', '')
-                    if pattern_type == "four_corners" and len(winner_card_numbers) >= 25:
-                        winner_winning_pattern = [
-                            winner_card_numbers[0], 
-                            winner_card_numbers[4], 
-                            winner_card_numbers[20], 
-                            winner_card_numbers[24]
-                        ]
-                        winner_winning_pattern = [num for num in winner_winning_pattern if num != 0]
-                    elif pattern_type.startswith("row_") and len(winner_card_numbers) >= 25:
-                        try:
-                            row_num = int(pattern_type.split("_")[1])
-                            start_idx = row_num * 5
-                            winner_winning_pattern = winner_card_numbers[start_idx:start_idx+5]
-                            winner_winning_pattern = [num for num in winner_winning_pattern if num != 0]
-                        except:
-                            pass
-                    elif pattern_type.startswith("column_") and len(winner_card_numbers) >= 25:
-                        try:
-                            col_num = int(pattern_type.split("_")[1])
-                            indices = [col_num + (i*5) for i in range(5)]
-                            winner_winning_pattern = [winner_card_numbers[i] for i in indices]
-                            winner_winning_pattern = [num for num in winner_winning_pattern if num != 0]
-                        except:
-                            pass
-                
-                winner_complete = {
-                    'user_id': w.get('user_id'),
-                    'username': w.get('username'),
-                    'full_name': w.get('full_name'),
-                    'card_index': w.get('card_index'),
-                    'card_numbers': winner_card_numbers,  # Full 25 numbers
-                    'winning_pattern': winner_winning_pattern,  # Pattern numbers
-                    'pattern_type': w.get('pattern_type', 'BINGO'),
-                    'prize_amount': final_payouts[i] if i < len(final_payouts) else 0,
-                    'is_fake': w.get('is_fake', False),
-                    'winner_number': i + 1
-                }
-                complete_winners_data.append(winner_complete)
-            
-            # Create comprehensive winner announcement with ALL winners
-            final_winner_data = {
-                'type': 'winner_confirmed',
-                'game_id': game_id,
-                'prize_pool': prize_pool,
-                'max_winners': self.max_winners,
-                'total_winners': len(final_all_winners),
-                'is_final_winner': len(final_all_winners) >= self.max_winners,
-                'winners': complete_winners_data,
-                'timestamp': datetime.now().isoformat(),
-                'state_version': self._game_state_versions.get(game_id, 1),
-                'fake_player_stats': {
-                    'min_fake_players': self.min_fake_players,
-                    'max_fake_players': self.max_fake_players,
-                    'current_fake_players': fake_count
-                }
-            }
-            
-            # Add corner details for 4 corners pattern if applicable
-            for winner in final_all_winners:
-                if winner.get('pattern_type') == "four_corners" and len(winner.get('card_numbers', [])) >= 25:
-                    card_nums = winner.get('card_numbers', [])
-                    if 'corner_details' not in final_winner_data:
-                        final_winner_data['corner_details'] = {}
-                    final_winner_data['corner_details'][winner.get('user_id')] = {
-                        'top_left': card_nums[0],
-                        'top_right': card_nums[4],
-                        'bottom_left': card_nums[20],
-                        'bottom_right': card_nums[24],
-                        'corner_indices': [0, 4, 20, 24]
-                    }
-            
-            # Broadcast the complete winner announcement
-            try:
-                await websocket_server.broadcast_with_retry(final_winner_data)
-                logger.info(f"📢 Broadcast COMPLETE winner announcement with data for all {len(final_all_winners)} winners")
-                
-                # Mark that we've sent the broadcast (only after successful send)
-                if len(final_all_winners) >= self.max_winners:
-                    self._final_winner_broadcast_sent[game_id] = True
+                # Set winner display state on FIRST WINNER ONLY
+                if winners_count == 1:
+                    winner_display_duration = 10
+                    winner_display_end = datetime.now() + timedelta(seconds=winner_display_duration)
                     
-            except Exception as e:
-                logger.error(f"Failed to broadcast complete winner data: {e}")
-            
-            # Update game with winner info
-            await Database.update_game_winner(game_id, user_id, prize_pool)
-            
-            # Mark fake card as winner
-            fake_card['is_winner'] = True
-            
-            # ========== PROCESS GAME COMPLETION (record commission and finalize) ==========
-            # Commission should be recorded whenever game ends, regardless of winner count
-            logger.info(f"🏆 Game {game_id} ending with {winners_count} winner(s). Finalizing...")
-            
-            # Record game details with all winners
-            await self._record_complete_game_details(
-                game_id=game_id,
-                winners=all_winners,
-                prize_pool=prize_pool,
-                winner_payouts=payouts,
-                called_numbers=await Database.get_drawn_numbers(game_id),
-                total_players=total_players,
-                is_fake=True
-            )
-            
-            # ========== CRITICAL CHANGE: Use special fake winner commission (×10 rate) ==========
-            # Record commission with special ×10 rate for fake winners
-            await self.record_fake_winner_commission(game_id)
-            
-            # Mark game as completed in our tracking set
-            self._completed_games.add(game_id)
-            
-            # Clean up caches
-            await self._cleanup_game_caches(game_id)
-            
-            return {
-                'user_id': user_id,
-                'username': username,
-                'full_name': full_name,
-                'prize_amount': winner_payout,
-                'pattern_type': verified_pattern_type,
-                'winning_pattern': winning_pattern,
-                'status': 'winner_display' if winners_count == 1 else 'additional_winner',
-                'winner_number': winners_count,
-                'total_winners': winners_count,
-                'is_final': len(final_all_winners) >= self.max_winners,
-                'is_fake': True,
-                'money_to_house': winner_payout
-            }
-            
+                    await Database.update_game_status(game_id, 'winner_display')
+                    await Database.update_game_phase(game_id, 'winner_display')
+                    await Database.set_winner_display_end(game_id, winner_display_end)
+                    
+                    async with self._lock:
+                        self.active_game = await Database.get_game(game_id)
+                    
+                    # Start winner display monitor (backup)
+                    if game_id not in self._winner_display_tasks:
+                        self._winner_display_tasks[game_id] = asyncio.create_task(
+                            self._monitor_winner_display_countdown(game_id, winner_display_end)
+                        )
+                    logger.info(f"Started winner display for game {game_id} (10 seconds)")
+                
+                # ========== BROADCAST WINNER DATA ==========
+                # Get fresh winners and payouts for broadcast
+                final_all_winners = await self.get_winners(game_id)
+                final_payouts = await self.calculate_winner_payouts(game_id, prize_pool)
+                
+                # Prepare complete winners data with all details
+                complete_winners_data = []
+                for i, w in enumerate(final_all_winners):
+                    # Ensure each winner has valid card numbers
+                    w = await self._ensure_winner_card_numbers(game_id, w)
+                    
+                    winner_card_numbers = w.get('card_numbers', [])
+                    winner_winning_pattern = w.get('winning_pattern', [])
+                    
+                    # Ensure winning pattern is valid
+                    if not winner_winning_pattern or len(winner_winning_pattern) == 0:
+                        w_pattern_type = w.get('pattern_type', '')
+                        winner_winning_pattern = self._generate_fallback_pattern(winner_card_numbers, w_pattern_type)
+                    
+                    winner_complete = {
+                        'user_id': w.get('user_id'),
+                        'username': w.get('username'),
+                        'full_name': w.get('full_name'),
+                        'card_index': w.get('card_index'),
+                        'card_numbers': winner_card_numbers,
+                        'winning_pattern': winner_winning_pattern,
+                        'pattern_type': w.get('pattern_type', 'BINGO'),
+                        'prize_amount': final_payouts[i] if i < len(final_payouts) else 0,
+                        'is_fake': w.get('is_fake', False),
+                        'winner_number': i + 1
+                    }
+                    complete_winners_data.append(winner_complete)
+                
+                # Create comprehensive winner announcement
+                final_winner_data = {
+                    'type': 'winner_confirmed',
+                    'game_id': game_id,
+                    'prize_pool': prize_pool,
+                    'max_winners': self.max_winners,
+                    'total_winners': len(final_all_winners),
+                    'is_final_winner': len(final_all_winners) >= self.max_winners,
+                    'winners': complete_winners_data,
+                    'timestamp': datetime.now().isoformat(),
+                    'state_version': self._game_state_versions.get(game_id, 1),
+                    'fake_player_stats': {
+                        'min_fake_players': self.min_fake_players,
+                        'max_fake_players': self.max_fake_players,
+                        'current_fake_players': fake_count
+                    }
+                }
+                
+                # Add corner details for 4 corners pattern if applicable
+                for winner in final_all_winners:
+                    if winner.get('pattern_type') == "four_corners" and len(winner.get('card_numbers', [])) >= 25:
+                        card_nums = winner.get('card_numbers', [])
+                        if 'corner_details' not in final_winner_data:
+                            final_winner_data['corner_details'] = {}
+                        final_winner_data['corner_details'][winner.get('user_id')] = {
+                            'top_left': card_nums[0],
+                            'top_right': card_nums[4],
+                            'bottom_left': card_nums[20],
+                            'bottom_right': card_nums[24],
+                            'corner_indices': [0, 4, 20, 24]
+                        }
+                
+                # Broadcast the complete winner announcement
+                try:
+                    from web_server import websocket_server
+                    await websocket_server.broadcast_with_retry(final_winner_data)
+                    logger.info(f"📢 Broadcast COMPLETE winner announcement with data for all {len(final_all_winners)} winners")
+                    
+                    # Mark final broadcast if we have 2 winners
+                    if len(final_all_winners) >= self.max_winners:
+                        self._final_winner_broadcast_sent[game_id] = True
+                        logger.info(f"Game {game_id} has reached 2 winners - marked as final")
+                        
+                except Exception as e:
+                    logger.error(f"Failed to broadcast complete winner data: {e}")
+                
+                # Update game with winner info
+                await Database.update_game_winner(game_id, user_id, prize_pool)
+                
+                # Mark fake card as winner
+                if game_id in self.fake_user_manager.game_fake_cards:
+                    if user_id in self.fake_user_manager.game_fake_cards[game_id]:
+                        self.fake_user_manager.game_fake_cards[game_id][user_id]['is_winner'] = True
+                
+                # If this is the SECOND winner (game complete), record final details
+                if len(final_all_winners) >= self.max_winners:
+                    logger.info(f"🏆 Game {game_id} ending with {winners_count} winner(s). Finalizing...")
+                    
+                    # Record game details with all winners
+                    await self._record_complete_game_details(
+                        game_id=game_id,
+                        winners=all_winners,
+                        prize_pool=prize_pool,
+                        winner_payouts=payouts,
+                        called_numbers=called_numbers,
+                        total_players=total_players,
+                        is_fake=True
+                    )
+                    
+                    # Record commission with special ×10 rate for fake winners
+                    await self.record_fake_winner_commission(game_id)
+                    
+                    # Mark game as completed in our tracking set
+                    self._completed_games.add(game_id)
+                    
+                    # Clean up caches
+                    await self._cleanup_game_caches(game_id)
+                    
+                    logger.info(f"✅ Game {game_id} completed and finalized")
+                
+                return {
+                    'user_id': user_id,
+                    'username': username,
+                    'full_name': full_name,
+                    'prize_amount': winner_payout,
+                    'pattern_type': pattern_type,
+                    'winning_pattern': winning_pattern,
+                    'status': 'winner_display' if winners_count == 1 else 'additional_winner',
+                    'winner_number': winners_count,
+                    'total_winners': len(final_all_winners),
+                    'is_final': len(final_all_winners) >= self.max_winners,
+                    'is_fake': True,
+                    'money_to_house': winner_payout
+                }
+                
         except Exception as e:
             logger.error(f"Error processing fake winner: {e}", exc_info=True)
             return None
@@ -3383,69 +3459,74 @@ class GameManager:
     
     # ==================== FIXED: Record complete game details with correct commission - FIXED DATABASE ERROR ====================
     async def _record_complete_game_details(self, game_id: str, winners: List[Dict], prize_pool: float, 
-                                           winner_payouts: List[float], called_numbers: list, 
-                                           total_players: int, is_fake: bool = False):
+                                               winner_payouts: List[float], called_numbers: list, 
+                                               total_players: int, is_fake: bool = False):
         """
         Record complete game details for history and reporting - FIXED: Now only records game history,
         commission is handled separately in record_game_commission()
-        FIXED: Removed reference to non-existent 'price' column
+        CRITICAL FIX: Only records to DB if at least one real player participated.
         """
         try:
             from database.db import Database
             
+            # ========== STEP 1: REAL PLAYER CHECK (The "Firewall") ==========
+            # We check if there's at least one active, non-fake card in the game
+            def check_real():
+                with Database.get_cursor() as cursor:
+                    cursor.execute("""
+                        SELECT COUNT(*) as count 
+                        FROM player_cards 
+                        WHERE game_id = ? AND is_fake = 0 AND is_active = 1
+                    """, (game_id,))
+                    res = cursor.fetchone()
+                    return res['count'] if res else 0
+
+            real_card_count = await self._executor.submit(check_real)
+            
+            if real_card_count == 0:
+                logger.info(f"📉 Bot-only game {game_id} - skipping detail recording to keep DB clean.")
+                return True # Return True because the logic "finished" correctly by ignoring it
+            
+            # ========== STEP 2: DATA PREPARATION ==========
             # Get the game details
             game = await Database.get_game(game_id)
             if not game:
+                logger.error(f"Could not find game {game_id} for recording details")
                 return False
             
-            # Get real players count (for reference only, not for commission)
+            # Get real players count (for logging/reference)
             real_players = await Database.count_game_players(game_id)
             
-            # Get all cards sold in this game - ONLY ACTIVE CARDS
+            # Calculate total sales using card price from games table
+            card_price = float(game.get('card_price', 10.00))
+            total_sales = real_card_count * card_price
+            
+            # Get fake card count
+            fake_cards_sold = await Database.count_active_fake_cards(game_id)
+            total_cards_sold = real_card_count + fake_cards_sold
+            
+            # Prepare winners data for storage
+            winners_data = []
+            for i, winner in enumerate(winners):
+                # Ensure winner has card numbers (using your helper method)
+                winner = await self._ensure_winner_card_numbers(game_id, winner)
+                
+                winner_data = {
+                    'user_id': winner.get('user_id'),
+                    'username': winner.get('username'),
+                    'full_name': winner.get('full_name'),
+                    'pattern_type': winner.get('pattern_type'),
+                    'winning_pattern': winner.get('winning_pattern', []),
+                    'card_index': winner.get('card_index'),
+                    'prize_amount': winner_payouts[i] if i < len(winner_payouts) else 0,
+                    'is_fake': winner.get('is_fake', False),
+                    'timestamp': winner.get('timestamp', datetime.now().isoformat())
+                }
+                winners_data.append(winner_data)
+            
+            # ========== STEP 3: DATABASE INSERTION (Transaction) ==========
             with Database.get_cursor() as cursor:
-                # Count ACTIVE real cards - FIXED: Removed price column
-                cursor.execute("""
-                    SELECT COUNT(*) as real_cards_sold
-                    FROM player_cards 
-                    WHERE game_id = ? AND is_fake = 0 AND is_active = 1
-                """, (game_id,))
-                cards_sold_result = cursor.fetchone()
-                real_cards_sold = cards_sold_result['real_cards_sold'] if cards_sold_result else 0
-                
-                # Calculate total sales using card price from games table
-                card_price = float(game.get('card_price', 10.00))
-                total_sales = real_cards_sold * card_price
-                
-                # Get fake card count
-                fake_cards_sold = await Database.count_active_fake_cards(game_id)
-                total_cards_sold = real_cards_sold + fake_cards_sold
-                
-                # ========== FIXED: Commission is NOT recorded here anymore ==========
-                # Commission is now handled exclusively by record_game_commission()
-                # This method only records game history, no commission data
-                
-                logger.info(f"📊 Game history preparation: {real_players} real players, {real_cards_sold} real cards")
-                
-                # Prepare winners data for storage
-                winners_data = []
-                for i, winner in enumerate(winners):
-                    # Ensure winner has card numbers
-                    winner = await self._ensure_winner_card_numbers(game_id, winner)
-                    
-                    winner_data = {
-                        'user_id': winner.get('user_id'),
-                        'username': winner.get('username'),
-                        'full_name': winner.get('full_name'),
-                        'pattern_type': winner.get('pattern_type'),
-                        'winning_pattern': winner.get('winning_pattern', []),
-                        'card_index': winner.get('card_index'),
-                        'prize_amount': winner_payouts[i] if i < len(winner_payouts) else 0,
-                        'is_fake': winner.get('is_fake', False),
-                        'timestamp': winner.get('timestamp', datetime.now().isoformat())
-                    }
-                    winners_data.append(winner_data)
-                
-                # Record in game_history table - NO commission fields
+                # Record in game_history table
                 cursor.execute("""
                     INSERT INTO game_history (
                         game_id, round_number, prize_pool,
@@ -3459,10 +3540,10 @@ class GameManager:
                     game_id,
                     game.get('round_number', 1),
                     prize_pool,
-                    'multiple_winners' if len(winners) > 1 else winners[0].get('pattern_type', 'unknown'),
+                    'multiple_winners' if len(winners) > 1 else (winners[0].get('pattern_type', 'unknown') if winners else 'none'),
                     json.dumps(called_numbers),
                     total_players,
-                    real_cards_sold,
+                    real_card_count,
                     fake_cards_sold,
                     total_cards_sold,
                     total_sales,
@@ -3476,41 +3557,27 @@ class GameManager:
                     datetime.now()
                 ))
                 
-                # Update the games table with minimal completion info (NO commission fields)
-                try:
-                    cursor.execute("""
-                        UPDATE games 
-                        SET completed_at = ?,
-                            real_cards_sold = ?,
-                            total_sales = ?,
-                            winners_count = ?
-                        WHERE game_id = ?
-                    """, (
-                        datetime.now(),
-                        real_cards_sold,
-                        total_sales,
-                        len(winners),
-                        game_id
-                    ))
-                except:
-                    # Fallback if columns don't exist
-                    cursor.execute("""
-                        UPDATE games 
-                        SET completed_at = ?,
-                            winners_count = ?
-                        WHERE game_id = ?
-                    """, (
-                        datetime.now(),
-                        len(winners),
-                        game_id
-                    ))
+                # Update the games table status
+                cursor.execute("""
+                    UPDATE games 
+                    SET completed_at = ?,
+                        real_cards_sold = ?,
+                        total_sales = ?,
+                        winners_count = ?
+                    WHERE game_id = ?
+                """, (
+                    datetime.now(),
+                    real_card_count,
+                    total_sales,
+                    len(winners),
+                    game_id
+                ))
                 
-                logger.info(f"📊 Game {game_id} recorded in history: {real_players} real players, {real_cards_sold} real cards, "
-                           f"{fake_cards_sold} fake cards, {len(winners)} winners, {total_sales:.2f} sales")
+                logger.info(f"📊 Game {game_id} recorded: {real_players} players, {real_card_count} cards, {total_sales:.2f} sales")
                 return True
                 
         except Exception as e:
-            logger.error(f"Error recording complete game details: {e}")
+            logger.error(f"Error recording complete game details for {game_id}: {e}")
             return False
     
     # ==================== FIXED: Record game commission in dedicated commission_records table ====================
