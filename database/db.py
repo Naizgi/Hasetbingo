@@ -1331,17 +1331,17 @@ class Database:
             with cls.get_cursor() as cursor:
                 # First, add to called_numbers table (with bingo letter)
                 letter = cls._get_bingo_letter_for_number(number)
-                cursor.execute("""
-                    INSERT OR IGNORE INTO called_numbers 
-                    (game_id, number, bingo_letter, called_at, called_by)
-                    VALUES (?, ?, ?, ?, ?)
-                """, (game_id, number, letter, datetime.now(), drawn_by))
+                # cursor.execute("""
+                #     INSERT OR IGNORE INTO called_numbers 
+                #     (game_id, number, bingo_letter, called_at, called_by)
+                #     VALUES (?, ?, ?, ?, ?)
+                # """, (game_id, number, letter, datetime.now(), drawn_by))
                 
-                # Also add to drawn_numbers table (for backward compatibility)
-                cursor.execute("""
-                    INSERT INTO drawn_numbers (game_id, number, drawn_at)
-                    VALUES (?, ?, ?)
-                """, (game_id, number, datetime.now()))
+                # # Also add to drawn_numbers table (for backward compatibility)
+                # cursor.execute("""
+                #     INSERT INTO drawn_numbers (game_id, number, drawn_at)
+                #     VALUES (?, ?, ?)
+                # """, (game_id, number, datetime.now()))
                 
                 # Update game's current number and called_numbers array
                 # Get current called numbers
@@ -1387,28 +1387,29 @@ class Database:
                         numbers = json.loads(result[0])
                         if numbers and isinstance(numbers, list):
                             return numbers
-                    except:
-                        pass
+                    except Exception as e:
+                        print("error ",e)
+                        return []
                 
                 # Fallback to called_numbers table
-                cursor.execute("""
-                    SELECT number FROM called_numbers 
-                    WHERE game_id = ? 
-                    ORDER BY called_at
-                """, (game_id,))
-                rows = cursor.fetchall()
+                # cursor.execute("""
+                #     SELECT number FROM called_numbers 
+                #     WHERE game_id = ? 
+                #     ORDER BY called_at
+                # """, (game_id,))
+                # rows = cursor.fetchall()
                 
-                if rows:
-                    return [row[0] for row in rows] if rows else []
+                # if rows:
+                #     return [row[0] for row in rows] if rows else []
                 
-                # Fallback to drawn_numbers if called_numbers is empty
-                cursor.execute("""
-                    SELECT number FROM drawn_numbers 
-                    WHERE game_id = ? 
-                    ORDER BY drawn_at
-                """, (game_id,))
-                rows = cursor.fetchall()
-                return [row[0] for row in rows] if rows else []
+                # # Fallback to drawn_numbers if called_numbers is empty
+                # cursor.execute("""
+                #     SELECT number FROM drawn_numbers 
+                #     WHERE game_id = ? 
+                #     ORDER BY drawn_at
+                # """, (game_id,))
+                # rows = cursor.fetchall()
+                # return [row[0] for row in rows] if rows else []
                 
         except Exception as e:
             logger.error(f"Error getting drawn numbers: {e}")
