@@ -13,7 +13,8 @@ venv/
 
 # Env files
 .env
-
+env
+audio_files
 # OS
 .DS_Store
 Thumbs.db
