@@ -4251,17 +4251,17 @@
             break;
 
           case "countdown_update":
-            if (data.countdown_remaining !== undefined) {
+            if (data.seconds_remaining !== undefined) {
               console.log(
-                `📡 WebSocket countdown update: ${data.countdown_remaining}s`,
+                `📡 WebSocket countdown update: ${data.seconds_remaining}s`,
               );
-              gameState.countdown = data.countdown_remaining;
+              gameState.countdown = data.seconds_remaining;
               updateCountdownDisplay(gameState.countdown);
               updateCountdownStatusText(gameState.countdown);
 
               // ==================== CRITICAL FIX: Immediate transition when countdown hits 0 ====================
               if (
-                data.countdown_remaining <= 0 &&
+                data.seconds_remaining <= 0 &&
                 gameState.gamePhase === "card_purchase"
               ) {
                 console.log(
