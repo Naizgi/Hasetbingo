@@ -4060,7 +4060,7 @@
       // ==================== WEBSOCKET HANDLERS ====================
       function handleWebSocketMessage(data) {
         console.log("WebSocket message received:", data.type, data);
-
+        console.log("message recieved from game.html file it self");
         gameState.lastUpdateTime = Date.now();
 
         if (data.game_id) {
