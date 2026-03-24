@@ -1387,6 +1387,7 @@ class Database:
                         numbers = json.loads(result[0])
                         if numbers and isinstance(numbers, list):
                             return numbers
+                        return []
                     except Exception as e:
                         print("error ",e)
                         return []
