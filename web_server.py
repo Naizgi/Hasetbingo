@@ -6644,7 +6644,7 @@ async def game_html(request):
                     // Handle WebSocket messages
                     function handleWebSocketMessage(data) {
                         console.log('WebSocket message:', data.type);
-                        
+                        console.log('file is not imported, you are seeing thisfrom web_server.py not from game.html')
                         switch (data.type) {
                             case 'auth_success':
                                 showNotification(`✅ Authenticated as User ${gameState.userId}`, 'success');
