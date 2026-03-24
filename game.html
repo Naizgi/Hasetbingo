@@ -3532,65 +3532,68 @@
         
         gameState.lastCountdownSync = Date.now();
         
-        gameState.countdownInterval = setInterval(async () => {
-            try {
-                const response = await fetch(`${API_BASE_URL}/game/${gameState.gameId}/sync`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        user_id: gameState.userId,
-                        game_phase: gameState.gamePhase,
-                        countdown: gameState.countdown,
-                        timestamp: Date.now(),
-                        need_countdown_only: true
-                    })
-                });
+        gameState.countdownInterval = setInterval(() => {
+            
+        }, 10000);
+        // gameState.countdownInterval = setInterval(async () => {
+        //     try {
+        //         const response = await fetch(`${API_BASE_URL}/game/${gameState.gameId}/sync`, {
+        //             method: 'POST',
+        //             headers: { 'Content-Type': 'application/json' },
+        //             body: JSON.stringify({
+        //                 user_id: gameState.userId,
+        //                 game_phase: gameState.gamePhase,
+        //                 countdown: gameState.countdown,
+        //                 timestamp: Date.now(),
+        //                 need_countdown_only: true
+        //             })
+        //         });
                 
-                if (response.ok) {
-                    const data = await response.json();
-                    if (data.server_state && data.server_state.countdown_remaining !== undefined) {
-                        const serverCountdown = data.server_state.countdown_remaining;
+        //         if (response.ok) {
+        //             const data = await response.json();
+        //             if (data.server_state && data.server_state.countdown_remaining !== undefined) {
+        //                 const serverCountdown = data.server_state.countdown_remaining;
                         
-                        if (serverCountdown !== gameState.countdown) {
-                            console.log(`📡 Countdown synced: local=${gameState.countdown} → server=${serverCountdown}`);
-                            gameState.countdown = serverCountdown;
-                            updateCountdownDisplay(gameState.countdown);
-                            updateCountdownStatusText(gameState.countdown);
-                        }
+        //                 if (serverCountdown !== gameState.countdown) {
+        //                     console.log(`📡 Countdown synced: local=${gameState.countdown} → server=${serverCountdown}`);
+        //                     gameState.countdown = serverCountdown;
+        //                     updateCountdownDisplay(gameState.countdown);
+    //                         updateCountdownStatusText(gameState.countdown);
+    //                     }
                         
-                        // ==================== CRITICAL FIX: Immediate transition when countdown hits 0 ====================
-                        if (serverCountdown <= 0) {
-                            console.log('🚀 Countdown reached 0 in sync - IMMEDIATELY transitioning');
-                            clearInterval(gameState.countdownInterval);
-                            gameState.countdownInterval = null;
+    //                     // ==================== CRITICAL FIX: Immediate transition when countdown hits 0 ====================
+    //                     if (serverCountdown <= 0) {
+    //                         console.log('🚀 Countdown reached 0 in sync - IMMEDIATELY transitioning');
+    //                         clearInterval(gameState.countdownInterval);
+    //                         gameState.countdownInterval = null;
                             
-                            const statusElement = document.getElementById('countdown-status-text');
-                            if (statusElement) {
-                                statusElement.textContent = 'Game starting...';
-                            }
+    //                         const statusElement = document.getElementById('countdown-status-text');
+    //                         if (statusElement) {
+    //                             statusElement.textContent = 'Game starting...';
+    //                         }
                             
-                            // Immediately get game state - don't wait
-                            getCompleteGameState();
-                        }
-                    }
-                }
-            } catch (error) {
-                console.warn('Countdown sync error:', error);
-                if (gameState.countdown > 0 && gameState.gamePhase === 'card_purchase') {
-                    gameState.countdown--;
-                    updateCountdownDisplay(gameState.countdown);
-                    updateCountdownStatusText(gameState.countdown);
+    //                         // Immediately get game state - don't wait
+    //                         getCompleteGameState();
+    //                     }
+    //                 }
+    //             }
+    //         } catch (error) {
+    //             console.warn('Countdown sync error:', error);
+    //             if (gameState.countdown > 0 && gameState.gamePhase === 'card_purchase') {
+    //                 gameState.countdown--;
+    //                 updateCountdownDisplay(gameState.countdown);
+    //                 updateCountdownStatusText(gameState.countdown);
                     
-                    // ==================== CRITICAL FIX: Even in fallback mode, transition when local countdown hits 0 ====================
-                    if (gameState.countdown <= 0) {
-                        console.log('🚀 Local countdown reached 0 (fallback) - transitioning');
-                        clearInterval(gameState.countdownInterval);
-                        gameState.countdownInterval = null;
-                        getCompleteGameState();
-                    }
-                }
-            }
-        }, 2000);
+    //                 // ==================== CRITICAL FIX: Even in fallback mode, transition when local countdown hits 0 ====================
+    //                 if (gameState.countdown <= 0) {
+    //                     console.log('🚀 Local countdown reached 0 (fallback) - transitioning');
+    //                     clearInterval(gameState.countdownInterval);
+    //                     gameState.countdownInterval = null;
+    //                     getCompleteGameState();
+    //                 }
+    //             }
+    //         }
+    //     }, 2000);
     }
 
     // ==================== WEBSOCKET HANDLERS ====================

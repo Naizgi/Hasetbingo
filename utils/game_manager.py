@@ -417,21 +417,19 @@ class GameManager:
         # Countdown from 30 to 0 - ensure we reach 0 exactly
         for seconds_remaining in range(30, 0, -1):
             # Update countdown in database
+            start_time = time.time()
             await Database.update_game_countdown(game_id, seconds_remaining)
-            
-            # Broadcast countdown update
-            if seconds_remaining % 5 == 0 or seconds_remaining <= 10:
                 
-                await self._safe_broadcast({
-                    'type': 'countdown_update',
-                    'game_id': game_id,
-                    'phase': 'card_purchase',
-                    'seconds_remaining': seconds_remaining,
-                    'timestamp': datetime.now().isoformat()
-                }, game_id)
-            
+            await self._safe_broadcast({
+                'type': 'countdown_update',
+                'game_id': game_id,
+                'phase': 'card_purchase',
+                'seconds_remaining': seconds_remaining,
+                'timestamp': datetime.now().isoformat()
+            }, game_id)
+            end_time = time.time()
             if seconds_remaining > 0:
-                await asyncio.sleep(1)
+                await asyncio.sleep(1-max(end_time-start_time, 0))
         
         logger.info(f"⏰ Card purchase phase ended for game {game_id}")
         
