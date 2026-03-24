@@ -105,7 +105,7 @@ import time
 import concurrent.futures
 import functools
 
-from utils import bingo_cards
+from utils.bingo_cards import bingo_cards
 
 # ==================== IMPORT WEBSOCKET SERVER ====================
 try:
