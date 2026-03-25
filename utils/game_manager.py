@@ -264,7 +264,7 @@ class GameManager:
                 #     logger.info(f"Purchase phase for game {game_id} was reset or interrupted")
                 #     continue
                 
-                remaning_count_down = await Database.get_game_countdown()
+                remaning_count_down = await Database.get_game_countdown(game_id)
                 await asyncio.sleep(int(remaning_count_down))
                 # Step 3: Check if we have enough players to start
                 if not await self._has_enough_players(game_id):
