@@ -1454,26 +1454,26 @@ class GameManager:
                 called_numbers = await Database.get_drawn_numbers(game_id)
                 
                 # # Extract card numbers for verification
-                # card_numbers_for_verify = []
-                # try:
-                #     if isinstance(fake_card.get('card_numbers'), str):
-                #         card_numbers_for_verify = json.loads(fake_card['card_numbers'])
-                #     else:
-                #         card_numbers_for_verify = fake_card.get('card_numbers', [])
-                # except:
-                #     card_numbers_for_verify = []
+                card_numbers_for_verify = []
+                try:
+                    if isinstance(fake_card.get('card_numbers'), str):
+                        card_numbers_for_verify = json.loads(fake_card['card_numbers'])
+                    else:
+                        card_numbers_for_verify = fake_card.get('card_numbers', [])
+                except:
+                    card_numbers_for_verify = []
                 
                 # Verify the bingo pattern
-                # has_bingo, verified_pattern, verified_type = await self._fast_verify_bingo_with_pattern(
-                #     {'card_numbers': json.dumps(card_numbers_for_verify) if isinstance(card_numbers_for_verify, list) else str(card_numbers_for_verify)}, 
-                #     called_numbers
-                # )
+                has_bingo, verified_pattern, verified_type = await self._fast_verify_bingo_with_pattern(
+                    {'card_numbers': json.dumps(card_numbers_for_verify) if isinstance(card_numbers_for_verify, list) else str(card_numbers_for_verify)}, 
+                    called_numbers
+                )
                 
-                # if not has_bingo:
-                #     logger.warning(f"⚠️ Fake winner pattern verification failed for user {user_id}, using provided pattern {pattern_type}")
-                # else:
-                #     logger.info(f"✅ Verified fake winner pattern: {verified_type}")
-                #     pattern_type = verified_type  # Use verified pattern type
+                if not has_bingo:
+                    logger.warning(f"⚠️ Fake winner pattern verification failed for user {user_id}, using provided pattern {pattern_type}")
+                else:
+                    logger.info(f"✅ Verified fake winner pattern: {verified_type}")
+                    pattern_type = verified_type  # Use verified pattern type
                 
                 # Run the synchronous transaction in thread pool for DB operations
                 result = await self._run_in_transaction(
@@ -1498,7 +1498,7 @@ class GameManager:
                 full_name = fake_user.get('full_name', username)
                 
                 # Determine winning pattern
-                winning_pattern = pattern_type
+                winning_pattern = verified_pattern if has_bingo else self._generate_fallback_pattern(card_numbers,pattern_type)
                 
                 # Get fake count
                 fake_count = len(self.fake_user_manager.game_fake_cards.get(game_id, {}))
