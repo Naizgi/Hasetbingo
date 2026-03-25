@@ -263,7 +263,8 @@ class GameManager:
                 # if not purchase_successful:
                 #     logger.info(f"Purchase phase for game {game_id} was reset or interrupted")
                 #     continue
-                
+                if not self.purchase_successful_task.done():
+                    await self.purchase_successful_task
                 # Step 3: Check if we have enough players to start
                 if not await self._has_enough_players(game_id):
                     logger.info(f"Game {game_id} doesn't have enough players, resetting countdown")
@@ -358,14 +359,14 @@ class GameManager:
                     # Initialize tracking
                     await self._initialize_game_tracking(game_id)
                     #added new task
-                    purchase_successful_task = asyncio.create_task (self._run_card_purchase_phase(game_id))
+                    self.purchase_successful_task = asyncio.create_task(self._run_card_purchase_phase(game_id))
                     # Add fake players immediately
                     if self.fake_users_enabled:
                         random_fake_count = random.randint(self.min_fake_players, self.max_fake_players)
                         logger.info(f"🎲 Adding {random_fake_count} fake players to new game {game_id}")
                         await self._add_initial_fake_users(game_id, random_fake_count)
                     #awaiting task
-                    await purchase_successful_task
+                    await self.purchase_successful_task
                     # Broadcast new game
                     await self._safe_broadcast({
                         'type': 'new_game_started',
@@ -437,14 +438,15 @@ class GameManager:
         
         # FIXED: IMMEDIATELY check players and transition - NO DELAY
         # Call has_enough_players which will update game state and broadcast
-        has_players = await self._has_enough_players(game_id)
+        # has_players = await self._has_enough_players(game_id)
         
-        if has_players:
-            logger.info(f"✅ Game {game_id} transitioned to active phase INSTANTLY")
-            return True
-        else:
-            logger.info(f"⚠️ Game {game_id} not enough players, resetting countdown")
-            return False
+        # if has_players:
+        #     logger.info(f"✅ Game {game_id} transitioned to active phase INSTANTLY")
+        #     return True
+        # else:
+        #     logger.info(f"⚠️ Game {game_id} not enough players, resetting countdown")
+        #     return False
+        return True
 
     async def _has_enough_players(self, game_id: str) -> bool:
         """Check if game has enough players to start - OPTIMIZED with single query"""
@@ -474,10 +476,10 @@ class GameManager:
         
         # Check if we have enough players
         if total_players >= 2:
-            # Immediately update game to active phase
-            await Database.update_game_phase(game_id, 'active')
-            await Database.update_game_status(game_id, 'active')
-            await Database.update_game_start_time(game_id)
+            # # Immediately update game to active phase
+            # await Database.update_game_phase(game_id, 'active')
+            # await Database.update_game_status(game_id, 'active')
+            # await Database.update_game_start_time(game_id)
             
             # Update local cache
             async with self._lock:
@@ -534,7 +536,6 @@ class GameManager:
         """
         from utils.number_caller import number_caller
         logger.info(f"🎯 Starting ACTIVE GAME phase for game {game_id}")
-        
         # Update game to active phase
         await Database.update_game_phase(game_id, 'active')
         await Database.update_game_status(game_id, 'active')
