@@ -607,7 +607,7 @@ class GameManager:
             #     last_winner_count = winners_count
             
             # Wait before next check
-            await asyncio.sleep(0)
+            await asyncio.sleep(0.2)
         
         # Stop number calling
         await number_caller.stop_number_calling_for_game(game_id)
