@@ -4972,7 +4972,7 @@
           gameState.gameId = data.game_id;
           gameState.currentRound =
             data.round_number || gameState.currentRound + 1;
-          gameState.countdown = data.countdown_seconds || 30;
+          gameState.countdown = data.countdown_seconds || 0;
           gameState.countdownTotal = data.countdown_seconds || 30;
           updateCountdownDisplay(gameState.countdown);
           document.getElementById("current-round-number").textContent =
@@ -4989,7 +4989,7 @@
         gameState.purchasePhaseActive = true;
         gameState.currentRound =
           data.round_number || gameState.currentRound + 1;
-        gameState.countdown = data.countdown_seconds || 30;
+        gameState.countdown = data.countdown_seconds || 0;
         gameState.countdownTotal = data.countdown_seconds || 30;
         gameState.gameComplete = false;
         gameState.winnerAnnounced = false;
