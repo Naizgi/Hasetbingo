@@ -64,10 +64,10 @@ class NumberCaller:
             # Update tracking
             self._active_games[game_id] = True
             
-            # Start countdown task for winner display
-            if game_id not in self.countdown_tasks or self.countdown_tasks[game_id].done():
-                countdown_task = asyncio.create_task(self._manage_game_countdown(game_id))
-                self.countdown_tasks[game_id] = countdown_task
+            # # Start countdown task for winner display
+            # if game_id not in self.countdown_tasks or self.countdown_tasks[game_id].done():
+            #     countdown_task = asyncio.create_task(self._manage_game_countdown(game_id))
+            #     self.countdown_tasks[game_id] = countdown_task
             
             logger.info(f"Started number calling for game {game_id}")
             return True
@@ -214,15 +214,6 @@ class NumberCaller:
                     # Get bingo letter
                     bingo_letter = self._get_bingo_letter(next_number)
                     
-                    # Mark number on all cards (real and fake)
-                    fake_winners = await game_manager.mark_number_on_all_cards(game_id, next_number)
-                    
-                    # Check if game should be stopped (first winner)
-                    game = await Database.get_game(game_id)
-                    if game and game.get('status') == 'winner_display':
-                        logger.info(f"Game {game_id} entered winner display phase, stopping number calling")
-                        break
-                    
                     # Broadcast new number
                     await websocket_server.broadcast_with_retry({
                         'type': 'number_called',
@@ -233,6 +224,15 @@ class NumberCaller:
                         'fake_winners': fake_winners,
                         'timestamp': datetime.now().isoformat()
                     })
+                    
+                    # Mark number on all cards (real and fake)
+                    fake_winners = await game_manager.mark_number_on_all_cards(game_id, next_number)
+                    
+                    # Check if game should be stopped (first winner)
+                    game = await Database.get_game(game_id)
+                    if game and game.get('status') == 'winner_display':
+                        logger.info(f"Game {game_id} entered winner display phase, stopping number calling")
+                        break
                     
                     logger.info(f"Called number {next_number} ({bingo_letter}) for game {game_id} (fake winners: {fake_winners})")
                     
