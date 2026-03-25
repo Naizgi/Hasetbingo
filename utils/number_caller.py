@@ -6,6 +6,7 @@ import random
 from datetime import datetime
 from typing import Dict, List, Optional, Set
 import json
+from database.db import Database
 from utils.game_manager import game_manager
 
 logger = logging.getLogger(__name__)
@@ -29,9 +30,6 @@ class NumberCaller:
     async def start_number_calling_for_game(self, game_id: str):
         """Start number calling for a game"""
         try:
-            from database.db import Database
-            from web_server import websocket_server
-            
             # Check if game exists
             game = await Database.get_game(game_id)
             if not game:
@@ -204,7 +202,7 @@ class NumberCaller:
                     
                     if not success:
                         logger.error(f"Failed to record drawn number {next_number}")
-                        await asyncio.sleep(4.5)
+                        await asyncio.sleep(4)
                         continue
                     
                     # Add to called set
@@ -237,7 +235,7 @@ class NumberCaller:
                     logger.info(f"Called number {next_number} ({bingo_letter}) for game {game_id} (fake winners: {fake_winners})")
                     
                     # Wait before next number (4 seconds)
-                    await asyncio.sleep(4.5)
+                    await asyncio.sleep(4)
                     
                 except asyncio.CancelledError:
                     logger.info(f"Number calling cancelled for game {game_id}")

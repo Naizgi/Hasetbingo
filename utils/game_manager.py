@@ -567,8 +567,10 @@ class GameManager:
             # Check if we've reached max winners
             winners_count = await self.get_winners_count(game_id)
             
-            if winners_count >= self.max_winners:
-                logger.info(f"🏆 Game {game_id} reached max winners ({self.max_winners})")
+            #changed to self.max_winners to 1
+            max_winners = 1
+            if winners_count >= max_winners:
+                logger.info(f"🏆 Game {game_id} reached max winners ({max_winners})")
                 game_active = False
                 break
             
@@ -600,12 +602,12 @@ class GameManager:
                 pass
             
             # If winners count changed, broadcast update
-            if winners_count != last_winner_count:
-                await self._broadcast_full_game_state(game_id)
-                last_winner_count = winners_count
+            # if winners_count != last_winner_count:
+            #     await self._broadcast_full_game_state(game_id)
+            #     last_winner_count = winners_count
             
             # Wait before next check
-            await asyncio.sleep(1)
+            await asyncio.sleep(0.2)
         
         # Stop number calling
         await number_caller.stop_number_calling_for_game(game_id)
@@ -1341,11 +1343,11 @@ class GameManager:
                 
                 # Get called numbers
                 cursor.execute("""
-                    SELECT number FROM drawn_numbers 
-                    WHERE game_id = ? ORDER BY drawn_at
+                    SELECT called_numbers FROM games 
+                    WHERE game_id = ?
                 """, (game_id,))
-                called_rows = cursor.fetchall()
-                called_numbers = [row['number'] for row in called_rows]
+                called_rows = cursor.fetchone()
+                called_numbers = json.loads(called_rows[0]) if called_rows and called_rows[0] else []
                 
                 # Create winner data base (without username/fullname which we'll add in async part)
                 winner_data = {
@@ -1569,12 +1571,10 @@ class GameManager:
                 # Prepare complete winners data with all details
                 complete_winners_data = []
                 for i, w in enumerate(final_all_winners):
-                    # Ensure each winner has valid card numbers
-                    w = await self._ensure_winner_card_numbers(game_id, w)
-                    
+                    # # Ensure each winner has valid card numbers
+                    # w = await self._ensure_winner_card_numbers(game_id, w)
                     winner_card_numbers = w.get('card_numbers', [])
                     winner_winning_pattern = w.get('winning_pattern', [])
-                    
                     # Ensure winning pattern is valid
                     if not winner_winning_pattern or len(winner_winning_pattern) == 0:
                         w_pattern_type = w.get('pattern_type', '')
@@ -1628,7 +1628,6 @@ class GameManager:
                 
                 # Broadcast the complete winner announcement
                 try:
-                    from web_server import websocket_server
                     await websocket_server.broadcast_with_retry(final_winner_data)
                     logger.info(f"📢 Broadcast COMPLETE winner announcement with data for all {len(final_all_winners)} winners")
                     
@@ -1817,7 +1816,6 @@ class GameManager:
                     return winner_data
         
         # Fall back to database
-        from database.db import Database
         user_card = await Database.get_user_card_in_game(user_id, game_id)
         if user_card:
             card_numbers = self._extract_card_numbers(user_card)
