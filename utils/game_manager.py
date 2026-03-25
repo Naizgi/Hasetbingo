@@ -264,6 +264,8 @@ class GameManager:
                 #     logger.info(f"Purchase phase for game {game_id} was reset or interrupted")
                 #     continue
                 
+                remaning_count_down = await Database.get_game_countdown()
+                await asyncio.sleep(int(remaning_count_down))
                 # Step 3: Check if we have enough players to start
                 if not await self._has_enough_players(game_id):
                     logger.info(f"Game {game_id} doesn't have enough players, resetting countdown")
@@ -450,8 +452,6 @@ class GameManager:
     async def _has_enough_players(self, game_id: str) -> bool:
         """Check if game has enough players to start - OPTIMIZED with single query"""
         from database.db import Database
-        if not self.purchase_successful_task.done():
-            await self.purchase_successful_task
         # Single optimized query to get all counts at once
         with Database.get_cursor() as cursor:
             cursor.execute("""

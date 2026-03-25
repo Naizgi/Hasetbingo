@@ -2872,6 +2872,23 @@ class Database:
         except Exception as e:
             logger.error(f"Error updating countdown: {e}")
             return False
+    @classmethod
+    async def get_game_countdown(cls, game_id: str) -> int | None:
+        try:
+            with cls.get_cursor() as cursor:
+                cursor.execute("""
+                    SELECT countdown_remaining FROM games WHERE game_id = ?
+                """, (game_id,))
+                
+                row = cursor.fetchone()
+                
+                if row is None:
+                    return None
+                
+                return row[0]  # extract the integer
+        except Exception as e:
+            print(f"Error: {e}")
+            return None
     
     @classmethod
     async def update_game_countdown_end(cls, game_id: str, countdown_end: float) -> bool:
