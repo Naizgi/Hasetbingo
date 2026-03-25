@@ -2202,7 +2202,7 @@ class GameManager:
                     }
  
             # Check countdown
-            countdown = await Database.calculate_purchase_countdown(game_id)
+            countdown = await Database.get_game_countdown(game_id)
             if countdown <= 0:
                 return {
                     'success': False,

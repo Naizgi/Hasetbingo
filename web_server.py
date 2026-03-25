@@ -5478,10 +5478,10 @@ async def toggle_card_purchase(request):
             })
             
             # Also broadcast player count update
-            from database.db import Database
-            real_players = await Database.count_game_players(game_id)
-            fake_players = len(game_manager.fake_user_manager.game_fake_cards.get(game_id, {})) if hasattr(game_manager, 'fake_user_manager') else 0
-            await websocket_server.broadcast_player_count(game_id, real_players, fake_players)
+            # from database.db import Database
+            # real_players = await Database.count_game_players(game_id)
+            # fake_players = len(game_manager.fake_user_manager.game_fake_cards.get(game_id, {})) if hasattr(game_manager, 'fake_user_manager') else 0
+            # await websocket_server.broadcast_player_count(game_id, real_players, fake_players)
         
         return web.json_response(result, dumps=lambda obj: json.dumps(obj, cls=CustomJSONEncoder))
         

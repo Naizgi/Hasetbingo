@@ -2885,7 +2885,7 @@ class Database:
                 if row is None:
                     return None
                 
-                return row[0]  # extract the integer
+                return int(row[0])  # extract the integer
         except Exception as e:
             print(f"Error: {e}")
             return None
