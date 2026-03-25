@@ -248,12 +248,12 @@ class NumberCaller:
                     await asyncio.sleep(4.5)
             
             # Cleanup
-            if game_id in self.calling_tasks:
-                self.calling_tasks.pop(game_id, None)
+            # if game_id in self.calling_tasks:
+            #     self.calling_tasks.pop(game_id, None)
             
-            # Update tracking
-            if game_id in self._active_games:
-                self._active_games[game_id] = False
+            # # Update tracking
+            # if game_id in self._active_games:
+            #     self._active_games[game_id] = False
             
             logger.info(f"Number calling loop ended for game {game_id}")
             
