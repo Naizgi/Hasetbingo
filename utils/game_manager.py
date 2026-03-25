@@ -105,7 +105,6 @@ import time
 import concurrent.futures
 import functools
 from database.db import Database
-from utils.number_caller import number_caller
 from utils.bingo_cards import bingo_cards
 
 # ==================== IMPORT WEBSOCKET SERVER ====================
@@ -533,6 +532,7 @@ class GameManager:
         Run the active game phase (number calling)
         Returns: True if game ended with winner(s), False if error/forced end
         """
+        from utils.number_caller import number_caller
         logger.info(f"🎯 Starting ACTIVE GAME phase for game {game_id}")
         
         # Update game to active phase
