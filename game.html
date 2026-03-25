@@ -4924,16 +4924,16 @@
         resetCardsForNewRound();
 
         setTimeout(() => {
-          syncWithServer();
+        //   syncWithServer();
           fetchActiveGame().then((gameData) => {
             if (gameData && gameData.success) {
               console.log("New game data loaded:", gameData);
               gameState.gameId = gameData.game_id;
               gameState.currentRound =
                 gameData.round_number || gameState.currentRound + 1;
-              gameState.countdown = gameData.countdown_remaining || 30;
+              gameState.countdown = gameData.countdown_remaining || 0;
               gameState.countdownTotal = gameData.countdown_remaining || 30;
-              updateCountdownDisplay(gameState.countdown);
+            //   updateCountdownDisplay(gameState.countdown);
               document.getElementById("current-round-number").textContent =
                 gameState.currentRound;
 
@@ -4974,7 +4974,7 @@
             data.round_number || gameState.currentRound + 1;
           gameState.countdown = data.countdown_seconds || 0;
           gameState.countdownTotal = data.countdown_seconds || 30;
-          updateCountdownDisplay(gameState.countdown);
+        //   updateCountdownDisplay(gameState.countdown);
           document.getElementById("current-round-number").textContent =
             gameState.currentRound;
           startServerCoordinatedCountdown();
@@ -6422,13 +6422,12 @@
 
       // ==================== OTHER FUNCTIONS ====================
       function startSyncInterval() {
-        if (gameState.syncInterval) {
-          clearInterval(gameState.syncInterval);
-        }
-
-        gameState.syncInterval = setInterval(() => {
-          //   syncWithServer();
-        }, 3000);
+        // if (gameState.syncInterval) {
+        //   clearInterval(gameState.syncInterval);
+        // }
+        // gameState.syncInterval = setInterval(() => {
+        // syncWithServer();
+        // }, 3000);
       }
 
       function showCountdownResetNotification(resetData) {

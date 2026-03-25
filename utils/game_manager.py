@@ -493,7 +493,7 @@ class GameManager:
             self._game_state_versions[game_id] = self._game_state_versions.get(game_id, 0) + 1
             
             # Broadcast phase change immediately - don't await to avoid delay
-            broadcast_task = asyncio.create_task(self._safe_broadcast({
+            await self._safe_broadcast({
                 'type': 'phase_change_confirmed',
                 'game_id': game_id,
                 'phase': 'active',
@@ -502,7 +502,7 @@ class GameManager:
                 'total_players': total_players,
                 'prize_pool': final_prize_pool,
                 'timestamp': datetime.now().isoformat()
-            }, game_id))
+            }, game_id)
             
             # Start number calling for this game immediately (don't wait)
             # from utils.number_caller import number_caller
