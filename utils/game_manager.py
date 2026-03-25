@@ -263,8 +263,7 @@ class GameManager:
                 # if not purchase_successful:
                 #     logger.info(f"Purchase phase for game {game_id} was reset or interrupted")
                 #     continue
-                if not self.purchase_successful_task.done():
-                    await self.purchase_successful_task
+                
                 # Step 3: Check if we have enough players to start
                 if not await self._has_enough_players(game_id):
                     logger.info(f"Game {game_id} doesn't have enough players, resetting countdown")
@@ -366,7 +365,9 @@ class GameManager:
                         logger.info(f"🎲 Adding {random_fake_count} fake players to new game {game_id}")
                         await self._add_initial_fake_users(game_id, random_fake_count)
                     #awaiting task
-                    await self.purchase_successful_task
+                    if not self.purchase_successful_task.done():
+                        await self.purchase_successful_task
+                    # await self.purchase_successful_task
                     # Broadcast new game
                     await self._safe_broadcast({
                         'type': 'new_game_started',
@@ -476,10 +477,10 @@ class GameManager:
         
         # Check if we have enough players
         if total_players >= 2:
-            # # Immediately update game to active phase
-            # await Database.update_game_phase(game_id, 'active')
-            # await Database.update_game_status(game_id, 'active')
-            # await Database.update_game_start_time(game_id)
+            # Immediately update game to active phase
+            await Database.update_game_phase(game_id, 'active')
+            await Database.update_game_status(game_id, 'active')
+            await Database.update_game_start_time(game_id)
             
             # Update local cache
             async with self._lock:
