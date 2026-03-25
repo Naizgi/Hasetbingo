@@ -365,9 +365,7 @@ class GameManager:
                         logger.info(f"🎲 Adding {random_fake_count} fake players to new game {game_id}")
                         await self._add_initial_fake_users(game_id, random_fake_count)
                     #awaiting task
-                    if not self.purchase_successful_task.done():
-                        await self.purchase_successful_task
-                    # await self.purchase_successful_task
+                    await self.purchase_successful_task
                     # Broadcast new game
                     await self._safe_broadcast({
                         'type': 'new_game_started',
@@ -452,7 +450,8 @@ class GameManager:
     async def _has_enough_players(self, game_id: str) -> bool:
         """Check if game has enough players to start - OPTIMIZED with single query"""
         from database.db import Database
-        
+        if not self.purchase_successful_task.done():
+            await self.purchase_successful_task
         # Single optimized query to get all counts at once
         with Database.get_cursor() as cursor:
             cursor.execute("""
