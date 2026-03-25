@@ -375,7 +375,7 @@ class GameManager:
                         'round_number': round_number,
                         'status': 'card_purchase',
                         'phase': 'card_purchase',
-                        'countdown_seconds': 30,
+                        'countdown_seconds': 0,
                         'max_winners': self.max_winners,
                         'timestamp': datetime.now().isoformat()
                     }, game_id)
