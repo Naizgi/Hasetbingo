@@ -2470,12 +2470,12 @@ class Database:
                     INSERT INTO games (
                         game_id, game_type, round_number, status, card_price,
                         purchase_end_time, created_at, countdown_remaining,
-                        current_phase, countdown_end, prize_pool
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        current_phase, countdown_end, prize_pool,called_numbers
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,?)
                 """, (
                     game_id, 'round_based', round_number, status,
                     10.00, purchase_end_time, now, 30,
-                    current_phase, countdown_end.timestamp() if countdown_end else None, 0.00
+                    current_phase, countdown_end.timestamp() if countdown_end else None, 0.00,json.dumps([])
                 ))
                 
                 logger.info(f"Created new round game: {game_id} (Round {round_number}) with status: {status}, phase: {current_phase}")
