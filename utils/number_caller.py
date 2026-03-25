@@ -219,7 +219,7 @@ class NumberCaller:
                         'number': next_number,
                         'letter': bingo_letter,
                         'called_numbers': list(called_set),
-                        'fake_winners': fake_winners,
+                        # 'fake_winners': fake_winners,
                         'timestamp': datetime.now().isoformat()
                     })
                     
