@@ -503,8 +503,8 @@ class GameManager:
             }, game_id))
             
             # Start number calling for this game immediately (don't wait)
-            from utils.number_caller import number_caller
-            asyncio.create_task(number_caller.start_number_calling_for_game(game_id))
+            # from utils.number_caller import number_caller
+            # asyncio.create_task(number_caller.start_number_calling_for_game(game_id))
             
             logger.info(f"✅ Game {game_id} transitioned to active phase with {total_players} players")
             return True

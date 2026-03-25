@@ -4115,6 +4115,7 @@
             gameState.gameComplete = true;
             gameState.winnerAnnounced = false;
             gameState.isWinnerDisplayActive = false;
+            handleWinnerDisplayCompleted(data);
             break;
 
           case "existing_game_resumed":
