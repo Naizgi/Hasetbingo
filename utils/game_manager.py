@@ -3287,7 +3287,7 @@ class GameManager:
                 real_players = result['real_players'] if result else 0
                 
                 # ========== CRITICAL CHANGE: ×10 instead of ×2 for fake winners ==========
-                commission = self.calculate_fake_winner_commission(game_id)
+                commission = await self.calculate_fake_winner_commission(game_id)
                 logger.info(f"📊 FAKE WINNER COMMISSION: {real_players} real active players × (10) = {commission} birr")
                 # Verify prize pool matches total players (real + fake)
                 cursor.execute("""
