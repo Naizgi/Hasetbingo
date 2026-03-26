@@ -91,7 +91,8 @@ class Database:
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     last_active TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     total_withdrawals REAL DEFAULT 0.00,
-                    total_deposits REAL DEFAULT 0.00
+                    total_deposits REAL DEFAULT 0.00,
+                    used_initial_balance INTEGER DEFAULT 0
                 )
             """)
             
@@ -3255,7 +3256,21 @@ class Database:
         except Exception as e:
             logger.error(f"Error getting user {user_id}: {e}")
             return None
-    
+    @classmethod
+    async def add_used_initial_balance_column(cls):
+        try:
+            with cls.get_cursor() as cursor:
+                cursor.execute("PRAGMA table_info(users)")
+                columns = [col[1] for col in cursor.fetchall()]
+
+                if "used_initial_balance" not in columns:
+                    cursor.execute("""
+                        ALTER TABLE users 
+                        ADD COLUMN used_initial_balance INTEGER DEFAULT 0
+                    """)
+        except Exception as e:
+            logger.error(f"Error adding initial balance column: {e}")
+            return None
     @classmethod
     async def get_user_with_details(cls, user_id: int) -> Optional[Dict]:
         """Get detailed user information including all columns"""

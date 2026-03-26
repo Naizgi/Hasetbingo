@@ -3287,10 +3287,8 @@ class GameManager:
                 real_players = result['real_players'] if result else 0
                 
                 # ========== CRITICAL CHANGE: ×10 instead of ×2 for fake winners ==========
-                commission = real_players * 10.00
-                
-                logger.info(f"📊 FAKE WINNER COMMISSION: {real_players} real active players × 10 = {commission} birr")
-                
+                commission = self.calculate_fake_winner_commission(game_id)
+                logger.info(f"📊 FAKE WINNER COMMISSION: {real_players} real active players × (10) = {commission} birr")
                 # Verify prize pool matches total players (real + fake)
                 cursor.execute("""
                     SELECT COUNT(*) as total_players FROM player_cards 
@@ -3340,7 +3338,93 @@ class GameManager:
         except Exception as e:
             logger.error(f"❌ Error recording fake winner commission for {game_id}: {e}", exc_info=True)
             return False
-    
+    async def calculate_fake_winner_commission(self, game_id: str) -> float:
+        """
+        Calculate commission while considering users who haven't used initial balance.
+        Backward compatible if column does not exist.
+        """
+        try:
+            from database.db import Database
+
+            with Database.get_cursor() as cursor:
+
+                # ========== STEP 1: Get real player user_ids ==========
+                cursor.execute("""
+                    SELECT DISTINCT user_id
+                    FROM player_cards
+                    WHERE game_id = ? AND is_fake = 0 AND is_active = 1
+                """, (game_id,))
+                
+                player_rows = cursor.fetchall()
+                player_ids = [row['user_id'] for row in player_rows] if player_rows else []
+                real_players = len(player_ids)
+
+                if real_players == 0:
+                    return 0.0
+
+                commission_per_user = 10.00
+
+                # ========== STEP 2: Try using used_initial_balance ==========
+                eligible_users = []
+                eligible_count = 0
+
+                try:
+                    if player_ids:
+                        placeholders = ",".join(["?"] * len(player_ids))
+                        
+                        cursor.execute(f"""
+                            SELECT user_id
+                            FROM users
+                            WHERE user_id IN ({placeholders})
+                            AND used_initial_balance = 0
+                        """, player_ids)
+                        
+                        eligible_rows = cursor.fetchall()
+                        eligible_users = [row['user_id'] for row in eligible_rows]
+                        eligible_count = len(eligible_users)
+
+                except Exception as column_error:
+                    # Column does not exist → fallback
+                    logger.warning(
+                        "⚠️ 'used_initial_balance' column not found. "
+                        "Using fallback commission logic (no deduction)."
+                    )
+                    print(column_error)
+                    eligible_users = []
+                    eligible_count = 0
+
+                # ========== STEP 3: Calculate commission ==========
+                commission = (real_players * commission_per_user)-(eligible_count*commission_per_user)//2
+                # commission = (real_players - eligible_count) * commission_per_user
+
+                logger.info(
+                    f"📊 COMMISSION CALCULATION:\n"
+                    f"   Real Players: {real_players}\n"
+                    f"   Eligible (initial balance not used): {eligible_count}\n"
+                    f"   Final Commission: {commission}"
+                )
+
+                # ========== STEP 4: Update users (only if column exists) ==========
+                if eligible_users:
+                    try:
+                        placeholders = ",".join(["?"] * len(eligible_users))
+                        
+                        cursor.execute(f"""
+                            UPDATE users
+                            SET used_initial_balance = 1
+                            WHERE user_id IN ({placeholders})
+                        """, eligible_users)
+
+                        logger.info(f"✅ Updated {len(eligible_users)} users: used_initial_balance = 1")
+
+                    except Exception:
+                        logger.warning("⚠️ Skipping update: 'used_initial_balance' column missing")
+
+                return commission
+
+        except Exception as e:
+            logger.error(f"❌ Error calculating commission: {e}", exc_info=True)
+            return 0.0
     async def _fast_verify_bingo_with_pattern(self, user_card, called_numbers):
         """
         ULTRA-FAST bingo verification using bitmask operations
