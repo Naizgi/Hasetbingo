@@ -4924,7 +4924,7 @@
         resetCardsForNewRound();
 
         setTimeout(() => {
-        //   syncWithServer();
+          //   syncWithServer();
           fetchActiveGame().then((gameData) => {
             if (gameData && gameData.success) {
               console.log("New game data loaded:", gameData);
@@ -4933,7 +4933,7 @@
                 gameData.round_number || gameState.currentRound + 1;
               gameState.countdown = gameData.countdown_remaining || 0;
               gameState.countdownTotal = gameData.countdown_remaining || 30;
-            //   updateCountdownDisplay(gameState.countdown);
+              //   updateCountdownDisplay(gameState.countdown);
               document.getElementById("current-round-number").textContent =
                 gameState.currentRound;
 
@@ -4974,7 +4974,7 @@
             data.round_number || gameState.currentRound + 1;
           gameState.countdown = data.countdown_seconds || 0;
           gameState.countdownTotal = data.countdown_seconds || 30;
-        //   updateCountdownDisplay(gameState.countdown);
+          //   updateCountdownDisplay(gameState.countdown);
           document.getElementById("current-round-number").textContent =
             gameState.currentRound;
           startServerCoordinatedCountdown();
@@ -5431,56 +5431,56 @@
             data.countdown_reset &&
             data.countdown_reset.reason === "insufficient_players"
           ) {
-            if (data.countdown_reset.new_countdown) {
-              gameState.countdown = data.countdown_reset.new_countdown;
-              gameState.countdownTotal = data.countdown_reset.new_countdown;
-              updateCountdownDisplay(gameState.countdown);
-              updateCountdownStatusText(gameState.countdown);
-            }
+            // if (data.countdown_reset.new_countdown) {
+            //   gameState.countdown = data.countdown_reset.new_countdown;
+            //   gameState.countdownTotal = data.countdown_reset.new_countdown;
+            //   updateCountdownDisplay(gameState.countdown);
+            //   updateCountdownStatusText(gameState.countdown);
+            // }
           }
 
           if (data.server_state) {
             const serverState = data.server_state;
 
-            if (serverState.countdown_remaining !== undefined) {
-              if (
-                Math.abs(
-                  serverState.countdown_remaining - gameState.countdown,
-                ) > 2
-              ) {
-                console.log(
-                  `Countdown synced: local=${gameState.countdown}, server=${serverState.countdown_remaining}`,
-                );
-                gameState.countdown = serverState.countdown_remaining;
-                updateCountdownDisplay(gameState.countdown);
-                updateCountdownStatusText(gameState.countdown);
-              }
+            // if (serverState.countdown_remaining !== undefined) {
+            //   if (
+            //     Math.abs(
+            //       serverState.countdown_remaining - gameState.countdown,
+            //     ) > 2
+            //   ) {
+            //     console.log(
+            //       `Countdown synced: local=${gameState.countdown}, server=${serverState.countdown_remaining}`,
+            //     );
+            //     gameState.countdown = serverState.countdown_remaining;
+            //     updateCountdownDisplay(gameState.countdown);
+            //     updateCountdownStatusText(gameState.countdown);
+            //   }
 
-              // ==================== CRITICAL FIX: Immediate transition when countdown hits 0 ====================
-              if (
-                serverState.countdown_remaining <= 0 &&
-                gameState.gamePhase === "card_purchase"
-              ) {
-                console.log(
-                  "🚀 Countdown reached 0 in sync response - IMMEDIATELY transitioning",
-                );
+            //   // ==================== CRITICAL FIX: Immediate transition when countdown hits 0 ====================
+            //   if (
+            //     serverState.countdown_remaining <= 0 &&
+            //     gameState.gamePhase === "card_purchase"
+            //   ) {
+            //     console.log(
+            //       "🚀 Countdown reached 0 in sync response - IMMEDIATELY transitioning",
+            //     );
 
-                if (gameState.countdownInterval) {
-                  clearInterval(gameState.countdownInterval);
-                  gameState.countdownInterval = null;
-                }
+            //     if (gameState.countdownInterval) {
+            //       clearInterval(gameState.countdownInterval);
+            //       gameState.countdownInterval = null;
+            //     }
 
-                const statusElement = document.getElementById(
-                  "countdown-status-text",
-                );
-                if (statusElement) {
-                  statusElement.textContent = "Game starting...";
-                }
+            //     const statusElement = document.getElementById(
+            //       "countdown-status-text",
+            //     );
+            //     if (statusElement) {
+            //       statusElement.textContent = "Game starting...";
+            //     }
 
-                // Immediately get game state
-                getCompleteGameState();
-              }
-            }
+            //     // Immediately get game state
+            //     getCompleteGameState();
+            //   }
+            // }
 
             if (
               serverState.game_phase &&
@@ -6422,12 +6422,12 @@
 
       // ==================== OTHER FUNCTIONS ====================
       function startSyncInterval() {
-        // if (gameState.syncInterval) {
-        //   clearInterval(gameState.syncInterval);
-        // }
-        // gameState.syncInterval = setInterval(() => {
-        // syncWithServer();
-        // }, 3000);
+        if (gameState.syncInterval) {
+          clearInterval(gameState.syncInterval);
+        }
+        gameState.syncInterval = setInterval(() => {
+          syncWithServer();
+        }, 2000);
       }
 
       function showCountdownResetNotification(resetData) {
