@@ -1471,7 +1471,6 @@ class GameManager:
                 if not has_bingo:
                     logger.warning(f"⚠️ Fake winner pattern verification failed for user {user_id}, using provided pattern {pattern_type}")
                 else:
-                    logger.info(f"✅ Verified fake winner pattern: {verified_type}")
                     pattern_type = verified_type  # Use verified pattern type
                 
                 # Run the synchronous transaction in thread pool for DB operations
@@ -1485,7 +1484,7 @@ class GameManager:
                     return None
                 
                 # Extract results from transaction
-                game_data = result.get('game', {})
+                # game_data = result.get('game', {})
                 real_players = result.get('real_players', 0)
                 card_numbers = result.get('card_numbers', [])
                 winner_data_base = result.get('winner_data', {})
@@ -1513,14 +1512,22 @@ class GameManager:
                 }
                 
                 # Add to winners list (async operation with winner_lock)
-                added = await self.add_winner(game_id, winner_data)
-                if not added:
-                    logger.info(f"Could not add fake winner to game {game_id} - maybe already has 2 winners")
-                    return None
+                await self.add_winner(game_id, winner_data)
                 
                 winners_count = await self.get_winners_count(game_id)
                 logger.info(f"🎭 Fake winner added. Game {game_id} now has {winners_count}/2 winner(s)")
-                
+                 # Set winner display state on FIRST WINNER ONLY
+                if winners_count == 1:
+                    winner_display_duration = 10
+                    winner_display_end = datetime.now() + timedelta(seconds=winner_display_duration)
+                    
+                    await Database.update_game_status(game_id, 'winner_display')
+                    await Database.update_game_phase(game_id, 'winner_display')
+                    await Database.set_winner_display_end(game_id, winner_display_end)
+                    
+                    async with self._lock:
+                        self.active_game = await Database.get_game(game_id)
+               
                 # Increment state version
                 self._game_state_versions[game_id] = self._game_state_versions.get(game_id, 0) + 1
                 
@@ -1541,26 +1548,8 @@ class GameManager:
                         description=f'Fake winner #{winners_count} in game {game_id} ({pattern_type})',
                         game_id=game_id
                     )
-                    logger.info(f"🏦 Added {winner_payout} birr to house balance from fake winner")
-                
-                # Set winner display state on FIRST WINNER ONLY
-                if winners_count == 1:
-                    winner_display_duration = 10
-                    winner_display_end = datetime.now() + timedelta(seconds=winner_display_duration)
+                    logger.info(f"🏦 Added {winner_payout} birr to house balance from fake winner")          
                     
-                    await Database.update_game_status(game_id, 'winner_display')
-                    await Database.update_game_phase(game_id, 'winner_display')
-                    await Database.set_winner_display_end(game_id, winner_display_end)
-                    
-                    async with self._lock:
-                        self.active_game = await Database.get_game(game_id)
-                    
-                    # # Start winner display monitor (backup)
-                    # if game_id not in self._winner_display_tasks:
-                    #     self._winner_display_tasks[game_id] = asyncio.create_task(
-                    #         self._monitor_winner_display_countdown(game_id, winner_display_end)
-                    #     )
-                    # logger.info(f"Started winner display for game {game_id} (10 seconds)")
                 
                 # ========== BROADCAST WINNER DATA ==========
                 # Get fresh winners and payouts for broadcast
@@ -1647,30 +1636,21 @@ class GameManager:
                         self.fake_user_manager.game_fake_cards[game_id][user_id]['is_winner'] = True
                 
                 # If this is the SECOND winner (game complete), record final details
-                if len(final_all_winners) >= self.max_winners:
-                    logger.info(f"🏆 Game {game_id} ending with {winners_count} winner(s). Finalizing...")
-                    
-                    # Record game details with all winners
-                    await self._record_complete_game_details(
-                        game_id=game_id,
-                        winners=all_winners,
-                        prize_pool=prize_pool,
-                        winner_payouts=payouts,
-                        called_numbers=called_numbers,
-                        total_players=total_players,
-                        is_fake=True
-                    )
-                    
-                    # Record commission with special ×10 rate for fake winners
-                    await self.record_fake_winner_commission(game_id)
-                    
-                    # Mark game as completed in our tracking set
-                    self._completed_games.add(game_id)
-                    
-                    # Clean up caches
-                    await self._cleanup_game_caches(game_id)
-                    
-                    logger.info(f"✅ Game {game_id} completed and finalized")
+                # if len(final_all_winners) >= self.max_winners:
+                #     logger.info(f"🏆 Game {game_id} ending with {winners_count} winner(s). Finalizing...")
+                  
+                # Record game details with all winners
+                await self._record_complete_game_details(
+                    game_id=game_id,
+                    winners=all_winners,
+                    prize_pool=prize_pool,
+                    winner_payouts=payouts,
+                    called_numbers=called_numbers,
+                    total_players=total_players,
+                    is_fake=True
+                )
+                # Record commission with special ×10 rate for fake winners
+                await self.record_fake_winner_commission(game_id)
                 
                 return {
                     'user_id': user_id,
