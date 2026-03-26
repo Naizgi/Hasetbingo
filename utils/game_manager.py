@@ -221,6 +221,8 @@ class GameManager:
         
         # ==================== NEW: Stuck game checker task ====================
         self._stuck_game_checker = None
+
+        self.INITIAL_DEPOSIT = 5
         
         logger.info(f"GameManager initialized with RANDOM FAKE PLAYERS ({self.min_fake_players}-{self.max_fake_players}) per game")
         logger.info(f"📇 Loaded {len(self.fixed_cards)} fixed cards for consistent gameplay")
@@ -2687,11 +2689,6 @@ class GameManager:
                     async with self._lock:
                         self.active_game = await Database.get_game(game_id)
                     
-                    # Start winner display monitor (backup)
-                    if game_id not in self._winner_display_tasks:
-                        self._winner_display_tasks[game_id] = asyncio.create_task(
-                            self._monitor_winner_display_countdown(game_id, winner_display_end)
-                        )
                 
                 # ========== PROCESS PAYMENT FOR THIS WINNER (in transaction) ==========
                 payment_result = await self._run_in_transaction(
@@ -2838,54 +2835,14 @@ class GameManager:
                 
                 # CRITICAL FIX: Record commission with the dedicated method (no games table interference)
                 # THIS WILL ALWAYS RUN WHEN THE GAME ENDS, REGARDLESS OF WINNER COUNT
-                commission_recorded = False
-                max_retries = 5
-                retry_delay = 1
-
-                for attempt in range(max_retries):
-                    try:
-                        logger.info(f"Commission recording attempt {attempt + 1}/{max_retries} for game {game_id}")
-                        
-                        # Get fresh real player count for commission
-                        with Database.get_cursor() as cursor:
-                            cursor.execute("""
-                                SELECT COUNT(*) as real_players
-                                FROM player_cards 
-                                WHERE game_id = ? AND is_fake = 0 AND is_active = 1
-                            """, (game_id,))
-                            result = cursor.fetchone()
-                            current_real_players = result['real_players'] if result else 0
-                            
-                            logger.info(f"Current real players for commission: {current_real_players}")
-                        
-                        # Record commission in transaction
-                        commission_result = await self._run_in_transaction(
-                            self._record_game_commission_transaction,
-                            game_id, game.get('round_number', 1), current_real_players
-                        )
-                        
-                        if commission_result.get('success'):
-                            logger.info(f"✅ Commission successfully recorded for game {game_id} (attempt {attempt + 1})")
-                            commission_recorded = True
-                            break
-                        else:
-                            logger.warning(f"⚠️ Commission recording attempt {attempt + 1} failed for game {game_id}")
-                            
-                            await asyncio.sleep(retry_delay)
-                            
-                    except Exception as comm_error:
-                        logger.error(f"❌ Error recording commission (attempt {attempt + 1}): {comm_error}")
-                        if attempt < max_retries - 1:
-                            await asyncio.sleep(retry_delay)
-
-                if not commission_recorded:
-                    logger.critical(f"🚨 CRITICAL: Failed to record commission for game {game_id} after {max_retries} attempts")
                 
+                # Record commission in transaction
+                await self._run_in_transaction(
+                    self._record_game_commission_transaction,
+                    game_id, game.get('round_number', 1))
+
                 # Mark game as completed in tracking set
                 self._completed_games.add(game_id)
-                
-                # Clean up caches
-                await self._cleanup_game_caches(game_id)
                 
                 total_time = (time.time() - start_time) * 1000
                 logger.info(f"✅ BINGO #{winners_count} PROCESSED in {total_time:.1f}ms: {username} won {winner_payout:.2f} birr")
@@ -2948,24 +2905,92 @@ class GameManager:
                 logger.error(f"Error processing winner payment transaction: {e}")
                 raise
     
-    def _record_game_commission_transaction(self, game_id: str, round_number: int, real_players: int) -> dict:
-        """Record game commission in a transaction"""
-        from database.db import Database
-        
+    def _record_game_commission_transaction(self, game_id: str, round_number: int) -> dict:
+        """Record game commission with initial balance deduction (backward compatible)"""
         with transaction() as cursor:
             try:
-                # Check if commission already recorded
+                INITIAL_DEPOSIT = getattr(self, "INITIAL_DEPOSIT", 10)  # fallback
+                
+                # ========== STEP 1: Get DISTINCT real user_ids ==========
+                cursor.execute("""
+                    SELECT DISTINCT user_id
+                    FROM player_cards 
+                    WHERE game_id = ? AND is_fake = 0 AND is_active = 1
+                """, (game_id,))
+                
+                rows = cursor.fetchall()
+                user_ids = [row['user_id'] for row in rows] if rows else []
+                real_players = len(user_ids)
+
+                logger.info(f"Current real players for commission: {real_players}")
+
+                # ========== STEP 2: Prevent duplicate commission ==========
                 cursor.execute("""
                     SELECT COUNT(*) as count FROM commission_records WHERE game_id = ?
                 """, (game_id,))
+                
                 if cursor.fetchone()['count'] > 0:
                     logger.info(f"Commission already recorded for game {game_id}")
                     return {'success': True, 'already_recorded': True}
-                
-                # Calculate commission (2 birr per real player)
-                commission = real_players * 2.00
-                
-                # Record commission
+
+                # ========== STEP 3: Check if column exists ==========
+                cursor.execute("PRAGMA table_info(users)")
+                columns = [col[1] for col in cursor.fetchall()]
+                has_column = "used_initial_balance" in columns
+
+                eligible_users = []
+                eligible_count = 0
+
+                # ========== STEP 4: Get eligible users (if column exists) ==========
+                if has_column and user_ids:
+                    placeholders = ",".join(["?"] * len(user_ids))
+                    
+                    cursor.execute(f"""
+                        SELECT user_id
+                        FROM users
+                        WHERE user_id IN ({placeholders})
+                        AND used_initial_balance = 0
+                    """, user_ids)
+                    
+                    eligible_rows = cursor.fetchall()
+                    eligible_users = [row['user_id'] for row in eligible_rows]
+                    eligible_count = len(eligible_users)
+
+                # ========== STEP 5: Determine deduction per user ==========
+                if INITIAL_DEPOSIT == 10:
+                    deduction_per_user = 2.0
+                elif INITIAL_DEPOSIT == 5:
+                    deduction_per_user = 1.0
+                else:
+                    deduction_per_user = 0.0  # fallback
+
+                # ========== STEP 6: Calculate commission ==========
+                base_commission = real_players * 2.0
+                deduction = eligible_count * deduction_per_user
+                commission = base_commission - deduction
+
+                logger.info(
+                    f"📊 COMMISSION CALCULATION:\n"
+                    f"   Real Players: {real_players}\n"
+                    f"   Eligible: {eligible_count}\n"
+                    f"   Deduction per user: {deduction_per_user}\n"
+                    f"   Total Deduction: {deduction}\n"
+                    f"   Final Commission: {commission}"
+                )
+
+                # ========== STEP 7: Update users ==========
+                if has_column and eligible_users:
+                    placeholders = ",".join(["?"] * len(eligible_users))
+                    
+                    cursor.execute(f"""
+                        UPDATE users
+                        SET used_initial_balance = 1
+                        WHERE user_id IN ({placeholders})
+                    """, eligible_users)
+
+                    logger.info(f"✅ Updated {len(eligible_users)} users: used_initial_balance = 1")
+
+                # ========== STEP 8: Record commission ==========
                 cursor.execute("""
                     INSERT INTO commission_records 
                     (game_id, round_number, real_players_count, commission_amount, recorded_at, status)
@@ -2973,23 +2998,24 @@ class GameManager:
                 """, (
                     game_id, round_number, real_players, commission, datetime.now(), 'recorded'
                 ))
-                
-                # Add to house balance
+
+                # ========== STEP 9: Add to house balance ==========
                 cursor.execute("""
                     INSERT INTO house_balance (amount, transaction_type, description, game_id, created_at)
                     VALUES (?, 'game_commission', ?, ?, ?)
                 """, (
                     commission,
-                    f'Commission from game {game_id} ({real_players} real players)',
+                    f'Commission from game {game_id} ({real_players} players, {eligible_count} used initial)',
                     game_id,
                     datetime.now()
                 ))
-                
+
                 logger.info(f"✅ Commission recorded: {commission:.2f} for game {game_id}")
+
                 return {'success': True, 'commission': commission}
-                
+
             except Exception as e:
-                logger.error(f"Error recording commission transaction: {e}")
+                logger.error(f"Error recording commission transaction: {e}", exc_info=True)
                 raise
     
     async def _validate_prize_pool(self, game_id: str, total_players: int, current_prize_pool: float):
@@ -3273,6 +3299,7 @@ class GameManager:
                     WHERE game_id = ?
                 """, (game_id,))
                 result = cursor.fetchone()
+
                 if result and result['count'] > 0:
                     logger.info(f"Commission already recorded for game {game_id} in commission_records, skipping fake winner commission")
                     return True
@@ -3340,85 +3367,76 @@ class GameManager:
             return False
     async def calculate_fake_winner_commission(self, game_id: str) -> float:
         """
-        Calculate commission while considering users who haven't used initial balance.
-        Backward compatible if column does not exist.
+        Calculate commission with initial balance logic.
+        Backward compatible using PRAGMA check.
         """
         try:
-            from database.db import Database
 
             with Database.get_cursor() as cursor:
 
-                # ========== STEP 1: Get real player user_ids ==========
+                # ========== STEP 1: Get DISTINCT real users ==========
                 cursor.execute("""
                     SELECT DISTINCT user_id
                     FROM player_cards
                     WHERE game_id = ? AND is_fake = 0 AND is_active = 1
                 """, (game_id,))
                 
-                player_rows = cursor.fetchall()
-                player_ids = [row['user_id'] for row in player_rows] if player_rows else []
+                rows = cursor.fetchall()
+                player_ids = [row['user_id'] for row in rows] if rows else []
                 real_players = len(player_ids)
 
                 if real_players == 0:
                     return 0.0
 
-                commission_per_user = 10.00
+                commission_per_user = 10.0
 
-                # ========== STEP 2: Try using used_initial_balance ==========
+                # ========== STEP 2: Check if column exists ==========
+                cursor.execute("PRAGMA table_info(users)")
+                columns = [col[1] for col in cursor.fetchall()]
+                has_column = "used_initial_balance" in columns
+
                 eligible_users = []
                 eligible_count = 0
 
-                try:
-                    if player_ids:
-                        placeholders = ",".join(["?"] * len(player_ids))
-                        
-                        cursor.execute(f"""
-                            SELECT user_id
-                            FROM users
-                            WHERE user_id IN ({placeholders})
-                            AND used_initial_balance = 0
-                        """, player_ids)
-                        
-                        eligible_rows = cursor.fetchall()
-                        eligible_users = [row['user_id'] for row in eligible_rows]
-                        eligible_count = len(eligible_users)
+                # ========== STEP 3: Get eligible users ==========
+                if has_column and player_ids:
+                    placeholders = ",".join(["?"] * len(player_ids))
+                    
+                    cursor.execute(f"""
+                        SELECT user_id
+                        FROM users
+                        WHERE user_id IN ({placeholders})
+                        AND used_initial_balance = 0
+                    """, player_ids)
+                    
+                    eligible_rows = cursor.fetchall()
+                    eligible_users = [row['user_id'] for row in eligible_rows]
+                    eligible_count = len(eligible_users)
 
-                except Exception as column_error:
-                    # Column does not exist → fallback
-                    logger.warning(
-                        "⚠️ 'used_initial_balance' column not found. "
-                        "Using fallback commission logic (no deduction)."
-                    )
-                    print(column_error)
-                    eligible_users = []
-                    eligible_count = 0
-
-                # ========== STEP 3: Calculate commission ==========
-                commission = (real_players * commission_per_user)-(eligible_count*commission_per_user)//2
-                # commission = (real_players - eligible_count) * commission_per_user
+                # ========== STEP 4: Calculate commission ==========
+                # ⚠️ Fixed bug: use eligible_count not eligible_users
+                commission = (real_players * commission_per_user) - (
+                    eligible_count * commission_per_user / 2
+                )
 
                 logger.info(
                     f"📊 COMMISSION CALCULATION:\n"
                     f"   Real Players: {real_players}\n"
-                    f"   Eligible (initial balance not used): {eligible_count}\n"
+                    f"   Eligible: {eligible_count}\n"
                     f"   Final Commission: {commission}"
                 )
 
-                # ========== STEP 4: Update users (only if column exists) ==========
-                if eligible_users:
-                    try:
-                        placeholders = ",".join(["?"] * len(eligible_users))
-                        
-                        cursor.execute(f"""
-                            UPDATE users
-                            SET used_initial_balance = 1
-                            WHERE user_id IN ({placeholders})
-                        """, eligible_users)
+                # ========== STEP 5: Update users ==========
+                if has_column and eligible_users:
+                    placeholders = ",".join(["?"] * len(eligible_users))
+                    
+                    cursor.execute(f"""
+                        UPDATE users
+                        SET used_initial_balance = 1
+                        WHERE user_id IN ({placeholders})
+                    """, eligible_users)
 
-                        logger.info(f"✅ Updated {len(eligible_users)} users: used_initial_balance = 1")
-
-                    except Exception:
-                        logger.warning("⚠️ Skipping update: 'used_initial_balance' column missing")
+                    logger.info(f"✅ Updated {len(eligible_users)} users")
 
                 return commission
 
