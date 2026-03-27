@@ -2573,8 +2573,6 @@ class GameManager:
         """Process bingo winner - UPDATED: Two winner support with 50-50 split and TRUE claims"""
         async with self._verification_lock:
             try:
-                from database.db import Database
-                from web_server import websocket_server
                 from utils.number_caller import number_caller
                 
                 logger.info(f"🚀 BINGO VERIFICATION STARTING for user {user_id} in game {game_id}")
@@ -2922,7 +2920,7 @@ class GameManager:
                 rows = rows if rows else []
                 user_ids = [row['user_id'] for row in rows if row['is_fake'] == 0]
                 real_players = len(user_ids)
-                fake_players = len(rows) - len(real_players)
+                fake_players = len(rows) - real_players
 
                 logger.info(f"Current real players for commission: {real_players}")
 
@@ -3274,7 +3272,6 @@ class GameManager:
                 
                 logger.info(f"✅ COMMISSION RECORDED IN DEDICATED TABLE: Game {game_id}, Real Active Players: {real_players}, "
                            f"Commission: {commission:.2f} (20% of {real_players * 10} sales)")
-                
                 return True
                 
         except Exception as e:

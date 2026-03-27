@@ -5423,10 +5423,7 @@ async def force_verify_bingo(request):
                 winner_data['card_numbers'] = card_numbers
                 winner_data['winning_pattern'] = winning_pattern
                 winner_data['pattern_type'] = pattern_type
-                
-                # Broadcast winner display
-                await websocket_server.broadcast_winner_display(game_id, winner_data)
-                
+                                
                 return web.json_response({
                     'success': True,
                     'message': 'BINGO verified and winner processed!',
