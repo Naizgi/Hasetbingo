@@ -1851,7 +1851,8 @@ class Database:
                         SUM(real_players_count),
                         SUM(commission_amount),
                         SUM(g.total_cards_sold),
-                        SUM(g.total_cards_sold * g.card_price)
+                        SUM(g.total_cards_sold * g.card_price),
+                        SUM(payable_amount)
                     FROM commission_records cr
                     LEFT JOIN games g ON cr.game_id = g.game_id
                     GROUP BY date(recorded_at)
@@ -1865,7 +1866,8 @@ class Database:
                     'real_players': row[2] or 0,
                     'total_commission': float(row[3] or 0),
                     'total_cards_sold': row[4] or 0,
-                    'total_sales': float(row[5] or 0)
+                    'total_sales': float(row[5] or 0),
+                    'total_payable':float(row[6] or 0)
                 } for row in cursor.fetchall()]
 
                 # ================== MONTHLY ==================
@@ -1876,7 +1878,8 @@ class Database:
                         SUM(real_players_count),
                         SUM(commission_amount),
                         SUM(g.total_cards_sold),
-                        SUM(g.total_cards_sold * g.card_price)
+                        SUM(g.total_cards_sold * g.card_price),
+                        SUM(payable_amount)
                     FROM commission_records cr
                     LEFT JOIN games g ON cr.game_id = g.game_id
                     GROUP BY strftime('%Y-%m', recorded_at)
@@ -1890,7 +1893,8 @@ class Database:
                     'real_players': row[2] or 0,
                     'total_commission': float(row[3] or 0),
                     'total_cards_sold': row[4] or 0,
-                    'total_sales': float(row[5] or 0)
+                    'total_sales': float(row[5] or 0),
+                    'total_payable':float(row[6] or 0)
                 } for row in cursor.fetchall()]
 
                 # ================== COUNT ==================

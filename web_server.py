@@ -2343,7 +2343,7 @@ async def admin_game_details(request):
                 game_data = dict(row)
                 # Convert Decimal to float
                 game_data['total_sales'] = float(game_data['total_sales'] or 0)
-                game_data['commission'] = float(game_data['actual_commission'] or game_data['commission'] or 0)
+                game_data['commission'] = float(game_data.get('actual_commission') or game_data.get('commission') or 0)
                 game_data['prize_pool_calculated'] = float(game_data['prize_pool_calculated'] or 0)
                 game_data['card_price'] = float(game_data['card_price'] or 10)
                 game_data['prize_pool'] = float(game_data['prize_pool'] or 0)
@@ -2351,10 +2351,9 @@ async def admin_game_details(request):
                 
                 # Get called numbers
                 cursor.execute("""
-                    SELECT number 
-                    FROM called_numbers 
+                    SELECT called_numbers 
+                    FROM games 
                     WHERE game_id = ?
-                    ORDER BY called_at
                 """, (game_id,))
                 called_numbers = [row[0] for row in cursor.fetchall()]
                 game_data['called_numbers'] = called_numbers

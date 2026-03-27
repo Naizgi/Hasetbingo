@@ -3082,9 +3082,7 @@ class GameManager:
         commission is handled separately in record_game_commission()
         CRITICAL FIX: Only records to DB if at least one real player participated.
         """
-        try:
-            from database.db import Database
-            
+        try:            
             # ========== STEP 1: REAL PLAYER CHECK (The "Firewall") ==========
             # We check if there's at least one active, non-fake card in the game
             def check_real():
@@ -3097,7 +3095,7 @@ class GameManager:
                     res = cursor.fetchone()
                     return res['count'] if res else 0
 
-            real_card_count = self._executor.submit(check_real)
+            real_card_count = await asyncio.to_thread(check_real)
             
             if real_card_count == 0:
                 logger.info(f"📉 Bot-only game {game_id} - skipping detail recording to keep DB clean.")
