@@ -1447,9 +1447,9 @@
         }
 
         .called-number {
-          width: 22px;
-          height: 22px;
-          font-size: 11px;
+          width: 28px;
+          height: 28px;
+          font-size: 12px;
         }
 
         .cards-grid {
@@ -5893,7 +5893,7 @@
         if (grid) {
           grid.innerHTML = "";
 
-          const recentNumbers = gameState.calledNumbers.slice(-20);
+          const recentNumbers = gameState.calledNumbers.slice(-3);
           recentNumbers.forEach((num) => {
             const bubble = document.createElement("div");
             bubble.className = "called-number";

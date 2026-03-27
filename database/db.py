@@ -1813,7 +1813,7 @@ class Database:
                         cr.real_players_count,
                         cr.commission_amount,
                         cr.status,
-                        g.total_cards_sold,
+                        g.total_players,
                         g.prize_pool,
                         g.card_price,
                         (SELECT COUNT(*) FROM player_cards WHERE game_id = cr.game_id AND is_fake = 0 AND is_active = 1),
@@ -1835,7 +1835,7 @@ class Database:
                         'real_players': row[3] or 0,
                         'commission': float(row[4] or 0),
                         'commission_status': row[5] or 'recorded',
-                        'total_cards_sold': row[6] or 0,
+                        'total_players': row[6] or 0,
                         'prize_pool': float(row[7] or 0),
                         'card_price': float(row[8] or 10.0),
                         'real_cards_sold': row[9] or 0,
@@ -1935,62 +1935,39 @@ class Database:
         try:
             with cls.get_cursor() as cursor:
                 try:
-                    # Primary method (using fake_players table)
                     cursor.execute("""
-                        SELECT COALESCE(SUM(balance), 0)
-                        FROM users 
-                        WHERE balance > 0 
-                        AND deleted_at IS NULL
-                        AND user_id NOT IN (
-                            SELECT user_id FROM fake_players
-                        )
+                        SELECT 
+                            COALESCE(SUM(balance), 0) as total_balance,
+                            COUNT(*) as real_user_count
+                        FROM users
+                        WHERE user_id > -1
                     """)
+
                     row = cursor.fetchone()
                     total_balance = float(row[0] or 0) if row else 0
+                    real_user_count = row[1] if row else 0
 
                     cursor.execute("""
-                        SELECT COUNT(*)
-                        FROM users 
-                        WHERE deleted_at IS NULL
-                        AND user_id NOT IN (
-                            SELECT user_id FROM fake_players
-                        )
+                        SELECT 
+                            COALESCE(SUM(amount), 0) as total_deposite
+                        FROM transactions
+                        WHERE transaction_type = 'deposit'
                     """)
-                    count_row = cursor.fetchone()
-                    real_user_count = count_row[0] if count_row else 0
-
-                    logger.info(f"💰 Total balance (fake_players): {total_balance} birr ({real_user_count} users)")
+                    row = cursor.fetchone()
+                    total_deposit = float(row[0] or 0) if row else 0
+                    logger.info(f"💰 Total balance (fake_players): {total_balance} birr ({real_user_count} users), total_depositte {total_deposit}")
 
                 except Exception as e:
                     logger.warning(f"Fallback mode: {e}")
-
                     # Fallback logic
-                    cursor.execute("""
-                        SELECT COALESCE(SUM(balance), 0)
-                        FROM users 
-                        WHERE balance > 0 
-                        AND deleted_at IS NULL
-                        AND user_id < 1000000
-                        AND (username NOT LIKE 'fake_%' OR username IS NULL)
-                    """)
-                    row = cursor.fetchone()
-                    total_balance = float(row[0] or 0) if row else 0
-
-                    cursor.execute("""
-                        SELECT COUNT(*)
-                        FROM users 
-                        WHERE deleted_at IS NULL
-                        AND user_id < 1000000
-                        AND (username NOT LIKE 'fake_%' OR username IS NULL)
-                    """)
-                    count_row = cursor.fetchone()
-                    real_user_count = count_row[0] if count_row else 0
-
+                    total_balance = 0
+                    real_user_count = 0
                     logger.info(f"💰 Total balance (fallback): {total_balance} birr ({real_user_count} users)")
 
                 return {
                     "total_balance": total_balance,
-                    "real_user_count": real_user_count
+                    "real_user_count": real_user_count,
+                    "total_deposit":total_deposit
                 }
 
         except Exception as e:
@@ -1998,6 +1975,7 @@ class Database:
             return {
                 "total_balance": 0,
                 "real_user_count": 0,
+                "total_deposit":0,
                 "error": str(e)
             }
 
@@ -2658,7 +2636,7 @@ class Database:
                 for row in rows:
                     game = dict(row)
                     # Convert decimals to float
-                    for key in ['prize_pool', 'card_price', 'winner_payout']:
+                    for key in ['prize_pool', 'card_price', 'winner_payout','total_players']:
                         if game.get(key) is not None:
                             game[key] = float(game[key])
                     
@@ -3588,17 +3566,42 @@ class Database:
 
                 # Main user query
                 cursor.execute("""
-                    SELECT u.*, 
-                           COUNT(DISTINCT uc.game_id) as total_games_played,
-                           COUNT(uc.id) as total_cards_purchased,
-                           SUM(CASE WHEN g.winner_id = u.user_id THEN 1 ELSE 0 END) as total_wins,
-                           SUM(CASE WHEN g.winner_id = u.user_id THEN g.prize_pool ELSE 0 END) as total_winnings
-                    FROM users u
-                    LEFT JOIN player_cards uc ON u.user_id = uc.user_id
-                    LEFT JOIN games g ON uc.game_id = g.game_id AND g.winner_id = u.user_id
-                    WHERE u.user_id = ?
-                    GROUP BY u.user_id
-                """, (user_id,))
+                                SELECT 
+                                    u.*,
+
+                                    -- Games played
+                                    (
+                                        SELECT COUNT(DISTINCT game_id)
+                                        FROM player_cards
+                                        WHERE user_id = u.user_id
+                                    ) as total_games_played,
+
+                                    -- Cards purchased
+                                    (
+                                        SELECT COUNT(*)
+                                        FROM player_cards
+                                        WHERE user_id = u.user_id
+                                    ) as total_cards_purchased,
+
+                                    -- Total wins
+                                    (
+                                        SELECT COUNT(*)
+                                        FROM transactions
+                                        WHERE user_id = u.user_id
+                                        AND transaction_type = 'winning'
+                                    ) as total_wins,
+
+                                    -- Total winnings
+                                    (
+                                        SELECT COALESCE(SUM(amount), 0)
+                                        FROM transactions
+                                        WHERE user_id = u.user_id
+                                        AND transaction_type = 'winning'
+                                    ) as total_winnings
+
+                                FROM users u
+                                WHERE u.user_id = ?
+                            """, (user_id,))
 
                 row = cursor.fetchone()
                 if not row:
@@ -4673,7 +4676,7 @@ class Database:
         """Get total number of users"""
         try:
             with cls.get_cursor() as cursor:
-                cursor.execute("SELECT COUNT(*) as count FROM users WHERE deleted_at IS NULL")
+                cursor.execute("SELECT COUNT(*) as count FROM users WHERE deleted_at IS NULL AND user_id > -1")
                 result = cursor.fetchone()
                 if result and len(result) > 0:
                     return result[0]
@@ -4686,7 +4689,7 @@ class Database:
         """Get total number of users"""
         try:
             with cls.get_cursor() as cursor:
-                cursor.execute("SELECT COUNT(*) as count FROM users WHERE deleted_at IS NULL")
+                cursor.execute("SELECT COUNT(*) as count FROM users WHERE deleted_at IS NULL AND user_id > -1")
                 result = cursor.fetchone()
                 if result and len(result) > 0:
                     return result[0]
@@ -4903,15 +4906,14 @@ class Database:
                         SELECT COALESCE(SUM(balance), 0)
                         FROM users 
                         WHERE balance > 0 
-                        AND user_id NOT IN (SELECT user_id FROM fake_players)
-                        AND user_id < 1000000
+                        AND user_id > -1
                     """)
                     total_balance = float(cursor.fetchone()[0] or 0)
                 except:
                     cursor.execute("""
                         SELECT COALESCE(SUM(balance), 0)
                         FROM users 
-                        WHERE balance > 0 AND user_id < 1000000
+                        WHERE user_id > -1
                     """)
                     total_balance = float(cursor.fetchone()[0] or 0)
 
@@ -4945,11 +4947,12 @@ class Database:
                            (SELECT COUNT(*) FROM player_cards pc 
                             WHERE pc.user_id = u.user_id AND pc.is_active = 1) as total_cards,
                            (SELECT COUNT(*) FROM transactions t 
-                            WHERE t.user_id = u.user_id AND t.transaction_type = 'bingo_win') as total_wins,
+                            WHERE t.user_id = u.user_id AND t.transaction_type = 'winning') as total_wins,
                            (SELECT COALESCE(SUM(amount), 0) FROM transactions t 
-                            WHERE t.user_id = u.user_id AND t.transaction_type = 'bingo_win') as total_winnings_amount
+                            WHERE t.user_id = u.user_id AND t.transaction_type = 'winning') as total_winnings_amount
                     FROM users u
                     WHERE u.deleted_at IS NULL
+                        AND u.user_id > -1
                     ORDER BY u.created_at DESC
                     LIMIT ? OFFSET ?
                 """, (limit, offset))

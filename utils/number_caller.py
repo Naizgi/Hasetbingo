@@ -37,7 +37,7 @@ class NumberCaller:
                 return False
             
             # Reset called numbers for this game (if restarting)
-            self.called_numbers[game_id] = set(await Database.get_drawn_numbers(game_id))
+            self.called_numbers[game_id] = await Database.get_drawn_numbers(game_id)
             logger.info(f"Loaded {len(self.called_numbers[game_id])} existing numbers for game {game_id}")
             
             # Check if already calling
@@ -119,9 +119,9 @@ class NumberCaller:
             
             # Initialize called numbers set for this game
             if game_id not in self.called_numbers:
-                self.called_numbers[game_id] = set(await Database.get_drawn_numbers(game_id))
+                self.called_numbers[game_id] = await Database.get_drawn_numbers(game_id)
             
-            called_set = self.called_numbers[game_id]
+            called_stack = self.called_numbers[game_id]
             
             while True:
                 try:
@@ -153,7 +153,7 @@ class NumberCaller:
                         break
                     
                     # Check if all numbers have been called
-                    if len(called_set) >= 75:
+                    if len(called_stack) >= 75:
                         logger.info(f"All 75 numbers have been called for game {game_id}")
                         
                         # Check if there's a winner
@@ -185,7 +185,7 @@ class NumberCaller:
                     
                     # Generate new number (1-75)
                     all_numbers = list(range(1, 76))
-                    available_numbers = [n for n in all_numbers if n not in called_set]
+                    available_numbers = [n for n in all_numbers if n not in called_stack]
                     
                     if not available_numbers:
                         logger.info(f"No available numbers for game {game_id}")
@@ -206,8 +206,8 @@ class NumberCaller:
                         continue
                     
                     # Add to called set
-                    called_set.add(next_number)
-                    self.called_numbers[game_id] = called_set
+                    called_stack.append(next_number)
+                    self.called_numbers[game_id] = called_stack
                     
                     # Get bingo letter
                     bingo_letter = self._get_bingo_letter(next_number)
@@ -218,7 +218,7 @@ class NumberCaller:
                         'game_id': game_id,
                         'number': next_number,
                         'letter': bingo_letter,
-                        'called_numbers': list(called_set),
+                        'called_numbers': called_stack,
                         # 'fake_winners': fake_winners,
                         'timestamp': datetime.now().isoformat()
                     })
@@ -420,7 +420,7 @@ class NumberCaller:
     async def reset_called_numbers_for_game(self, game_id: str):
         """Reset called numbers for a game (when game restarts)"""
         if game_id in self.called_numbers:
-            self.called_numbers[game_id] = set()
+            self.called_numbers[game_id] = []
             logger.info(f"Reset called numbers for game {game_id}")
     
     async def cleanup(self):

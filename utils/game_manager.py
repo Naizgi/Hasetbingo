@@ -2410,8 +2410,8 @@ class GameManager:
                     cursor.execute("""
                         INSERT INTO users (user_id, username, full_name, balance, created_at)
                         VALUES (?, ?, ?, ?, ?)
-                    """, (user_id, f"User_{user_id}", f"User {user_id}", 1000.00, datetime.now()))
-                    balance = 1000.00
+                    """, (user_id, f"User_{user_id}", f"User {user_id}", 0, datetime.now()))
+                    balance = 0
                 else:
                     balance = float(user_row['balance'])
 
@@ -2471,8 +2471,12 @@ class GameManager:
 
                 # Add to prize pool (8 birr)
                 cursor.execute("""
-                    UPDATE games SET prize_pool = COALESCE(prize_pool, 0) + 8.00 WHERE game_id = ?
-                """, (game_id,))
+                                UPDATE games 
+                                SET 
+                                    prize_pool = COALESCE(prize_pool, 0) + 8.00,
+                                    total_players = COALESCE(total_players, 0) + 1
+                                WHERE game_id = ?
+                            """, (game_id,))
 
                 return {
                     'success': True,
@@ -2537,7 +2541,10 @@ class GameManager:
                 
                 # FIXED: Replace GREATEST with MAX(0, prize_pool - ?) for SQLite compatibility
                 cursor.execute("""
-                    UPDATE games SET prize_pool = MAX(0, prize_pool - ?) WHERE game_id = ?
+                    UPDATE games SET 
+                               prize_pool = MAX(0, prize_pool - ?),
+                               total_players = COALESCE(total_players, 0) - 1
+                    WHERE game_id = ?
                 """, (prize_pool_deduction, game_id))
  
                 # Mark card as inactive

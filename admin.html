@@ -2371,8 +2371,8 @@
                 <div class="stat-value" id="total-balance">0.00 birr</div>
                 <div class="stat-label">Total Users Balance</div>
                 <div class="stat-change change-positive">
-                    <i class="fas fa-arrow-up"></i>
-                    <span id="balance-change">0%</span> this week
+                    <i class="fas fa-coins"></i>
+                    <span id="total-deposit">0.00 birr</span> total deposit
                 </div>
             </div>
         </div>
@@ -4489,8 +4489,12 @@
                 try {
                     const balanceRes = await fetch('/api/admin/totalbalance');
                     if (balanceRes.ok) {
-                        const balanceData = await balanceRes.json();
-                        document.getElementById('total-balance').textContent = formatCurrency(balanceData.total_balance || 0);
+                       const balanceData = await balanceRes.json();
+                            document.getElementById('total-balance').textContent =
+                                formatCurrency(balanceData.total_balance || 0);
+
+                            document.getElementById('total-deposit').textContent =
+                                formatCurrency(balanceData.total_deposit || 0);
                     }
                 } catch (e) {
                     console.warn('Could not load total balance:', e);
@@ -4615,7 +4619,7 @@
                                 <td><strong>${game.total_players || 0}</strong></td>
                                 <td><strong>${formatCurrency(game.prize_pool || 0)}</strong></td>
                                 <td>${game.started_at ? new Date(game.started_at).toLocaleString() : 'Not started'}</td>
-                                <td>${game.total_cards_sold || 0}</td>
+                                <td>${game.total_players || 0}</td>
                                 <td><strong style="color: var(--success-color);">${formatCurrency(game.commission || 0)}</strong></td>
                                 <td>${game.called_numbers ? game.called_numbers.length : 0} / 75</td>
                                 <td>${game.winner_id ? `User ${game.winner_id}` : 'No winner'}</td>
@@ -5087,8 +5091,8 @@
                                     <td>${game.round_number || 1}</td>
                                     <td>${game.game_date ? new Date(game.game_date).toLocaleDateString() : 'N/A'}</td>
                                     <td>${game.real_players || 0}</td>
-                                    <td>${(game.total_cards_sold - game.real_players) || 0}</td>
-                                    <td>${game.total_cards_sold || 0}</td>
+                                    <td>${(game.total_players - game.real_players) || 0}</td>
+                                    <td>${game.total_players || 0}</td>
                                     <td>${formatCurrency(game.total_sales || 0)}</td>
                                     <td><strong style="color: var(--success-color);">${formatCurrency(game.commission || 0)}</strong></td>
                                     <td><strong style="color: var(--danger-color);">${formatCurrency(game.payable_amount || 0)}</strong></td>
@@ -5110,7 +5114,7 @@
                                     <td>${day.date || 'N/A'}</td>
                                     <td>${day.games_count || 0}</td>
                                     <td>${day.real_players || 0}</td>
-                                    <td>${day.total_cards_sold || 0}</td>
+                                    <td>${day.total_players || 0}</td>
                                     <td>${formatCurrency(day.total_sales || 0)}</td>
                                     <td><strong style="color: var(--success-color);">${formatCurrency(day.commission || 0)}</strong></td>
                                 </tr>
@@ -5129,7 +5133,7 @@
                                     <td>${month.month || 'N/A'}</td>
                                     <td>${month.games_count || 0}</td>
                                     <td>${month.real_players || 0}</td>
-                                    <td>${month.total_cards_sold || 0}</td>
+                                    <td>${month.total_players || 0}</td>
                                     <td>${formatCurrency(month.total_sales || 0)}</td>
                                     <td><strong style="color: var(--success-color);">${formatCurrency(month.commission || 0)}</strong></td>
                                 </tr>
