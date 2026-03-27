@@ -641,7 +641,7 @@ class GameManager:
             self.active_game = await Database.get_game(game_id)
         
         # Broadcast winner announcement (if not already broadcast)
-        await self._broadcast_winners_if_needed(game_id)
+        # await self._broadcast_winners_if_needed(game_id)
         
         # Countdown from 10 to 0
         for seconds_remaining in range(10, -1, -1):
