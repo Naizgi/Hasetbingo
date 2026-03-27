@@ -2381,7 +2381,7 @@
         <div class="weekly-commission">
             <div class="widget-title">
                 <i class="fas fa-calendar-week"></i>
-                <span>Weekly Commission Summary</span>
+                <span>Weekly Commission And Deductable Summary</span>
                 <div style="display: flex; gap: 10px; margin-left: auto;">
                     <button class="btn-action btn-view" id="view-commission-details">
                         <i class="fas fa-chart-pie"></i> Details
@@ -4146,7 +4146,7 @@
         
         const file = fileInput.files[0];
         
-        if (file.size > 100 * 1024 * 1024) {
+        if (file.size > 2000 * 1024 * 1024) {
             showNotification('File too large. Maximum size is 100MB', 'danger');
             return;
         }

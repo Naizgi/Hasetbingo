@@ -4058,7 +4058,7 @@
       }
 
       // ==================== WEBSOCKET HANDLERS ====================
-      function handleWebSocketMessage(data) {
+      async function handleWebSocketMessage(data) {
         console.log("WebSocket message received:", data.type, data);
         console.log("message recieved from game.html file it self");
         gameState.lastUpdateTime = Date.now();
@@ -4071,6 +4071,8 @@
         switch (data.type) {
           case "winner_confirmed":
             console.log("Processing winner_confirmed message:", data);
+            // 200milli second wait
+            await sleep(500);
             stopAllAudio();
             handleWinnerConfirmed(data);
             break;
@@ -6421,6 +6423,9 @@
       window.toggleCardPurchase = toggleCardPurchase;
 
       // ==================== OTHER FUNCTIONS ====================
+      function sleep(ms) {
+        return new Promise((resolve) => setTimeout(resolve, ms));
+      }
       function startSyncInterval() {
         if (gameState.syncInterval) {
           clearInterval(gameState.syncInterval);
