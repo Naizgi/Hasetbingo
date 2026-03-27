@@ -2624,16 +2624,19 @@ class Database:
         try:
             with cls.get_cursor() as cursor:
                 cursor.execute("""
-                    SELECT g.*, 
-                           u.username as winner_username,
-                           COUNT(DISTINCT pc.user_id) as unique_players
-                    FROM games g
-                    LEFT JOIN users u ON g.winner_id = u.user_id
-                    LEFT JOIN player_cards pc ON g.game_id = pc.game_id AND pc.is_active = 1
-                    GROUP BY g.game_id
-                    ORDER BY g.created_at DESC
-                    LIMIT ? OFFSET ?
-                """, (limit, offset))
+                        SELECT 
+                            g.*,
+                            COALESCE(c.commission_amount, 0) as commission,
+                            u.username as winner_username,
+                            COUNT(DISTINCT pc.user_id) as unique_players
+                        FROM games g
+                        LEFT JOIN commission_records c ON g.game_id = c.game_id
+                        LEFT JOIN users u ON g.winner_id = u.user_id
+                        LEFT JOIN player_cards pc ON g.game_id = pc.game_id AND pc.is_active = 1
+                        GROUP BY g.game_id
+                        ORDER BY g.created_at DESC
+                        LIMIT ? OFFSET ?
+                    """, (limit, offset))
                 rows = cursor.fetchall()
                 
                 games = []
