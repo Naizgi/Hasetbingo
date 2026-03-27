@@ -4060,7 +4060,6 @@
       // ==================== WEBSOCKET HANDLERS ====================
       async function handleWebSocketMessage(data) {
         console.log("WebSocket message received:", data.type, data);
-        console.log("message recieved from game.html file it self");
         gameState.lastUpdateTime = Date.now();
 
         if (data.game_id) {
@@ -4072,7 +4071,7 @@
           case "winner_confirmed":
             console.log("Processing winner_confirmed message:", data);
             // 200milli second wait
-            await sleep(1000);
+            await sleep(600);
             stopAllAudio();
             handleWinnerConfirmed(data);
             break;
