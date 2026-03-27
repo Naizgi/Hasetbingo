@@ -2969,9 +2969,10 @@ class GameManager:
                 deduction = eligible_count * deduction_per_user
                 commission = base_commission - deduction
                 #payable amount (lossing amount)
-                payable_amount = 0
+                payable_amount = fake_players * 8
                 if user_id in eligible_users:
-                    payable_amount = fake_players * 8 + (INITIAL_DEPOSIT-deduction_per_user)
+                    payable_amount += (INITIAL_DEPOSIT-deduction_per_user)
+
 
                 logger.info(
                     f"📊 COMMISSION CALCULATION:\n"
@@ -3090,7 +3091,7 @@ class GameManager:
                     res = cursor.fetchone()
                     return res['count'] if res else 0
 
-            real_card_count = await self._executor.submit(check_real)
+            real_card_count = self._executor.submit(check_real)
             
             if real_card_count == 0:
                 logger.info(f"📉 Bot-only game {game_id} - skipping detail recording to keep DB clean.")

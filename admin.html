@@ -2346,8 +2346,8 @@
                 </div>
                 <div class="stat-value" id="active-games">0</div>
                 <div class="stat-label">Active Games</div>
-                <div class="stat-change change-positive">
-                    <i class="fas fa-arrow-up"></i>
+                <div class="stat-change " style="color: var(--danger-color);">
+                    <i class="fas fa-arrow-down"></i>
                     <span id="game-change">0%</span> today
                 </div>
             </div>
@@ -3791,6 +3791,16 @@
         const num = parseFloat(amount);
         return isNaN(num) ? '0.00 birr' : num.toFixed(2) + ' birr';
     }
+    function setCommissionWithPayable(elementId, commission, payable) {
+        const el = document.getElementById(elementId);
+
+        el.innerHTML = `
+            <div>${formatCurrency(commission || 0)}</div>
+            <div style="color: var(--danger-color); font-size: 0.9em;">
+                ${formatCurrency(payable || 0)}
+            </div>
+        `;
+    }
 
     function formatTransactionType(type) {
         const types = {
@@ -4451,7 +4461,7 @@
             
             if (data && data.stats) {
                 document.getElementById('total-users').textContent = data.stats.total_users || 0;
-                document.getElementById('active-games').textContent = data.stats.active_games || 0;
+                
                 
                 try {
                     const depositsRes = await fetch('/api/admin/payments?status=pending&limit=1');
@@ -4503,11 +4513,12 @@
             const data = await response.json();
             
             if (data && data.success) {
-                document.getElementById('this-week-commission').textContent = formatCurrency(data.this_week_commission || 0);
-                document.getElementById('last-week-commission').textContent = formatCurrency(data.last_week_commission || 0);
-                document.getElementById('this-month-commission').textContent = formatCurrency(data.this_month_commission || 0);
-                document.getElementById('total-commission').textContent = formatCurrency(data.total_commission || 0);
-                
+                setCommissionWithPayable('this-week-commission', data.this_week_commission, data.this_week_payable);
+                setCommissionWithPayable('last-week-commission', data.last_week_commission, data.last_week_payable);
+                setCommissionWithPayable('this-month-commission', data.this_month_commission, data.this_month_payable);
+                setCommissionWithPayable('total-commission', data.total_commission, data.total_payable);
+
+                document.getElementById('active-games').textContent = data.total_payable || 0;
                 let weeklyData = data.weekly_data || [];
                 if (weeklyData.length > 0) {
                     let html = '';
@@ -4525,6 +4536,7 @@
                                 <td>${item.games_count || 0}</td>
                                 <td>${formatCurrency(item.total_sales || 0)}</td>
                                 <td><strong style="color: var(--success-color);">${formatCurrency(item.commission || 0)}</strong></td>
+                                <td><strong style="color: var(--danger-color);">${formatCurrency(item.payable_amount || 0)}</strong></td>
                             </tr>
                         `;
                     });
@@ -5075,6 +5087,7 @@
                                     <td>${game.total_cards_sold || 0}</td>
                                     <td>${formatCurrency(game.total_sales || 0)}</td>
                                     <td><strong style="color: var(--success-color);">${formatCurrency(game.commission || 0)}</strong></td>
+                                    <td><strong style="color: var(--danger-color);">${formatCurrency(game.payable_amount || 0)}</strong></td>
                                 </tr>
                             `;
                         });

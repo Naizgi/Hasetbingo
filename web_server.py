@@ -442,10 +442,7 @@ class ValidationWebSocketServer:
                             winner_data['card_numbers'] = card_numbers
                             winner_data['winning_pattern'] = winning_pattern
                             winner_data['pattern_type'] = pattern_type
-                            
-                            # Broadcast to all clients
-                            await self.broadcast_winner_display(game_id, winner_data)
-                            
+                                                        
                             logger.info(f"🎉 BINGO WINNER PROCESSED: User {user_id} won with pattern {pattern_type}")
                         else:
                             logger.error(f"❌ Failed to process winner for user {user_id}")
@@ -3686,7 +3683,7 @@ async def admin_download_database(request):
         import shutil
         import tempfile
         from aiohttp.web import FileResponse
-        from datetime import datetime
+        from datetime import datetime   
 
         db_path = Database._db_path
 
