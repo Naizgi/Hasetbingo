@@ -4072,7 +4072,7 @@
           case "winner_confirmed":
             console.log("Processing winner_confirmed message:", data);
             // 200milli second wait
-            await sleep(500);
+            await sleep(1000);
             stopAllAudio();
             handleWinnerConfirmed(data);
             break;
@@ -4677,6 +4677,10 @@
           getUserBalance();
         }
 
+        if (gameState.audioEnabled && gameState.audioInitialized) {
+          playWinnerSound();
+        }
+
         showWinnerAnnouncementScreen(gameState.winnerData);
       }
 
@@ -4824,10 +4828,6 @@
         startWinnerDisplayCountdown(winnerData.game_id, 10);
 
         announcement.style.display = "flex";
-
-        if (gameState.audioEnabled && gameState.audioInitialized) {
-          playWinnerSound();
-        }
       }
 
       // ==================== WINNER DISPLAY COUNTDOWN ====================
