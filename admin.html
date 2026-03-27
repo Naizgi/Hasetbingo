@@ -2342,13 +2342,13 @@
             
             <div class="stat-card warning">
                 <div class="stat-icon warning">
-                    <i class="fas fa-gamepad"></i>
+                    <i class="fas fa-arrow-trend-down"></i>
                 </div>
-                <div class="stat-value" id="active-games">0</div>
-                <div class="stat-label">Active Games</div>
+                <div class="stat-value" style="color: var(--danger-color);" id="active-games">0</div>
+                <div class="stat-label">Total Deductable</div>
                 <div class="stat-change " style="color: var(--danger-color);">
                     <i class="fas fa-arrow-down"></i>
-                    <span id="game-change">0%</span> today
+                    <!-- <span id="game-change">0%</span> -->
                 </div>
             </div>
             
@@ -2421,6 +2421,7 @@
                             <th>Games</th>
                             <th>Total Sales</th>
                             <th>Commission (20%)</th>
+                            <th>Deductable (loss)</th>
                         </tr>
                     </thead>
                     <tbody id="weekly-commission-body">
@@ -3408,9 +3409,11 @@
                                     <th>Round</th>
                                     <th>Date</th>
                                     <th>Real Players</th>
+                                    <th>Bot Players</th>
                                     <th>Cards Sold</th>
                                     <th>Total Sales</th>
                                     <th>Commission</th>
+                                    <th>Deductable</th>
                                 </tr>
                             </thead>
                             <tbody id="commission-games-body">
@@ -3796,7 +3799,7 @@
 
         el.innerHTML = `
             <div>${formatCurrency(commission || 0)}</div>
-            <div style="color: var(--danger-color); font-size: 0.9em;">
+            <div style="color: var(--danger-color); font-size: 1em;">
                 ${formatCurrency(payable || 0)}
             </div>
         `;
@@ -4517,7 +4520,7 @@
                 setCommissionWithPayable('last-week-commission', data.last_week_commission, data.last_week_payable);
                 setCommissionWithPayable('this-month-commission', data.this_month_commission, data.this_month_payable);
                 setCommissionWithPayable('total-commission', data.total_commission, data.total_payable);
-
+                // modified to show total deductable balance
                 document.getElementById('active-games').textContent = data.total_payable || 0;
                 let weeklyData = data.weekly_data || [];
                 if (weeklyData.length > 0) {
@@ -5084,6 +5087,7 @@
                                     <td>${game.round_number || 1}</td>
                                     <td>${game.game_date ? new Date(game.game_date).toLocaleDateString() : 'N/A'}</td>
                                     <td>${game.real_players || 0}</td>
+                                    <td>${(game.total_cards_sold - game.real_players) || 0}</td>
                                     <td>${game.total_cards_sold || 0}</td>
                                     <td>${formatCurrency(game.total_sales || 0)}</td>
                                     <td><strong style="color: var(--success-color);">${formatCurrency(game.commission || 0)}</strong></td>

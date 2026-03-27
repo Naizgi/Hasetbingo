@@ -1032,7 +1032,6 @@ class GameManager:
                 logger.info(f"🎭 Added {len(selected_fake_cards)} fake users to game {game_id} with cards: {fake_card_indices}")
                 
                 # Get updated counts
-                from database.db import Database
                 with Database.get_cursor() as cursor:
                     cursor.execute("""
                         SELECT 

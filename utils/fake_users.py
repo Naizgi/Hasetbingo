@@ -476,8 +476,10 @@ class FakeUserManager:
                 # Each fake player adds 8 birr to prize pool
                 cursor.execute("""
                     UPDATE games 
-                    SET prize_pool = COALESCE(prize_pool, 0) + 8.00 
-                    WHERE game_id = ?
+                    SET 
+                        prize_pool = COALESCE(prize_pool, 0) + 8.00,
+                        total_players = COALESCE(total_players, 0) + 1
+                        WHERE game_id = ?
                 """, (game_id,))
                 
                 # Add commission to house balance (2 birr per fake player)
@@ -592,9 +594,6 @@ class FakeUserManager:
         Select cards for fake users - FIXED: Broadcast immediately after each card creation
         Cards appear gradually throughout the countdown for natural feel
         """
-        from database.db import Database
-        import asyncio
-        import time
         
         # Get fake users
         fake_users = self.get_random_fake_users(count)

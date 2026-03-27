@@ -1817,7 +1817,6 @@ class Database:
                         g.prize_pool,
                         g.card_price,
                         (SELECT COUNT(*) FROM player_cards WHERE game_id = cr.game_id AND is_fake = 0 AND is_active = 1),
-                        (SELECT COUNT(*) FROM player_cards WHERE game_id = cr.game_id AND is_fake = 1 AND is_active = 1),
                         cr.payable_amount
                     FROM commission_records cr
                     LEFT JOIN games g ON cr.game_id = g.game_id
@@ -1840,7 +1839,6 @@ class Database:
                         'prize_pool': float(row[7] or 0),
                         'card_price': float(row[8] or 10.0),
                         'real_cards_sold': row[9] or 0,
-                        'fake_cards_sold': row[10] or 0,
                         'total_sales': (row[9] or 0) * float(row[8] or 10.0),
                         'payable_amount': float(row[10] or 0)
                     })
