@@ -28,10 +28,7 @@ from datetime import datetime, timedelta, date
 from typing import Set, Dict, List
 import time
 import sys
-import gzip
-import shutil
-import tempfile
-import sqlite3
+from database.db import Database
 
 logger = logging.getLogger(__name__)
 
@@ -104,7 +101,6 @@ class NotificationQueue:
         
     def _process_queue(self):
         """Process notifications in a separate thread"""
-        import asyncio
         
         logger.info("📨 Notification queue processor thread started")
         
@@ -374,7 +370,7 @@ class ValidationWebSocketServer:
         # Use dedicated bingo claim lock to prevent race conditions
         async with self._bingo_claim_lock:
             try:
-                from database.db import Database
+                
                 from utils.game_manager import game_manager
                 
                 logger.info(f"🚨 IMMEDIATE BINGO CLAIM from user {user_id} in game {game_id}")
@@ -609,7 +605,6 @@ class ValidationWebSocketServer:
             return
         
         try:
-            from database.db import Database
             from utils.game_manager import game_manager
             
             # FIX: Get game from game_manager first
@@ -1336,188 +1331,68 @@ async def init_commission_table():
 
 # ==================== FIXED ADMIN API ENDPOINTS ====================
 
+import asyncio
+
 @routes.get('/api/admin/totalbalance')
 async def admin_total_balance(request):
-    """Get total balance of all real users only (excluding fake players) - FIXED"""
+    """Non-blocking total balance endpoint"""
     try:
-        from database.db import Database
-        
-        with Database.get_cursor() as cursor:
-            # First, try to exclude using fake_players table
-            try:
-                cursor.execute("""
-                    SELECT COALESCE(SUM(balance), 0) as total_balance 
-                    FROM users 
-                    WHERE balance > 0 
-                    AND deleted_at IS NULL
-                    AND user_id NOT IN (
-                        SELECT user_id FROM fake_players
-                    )
-                """)
-                row = cursor.fetchone()
-                total_balance = float(row[0] or 0) if row else 0
-                
-                # Get count of real users
-                cursor.execute("""
-                    SELECT COUNT(*) as real_user_count
-                    FROM users 
-                    WHERE deleted_at IS NULL
-                    AND user_id NOT IN (
-                        SELECT user_id FROM fake_players
-                    )
-                """)
-                count_row = cursor.fetchone()
-                real_user_count = count_row[0] if count_row else 0
-                
-                logger.info(f"💰 Total balance (using fake_players table): {total_balance} birr (from {real_user_count} real users)")
-                
-            except Exception as e:
-                logger.warning(f"fake_players table not found, using fallback: {e}")
-                # Fallback if fake_players table doesn't exist
-                # Since there's no is_fake column, we need another way to identify fake users
-                # Fake users typically have very high user_ids (>= 1000000) or usernames starting with "fake_"
-                cursor.execute("""
-                    SELECT COALESCE(SUM(balance), 0) as total_balance 
-                    FROM users 
-                    WHERE balance > 0 
-                    AND deleted_at IS NULL
-                    AND user_id < 1000000
-                    AND (username NOT LIKE 'fake_%' OR username IS NULL)
-                """)
-                row = cursor.fetchone()
-                total_balance = float(row[0] or 0) if row else 0
-                
-                # Get count of real users
-                cursor.execute("""
-                    SELECT COUNT(*) as real_user_count
-                    FROM users 
-                    WHERE deleted_at IS NULL
-                    AND user_id < 1000000
-                    AND (username NOT LIKE 'fake_%' OR username IS NULL)
-                """)
-                count_row = cursor.fetchone()
-                real_user_count = count_row[0] if count_row else 0
-                
-                logger.info(f"💰 Total balance (using fallback): {total_balance} birr (from {real_user_count} real users)")
-            
+        result = await asyncio.to_thread(Database._get_total_balance)
+
+        if "error" in result:
             return web.json_response({
-                'success': True,
-                'total_balance': total_balance,
-                'currency': 'birr',
-                'real_user_count': real_user_count,
-                'timestamp': datetime.now().isoformat()
-            })
-            
+                'success': False,
+                'message': result["error"]
+            }, status=500)
+
+        return web.json_response({
+            'success': True,
+            'total_balance': result["total_balance"],
+            'currency': 'birr',
+            'real_user_count': result["real_user_count"],
+            'timestamp': datetime.now().isoformat()
+        })
+
     except Exception as e:
-        logger.error(f"Error getting total balance: {e}")
+        logger.error(f"Error in route: {e}")
         return web.json_response({
             'success': False,
             'message': str(e)
         }, status=500)
-
-
+    
 # ==================== FIXED ADMIN WEEKLY REVENUE ENDPOINT ====================
 @routes.get('/api/admin/weeklyrevenue')
 async def admin_weekly_revenue(request):
-    """Get weekly revenue data with 20% commission - FIXED: Uses commission_records table"""
+    """Non-blocking weekly revenue endpoint"""
     try:
-        from database.db import Database
-        
-        with Database.get_cursor() as cursor:
-            # Get weekly commission data from commission_records table
-            cursor.execute("""
-                SELECT 
-                    strftime('%Y-%W', recorded_at) as week_number,
-                    MIN(recorded_at) as start_date,
-                    MAX(recorded_at) as end_date,
-                    COUNT(*) as games_count,
-                    SUM(real_players_count) as total_real_players,
-                    SUM(commission_amount) as commission
-                FROM commission_records 
-                GROUP BY strftime('%Y-%W', recorded_at)
-                ORDER BY week_number DESC
-                LIMIT 10
-            """)
-            rows = cursor.fetchall()
-            
-            weekly_data = []
-            total_commission_from_query = 0
-            
-            for row in rows:
-                week_data = {
-                    'week': row[0],
-                    'start_date': row[1],
-                    'end_date': row[2],
-                    'games_count': row[3] or 0,
-                    'total_real_players': row[4] or 0,
-                    'commission': float(row[5] or 0)
-                }
-                weekly_data.append(week_data)
-                total_commission_from_query += week_data['commission']
-            
-            # Calculate summary stats
-            this_week_commission = weekly_data[0]['commission'] if weekly_data else 0
-            last_week_commission = weekly_data[1]['commission'] if len(weekly_data) > 1 else 0
-            
-            # This month - calculate separately
-            current_year_month = datetime.now().strftime('%Y-%m')
-            cursor.execute("""
-                SELECT COALESCE(SUM(commission_amount), 0) as month_commission
-                FROM commission_records 
-                WHERE strftime('%Y-%m', recorded_at) = ?
-            """, (current_year_month,))
-            month_row = cursor.fetchone()
-            this_month_commission = float(month_row[0] or 0) if month_row else 0
-            
-            # Get total commission from commission_records
-            cursor.execute("""
-                SELECT COALESCE(SUM(commission_amount), 0) as total_commission
-                FROM commission_records
-            """)
-            total_row = cursor.fetchone()
-            total_commission = float(total_row[0] or 0) if total_row else 0
-            
-            # Also get from house_balance table for verification
-            cursor.execute("""
-                SELECT COALESCE(SUM(amount), 0) as house_commission
-                FROM house_balance 
-                WHERE transaction_type = 'game_commission'
-            """)
-            house_row = cursor.fetchone()
-            house_commission = float(house_row[0] or 0) if house_row else 0
-            
-            logger.info(f"📊 Commission verification: Commission_records: {total_commission} birr, House balance: {house_commission} birr")
-            
+        result = await asyncio.to_thread(Database._get_weekly_revenue)
+
+        if "error" in result:
             return web.json_response({
-                'success': True,
-                'weekly_data': weekly_data,
-                'this_week_commission': this_week_commission,
-                'last_week_commission': last_week_commission,
-                'this_month_commission': this_month_commission,
-                'total_commission': total_commission,
-                'house_balance_commission': house_commission,
-                'summary': {
-                    'this_week_revenue': this_week_commission,
-                    'last_week_revenue': last_week_commission,
-                    'this_month_revenue': this_month_commission,
-                    'total_commission': total_commission
-                },
-                'calculation_method': 'real_players × 2 (from commission_records table)',
-                'timestamp': datetime.now().isoformat()
-            })
-            
-    except Exception as e:
-        logger.error(f"Error getting weekly revenue: {e}")
+                'success': False,
+                'message': result['error'],
+                **result
+            }, status=500)
+
         return web.json_response({
-            'success': False,
-            'message': str(e),
-            'weekly_data': [],
-            'this_week_commission': 0,
-            'last_week_commission': 0,
-            'this_month_commission': 0,
-            'total_commission': 0
+            'success': True,
+            **result,
+            'summary': {
+                'this_week_revenue': result['this_week_commission'],
+                'last_week_revenue': result['last_week_commission'],
+                'this_month_revenue': result['this_month_commission'],
+                'total_commission': result['total_commission']
+            },
+            'calculation_method': 'real_players × 2 (from commission_records table)',
+            'timestamp': datetime.now().isoformat()
         })
 
+    except Exception as e:
+        logger.error(f"Error in route: {e}")
+        return web.json_response({
+            'success': False,
+            'message': str(e)
+        }, status=500)
 
 @routes.get('/api/admin/weeklycommission')
 async def admin_weekly_commission(request):
@@ -1528,118 +1403,49 @@ async def admin_weekly_commission(request):
 # ==================== FIXED ADMIN STATS ENDPOINT ====================
 @routes.get('/api/admin/stats')
 async def admin_stats(request):
-    """Get admin statistics - FIXED to use commission_records table"""
+    """Non-blocking admin stats"""
     try:
-        from database.db import Database
         from utils.game_manager import game_manager
-        
-        # Get total games
-        total_games = await Database.get_total_games()
-        
-        # Get active games
+
+        # Run ALL DB operations in thread
+        db_result = await asyncio.to_thread(Database._get_admin_stats_db)
+
+        if "error" in db_result:
+            return web.json_response({
+                'success': False,
+                'message': db_result["error"]
+            }, status=500)
+
+        # Async operations (keep in event loop)
         try:
             active_game = await game_manager.get_active_round_game()
             active_games_count = 1 if active_game else 0
         except Exception as e:
             logger.warning(f"Error getting active games: {e}")
+            active_game = None
             active_games_count = 0
-        
-        # Get total users
-        total_users = await Database.get_total_users()
-        
-        # FIXED: Get today's commission from commission_records
-        today_revenue = 0
-        try:
-            with Database.get_cursor() as cursor:
-                cursor.execute("""
-                    SELECT COALESCE(SUM(commission_amount), 0) as today_commission
-                    FROM commission_records 
-                    WHERE date(recorded_at) = date('now', 'localtime')
-                """)
-                row = cursor.fetchone()
-                today_revenue = float(row[0] or 0) if row else 0
-        except Exception as e:
-            logger.warning(f"Error getting today's revenue: {e}")
-        
-        # FIXED: Get total revenue from commission_records
-        total_revenue = 0
-        try:
-            with Database.get_cursor() as cursor:
-                cursor.execute("""
-                    SELECT COALESCE(SUM(commission_amount), 0) as total_commission
-                    FROM commission_records
-                """)
-                row = cursor.fetchone()
-                total_revenue = float(row[0] or 0) if row else 0
-        except Exception as e:
-            logger.warning(f"Error getting total revenue: {e}")
-        
-        # FIXED: Get this week's commission
-        this_week_commission = 0
-        try:
-            with Database.get_cursor() as cursor:
-                cursor.execute("""
-                    SELECT COALESCE(SUM(commission_amount), 0) as week_commission
-                    FROM commission_records 
-                    WHERE recorded_at >= datetime('now', '-7 days')
-                """)
-                row = cursor.fetchone()
-                this_week_commission = float(row[0] or 0) if row else 0
-        except Exception as e:
-            logger.warning(f"Error getting week commission: {e}")
-        
-        # Get total users balance - FIXED: Only real users with fallback
-        total_balance = 0
-        try:
-            with Database.get_cursor() as cursor:
-                # Try with fake_players table first
-                try:
-                    cursor.execute("""
-                        SELECT COALESCE(SUM(balance), 0) as total_balance 
-                        FROM users 
-                        WHERE balance > 0 
-                        AND user_id NOT IN (SELECT user_id FROM fake_players)
-                        AND user_id < 1000000
-                    """)
-                    row = cursor.fetchone()
-                    total_balance = float(row[0] or 0) if row else 0
-                except:
-                    # Fallback to all users if fake_players table doesn't exist
-                    cursor.execute("""
-                        SELECT COALESCE(SUM(balance), 0) as total_balance 
-                        FROM users 
-                        WHERE balance > 0 AND user_id < 1000000
-                    """)
-                    row = cursor.fetchone()
-                    total_balance = float(row[0] or 0) if row else 0
-        except Exception as e:
-            logger.warning(f"Error getting total balance: {e}")
-        
-        # ========== FIXED: Calculate correct prize pool for active game ==========
+
+        # Prize pool calculation
         correct_prize_pool = 0
         if active_game:
-            real_players = await Database.count_game_players(active_game.get('game_id'))
-            fake_players = len(game_manager.fake_user_manager.game_fake_cards.get(active_game.get('game_id'), {}))
+            real_players = real_players = await asyncio.to_thread(Database._count_game_players,active_game.get('game_id'))
+            fake_players = len(
+                game_manager.fake_user_manager.game_fake_cards.get(
+                    active_game.get('game_id'), {}
+                )
+            )
             total_players = real_players + fake_players
-            correct_prize_pool = total_players * 8  # 8 birr per player
-            logger.info(f"💰 Correct prize pool calculation: {total_players} players × 8 = {correct_prize_pool}")
-        
-        # Get recent transactions
-        recent_transactions = await Database.get_recent_transactions(10)
-        
-        # Get system status
+            correct_prize_pool = total_players * 8
+
+        # Other async calls
+        recent_transactions = await asyncio.to_thread(Database._get_recent_transactions,10)
         system_status = await game_manager.get_system_status() if hasattr(game_manager, 'get_system_status') else {}
-        
+
         stats = {
             'success': True,
             'stats': {
-                'total_games': total_games,
+                **db_result,
                 'active_games': active_games_count,
-                'total_users': total_users,
-                'today_revenue': float(today_revenue or 0),
-                'total_revenue': float(total_revenue or 0),
-                'total_balance': total_balance,
-                'this_week_commission': this_week_commission,
                 'online_players': len(websocket_server.user_connections),
                 'has_active_game': active_game is not None,
                 'current_prize_pool': correct_prize_pool,
@@ -1650,19 +1456,18 @@ async def admin_stats(request):
             'system_status': system_status,
             'timestamp': datetime.now().isoformat()
         }
-        
+
         return web.json_response(
             convert_to_json_serializable(stats),
             dumps=lambda obj: json.dumps(obj, cls=CustomJSONEncoder)
         )
-        
+
     except Exception as e:
         logger.error(f"Error getting admin stats: {e}")
         return web.json_response({
             'success': False,
             'message': str(e)
         }, status=500)
-
 
 @routes.post('/api/admin/suspenduser')
 async def admin_suspend_user(request):
@@ -1795,101 +1600,39 @@ async def admin_delete_user(request):
 
 @routes.get('/api/admin/user/{user_id}')
 async def admin_get_user_details(request):
-    """Get detailed user information"""
+    """Non-blocking user details endpoint"""
     try:
         user_id_str = request.match_info['user_id']
         user_id = parse_user_id(user_id_str)
-        
-        from database.db import Database
-        
-        with Database.get_cursor() as cursor:
-            # Get user details
-            cursor.execute("""
-                SELECT u.*, 
-                       COUNT(DISTINCT uc.game_id) as total_games_played,
-                       COUNT(uc.id) as total_cards_purchased,
-                       SUM(CASE WHEN g.winner_id = u.user_id THEN 1 ELSE 0 END) as total_wins,
-                       SUM(CASE WHEN g.winner_id = u.user_id THEN g.prize_pool ELSE 0 END) as total_winnings
-                FROM users u
-                LEFT JOIN player_cards uc ON u.user_id = uc.user_id
-                LEFT JOIN games g ON uc.game_id = g.game_id AND g.winner_id = u.user_id
-                WHERE u.user_id = ?
-                GROUP BY u.user_id
-            """, (user_id,))
-            
-            row = cursor.fetchone()
-            
-            if row:
-                user_data = dict(row)
-                user_data['balance'] = float(user_data.get('balance', 0))
-                user_data['total_winnings'] = float(user_data.get('total_winnings', 0))
-                
-                # Get recent transactions
-                cursor.execute("""
-                    SELECT * FROM transactions 
-                    WHERE user_id = ? 
-                    ORDER BY created_at DESC 
-                    LIMIT 10
-                """, (user_id,))
-                
-                transactions = []
-                for tx_row in cursor.fetchall():
-                    tx_data = dict(tx_row)
-                    tx_data['amount'] = float(tx_data['amount'])
-                    transactions.append(tx_data)
-                
-                user_data['recent_transactions'] = transactions
-                
-                # Get payment history
-                cursor.execute("""
-                    SELECT * FROM payments 
-                    WHERE user_id = ? 
-                    ORDER BY created_at DESC 
-                    LIMIT 10
-                """, (user_id,))
-                
-                payments = []
-                for p_row in cursor.fetchall():
-                    p_data = dict(p_row)
-                    p_data['amount'] = float(p_data['amount'])
-                    payments.append(p_data)
-                
-                user_data['payment_history'] = payments
-                
-                # Get withdrawal history
-                cursor.execute("""
-                    SELECT * FROM withdrawal_requests 
-                    WHERE user_id = ? 
-                    ORDER BY requested_at DESC 
-                    LIMIT 10
-                """, (user_id,))
-                
-                withdrawals = []
-                for w_row in cursor.fetchall():
-                    w_data = dict(w_row)
-                    w_data['amount'] = float(w_data['amount'])
-                    withdrawals.append(w_data)
-                
-                user_data['withdrawal_history'] = withdrawals
-                
-                return web.json_response({
-                    'success': True,
-                    'user': user_data,
-                    'timestamp': datetime.now().isoformat()
-                }, dumps=lambda obj: json.dumps(obj, cls=CustomJSONEncoder))
-            
+
+        # Run DB logic in separate thread
+        result = await asyncio.to_thread(Database._get_user_details, user_id)
+
+        if result is None:
             return web.json_response({
                 'success': False,
                 'message': 'User not found'
             }, status=404)
-            
+
+        if isinstance(result, dict) and "error" in result:
+            return web.json_response({
+                'success': False,
+                'message': result["error"]
+            }, status=500)
+
+        return web.json_response({
+            'success': True,
+            'user': result,
+            'timestamp': datetime.now().isoformat()
+        }, dumps=lambda obj: json.dumps(obj, cls=CustomJSONEncoder))
+
     except Exception as e:
         logger.error(f"Error getting user details: {e}")
         return web.json_response({
             'success': False,
             'message': str(e)
         }, status=500)
-
+    
 @routes.post('/api/admin/rejectpayment')
 async def admin_reject_payment(request):
     """Admin: Reject a payment request"""
@@ -2045,133 +1788,44 @@ async def admin_reject_withdrawal(request):
 # ==================== FIXED: Add endpoint to get commission details from commission_records ====================
 @routes.get('/api/admin/commission-details')
 async def admin_commission_details(request):
-    """Get detailed commission breakdown by game - FIXED: Uses commission_records table with proper data"""
+    """Non-blocking commission details endpoint"""
     try:
-        from database.db import Database
-        
-        # Get page and limit parameters (optional)
         page = int(request.query.get('page', 1))
         limit = int(request.query.get('limit', 50))
-        offset = (page - 1) * limit
-        
-        with Database.get_cursor() as cursor:
-            # Get games with commission data - FIXED: Use correct column names
-            cursor.execute("""
-                SELECT 
-                    cr.game_id,
-                    cr.round_number,
-                    cr.recorded_at as game_date,
-                    cr.real_players_count as real_players,
-                    cr.commission_amount as commission,
-                    cr.status as commission_status,
-                    g.total_cards_sold,
-                    g.prize_pool,
-                    g.card_price,
-                    (SELECT COUNT(*) FROM player_cards WHERE game_id = cr.game_id AND is_fake = 0 AND is_active = 1) as real_cards_sold,
-                    (SELECT COUNT(*) FROM player_cards WHERE game_id = cr.game_id AND is_fake = 1 AND is_active = 1) as fake_cards_sold
-                FROM commission_records cr
-                LEFT JOIN games g ON cr.game_id = g.game_id
-                ORDER BY cr.recorded_at DESC
-                LIMIT ? OFFSET ?
-            """, (limit, offset))
-            
-            rows = cursor.fetchall()
-            commission_games = []
-            
-            for row in rows:
-                # Convert row to dictionary with proper column access
-                game_data = {
-                    'game_id': row[0],
-                    'round_number': row[1] or 1,
-                    'game_date': row[2].isoformat() if row[2] else None,
-                    'real_players': row[3] or 0,
-                    'commission': float(row[4] or 0),
-                    'commission_status': row[5] or 'recorded',
-                    'total_cards_sold': row[6] or 0,
-                    'prize_pool': float(row[7] or 0),
-                    'card_price': float(row[8] or 10.00),
-                    'real_cards_sold': row[9] or 0,
-                    'fake_cards_sold': row[10] or 0,
-                    'total_sales': (row[9] or 0) * float(row[8] or 10.00)  # real_cards_sold * card_price
-                }
-                commission_games.append(game_data)
-            
-            # Get daily summary
-            cursor.execute("""
-                SELECT 
-                    date(recorded_at) as day,
-                    COUNT(*) as games_count,
-                    SUM(real_players_count) as total_players,
-                    SUM(commission_amount) as total_commission,
-                    SUM(g.total_cards_sold) as total_cards_sold,
-                    SUM(g.total_cards_sold * g.card_price) as total_sales
-                FROM commission_records cr
-                LEFT JOIN games g ON cr.game_id = g.game_id
-                GROUP BY date(recorded_at)
-                ORDER BY day DESC
-                LIMIT 30
-            """)
-            daily_rows = cursor.fetchall()
-            daily_data = []
-            for row in daily_rows:
-                daily_data.append({
-                    'date': row[0],
-                    'games_count': row[1] or 0,
-                    'real_players': row[2] or 0,
-                    'total_commission': float(row[3] or 0),
-                    'total_cards_sold': row[4] or 0,
-                    'total_sales': float(row[5] or 0)
-                })
-            
-            # Get monthly summary
-            cursor.execute("""
-                SELECT 
-                    strftime('%Y-%m', recorded_at) as month,
-                    COUNT(*) as games_count,
-                    SUM(real_players_count) as total_players,
-                    SUM(commission_amount) as total_commission,
-                    SUM(g.total_cards_sold) as total_cards_sold,
-                    SUM(g.total_cards_sold * g.card_price) as total_sales
-                FROM commission_records cr
-                LEFT JOIN games g ON cr.game_id = g.game_id
-                GROUP BY strftime('%Y-%m', recorded_at)
-                ORDER BY month DESC
-                LIMIT 12
-            """)
-            monthly_rows = cursor.fetchall()
-            monthly_data = []
-            for row in monthly_rows:
-                monthly_data.append({
-                    'month': row[0],
-                    'games_count': row[1] or 0,
-                    'real_players': row[2] or 0,
-                    'total_commission': float(row[3] or 0),
-                    'total_cards_sold': row[4] or 0,
-                    'total_sales': float(row[5] or 0)
-                })
-            
-            # Get total count for pagination
-            cursor.execute("SELECT COUNT(*) as total FROM commission_records")
-            total_row = cursor.fetchone()
-            total = total_row[0] if total_row else 0
-            
+
+        # Run DB work in thread
+        result = await asyncio.to_thread(
+            Database._get_commission_details,
+            page,
+            limit
+        )
+
+        if "error" in result:
             return web.json_response({
-                'success': True,
-                'games': commission_games,
-                'daily': daily_data,
-                'monthly': monthly_data,
-                'pagination': {
-                    'page': page,
-                    'limit': limit,
-                    'total': total,
-                    'pages': (total + limit - 1) // limit if total > 0 else 0
-                },
-                'calculation_method': 'real_players × 2 (from commission_records table)',
-                'timestamp': datetime.now().isoformat()
-            })
-            
+                'success': False,
+                'message': result["error"],
+                **result
+            }, status=500)
+
+        total = result["total"]
+
+        return web.json_response({
+            'success': True,
+            'games': result["games"],
+            'daily': result["daily"],
+            'monthly': result["monthly"],
+            'pagination': {
+                'page': page,
+                'limit': limit,
+                'total': total,
+                'pages': (total + limit - 1) // limit if total > 0 else 0
+            },
+            'calculation_method': 'real_players × 2 (from commission_records table)',
+            'timestamp': datetime.now().isoformat()
+        })
+
     except Exception as e:
-        logger.error(f"❌ Error getting commission details: {e}", exc_info=True)
+        logger.error(f"❌ Error in route: {e}", exc_info=True)
         return web.json_response({
             'success': False,
             'message': str(e),
@@ -2179,7 +1833,6 @@ async def admin_commission_details(request):
             'daily': [],
             'monthly': []
         }, status=500)
-        
         
         
         # ==================== ADMIN AUTHENTICATION ENDPOINTS ====================
@@ -5245,9 +4898,6 @@ async def get_active_game(request):
                 }, status=404)
         
         game_id = active_game.get('game_id')
-        
-        from database.db import Database
-        from utils.game_manager import game_manager
         
         numbers_called = await Database.get_drawn_numbers(game_id) or []
         

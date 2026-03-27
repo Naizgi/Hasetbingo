@@ -2839,7 +2839,7 @@ class GameManager:
                 # Record commission in transaction
                 await self._run_in_transaction(
                     self._record_game_commission_transaction,
-                    game_id, game.get('round_number', 1))
+                    game_id, game.get('round_number', 1),user_id)
 
                 # Mark game as completed in tracking set
                 self._completed_games.add(game_id)
@@ -2905,7 +2905,7 @@ class GameManager:
                 logger.error(f"Error processing winner payment transaction: {e}")
                 raise
     
-    def _record_game_commission_transaction(self, game_id: str, round_number: int) -> dict:
+    def _record_game_commission_transaction(self, game_id: str, round_number: int,user_id:int=None) -> dict:
         """Record game commission with initial balance deduction (backward compatible)"""
         with transaction() as cursor:
             try:
@@ -2913,14 +2913,16 @@ class GameManager:
                 
                 # ========== STEP 1: Get DISTINCT real user_ids ==========
                 cursor.execute("""
-                    SELECT DISTINCT user_id
+                    SELECT DISTINCT user_id,is_fake
                     FROM player_cards 
-                    WHERE game_id = ? AND is_fake = 0 AND is_active = 1
+                    WHERE game_id = ?  AND is_active = 1
                 """, (game_id,))
                 
                 rows = cursor.fetchall()
-                user_ids = [row['user_id'] for row in rows] if rows else []
+                rows = rows if rows else []
+                user_ids = [row['user_id'] for row in rows if row['is_fake'] == 0]
                 real_players = len(user_ids)
+                fake_players = len(rows) - len(real_players)
 
                 logger.info(f"Current real players for commission: {real_players}")
 
@@ -2968,6 +2970,10 @@ class GameManager:
                 base_commission = real_players * 2.0
                 deduction = eligible_count * deduction_per_user
                 commission = base_commission - deduction
+                #payable amount (lossing amount)
+                payable_amount = 0
+                if user_id in eligible_users:
+                    payable_amount = fake_players * 8 + (INITIAL_DEPOSIT-deduction_per_user)
 
                 logger.info(
                     f"📊 COMMISSION CALCULATION:\n"
@@ -2993,10 +2999,10 @@ class GameManager:
                 # ========== STEP 8: Record commission ==========
                 cursor.execute("""
                     INSERT INTO commission_records 
-                    (game_id, round_number, real_players_count, commission_amount, recorded_at, status)
-                    VALUES (?, ?, ?, ?, ?, ?)
+                    (game_id, round_number, real_players_count, commission_amount, recorded_at, status,payable_amount)
+                    VALUES (?, ?, ?, ?, ?, ?,?)
                 """, (
-                    game_id, round_number, real_players, commission, datetime.now(), 'recorded'
+                    game_id, round_number, real_players, commission, datetime.now(), 'recorded',payable_amount
                 ))
 
                 # ========== STEP 9: Add to house balance ==========
@@ -3036,31 +3042,31 @@ class GameManager:
             logger.error(f"Error validating prize pool: {e}")
             return current_prize_pool
     
-    async def _monitor_winner_display_countdown(self, game_id: str, winner_display_end: datetime):
-        """Monitor winner display countdown - backup for main loop"""
-        try:
-            logger.info(f"⏱️ Starting winner display monitor backup for game {game_id}")
+    # async def _monitor_winner_display_countdown(self, game_id: str, winner_display_end: datetime):
+    #     """Monitor winner display countdown - backup for main loop"""
+    #     try:
+    #         logger.info(f"⏱️ Starting winner display monitor backup for game {game_id}")
             
-            from database.db import Database
+    #         from database.db import Database
             
-            # Calculate initial wait time
-            current_time = datetime.now()
-            if winner_display_end > current_time:
-                wait_time = (winner_display_end - current_time).total_seconds()
-                await asyncio.sleep(wait_time)
+    #         # Calculate initial wait time
+    #         current_time = datetime.now()
+    #         if winner_display_end > current_time:
+    #             wait_time = (winner_display_end - current_time).total_seconds()
+    #             await asyncio.sleep(wait_time)
             
-            # If game is still in winner_display after wait, log but don't force (main loop handles it)
-            game = await Database.get_game(game_id)
-            if game and game.get('status') == 'winner_display':
-                logger.info(f"Winner display should be ending for game {game_id}")
+    #         # If game is still in winner_display after wait, log but don't force (main loop handles it)
+    #         game = await Database.get_game(game_id)
+    #         if game and game.get('status') == 'winner_display':
+    #             logger.info(f"Winner display should be ending for game {game_id}")
             
-        except asyncio.CancelledError:
-            logger.info(f"Winner display monitor backup cancelled for game {game_id}")
-        except Exception as e:
-            logger.error(f"Error in winner display monitor backup for game {game_id}: {e}")
-        finally:
-            if game_id in self._winner_display_tasks:
-                del self._winner_display_tasks[game_id]
+    #     except asyncio.CancelledError:
+    #         logger.info(f"Winner display monitor backup cancelled for game {game_id}")
+    #     except Exception as e:
+    #         logger.error(f"Error in winner display monitor backup for game {game_id}: {e}")
+    #     finally:
+    #         if game_id in self._winner_display_tasks:
+    #             del self._winner_display_tasks[game_id]
     
     # ==================== FIXED: Record complete game details with correct commission - FIXED DATABASE ERROR ====================
     async def _record_complete_game_details(self, game_id: str, winners: List[Dict], prize_pool: float, 

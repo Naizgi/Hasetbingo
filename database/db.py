@@ -452,7 +452,7 @@ class Database:
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_user_fraud_detection_restricted ON user_fraud_detection (restricted_until)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_user_fraud_detection_suspicious ON user_fraud_detection (suspicious_attempts)")
             
-            # 16. WEEKLY_REPORTS TABLE
+            # 16. WEEKLY_REPORTS Commision TABLE
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS weekly_reports (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -502,6 +502,8 @@ class Database:
                     recorded_at TIMESTAMP NOT NULL,
                     status TEXT DEFAULT 'recorded',
                     notes TEXT,
+                    payable_amount REAL DEFAULT 0.00,
+                    commission_paid INTEGER DEFAULT 0,
                     UNIQUE(game_id)
                 )
             """)
@@ -638,6 +640,7 @@ class Database:
                 cursor.execute("ALTER TABLE games ADD COLUMN winners_count INTEGER DEFAULT 0")
                 conn.commit()
             
+            
             # Check withdrawal_requests table
             cursor.execute("PRAGMA table_info(withdrawal_requests)")
             withdrawal_columns = [column[1] for column in cursor.fetchall()]
@@ -771,6 +774,8 @@ class Database:
                         recorded_at TIMESTAMP NOT NULL,
                         status TEXT DEFAULT 'recorded',
                         notes TEXT,
+                        payable_amount REAL DEFAULT 0.00,
+                        commission_paid INTEGER DEFAULT 0,
                         UNIQUE(game_id)
                     )
                 """)
@@ -780,6 +785,17 @@ class Database:
                 conn.commit()
                 logger.info("✅ commission_records table created successfully")
             
+            #adding payable_amount to commission_records
+            cursor.execute("PRAGMA table_info(commission_records)")
+            commission_records_columns = [column[1] for column in cursor.fetchall()]
+            if 'payable_amount' not in commission_records_columns:
+                logger.info("Adding transaction_type column to house_balance table...")
+                cursor.execute("ALTER TABLE commission_records ADD COLUMN payable_amount REAL DEFAULT 0.00")
+                conn.commit()
+            if 'commission_paid' not in commission_records_columns:
+                logger.info("Adding transaction_type column to house_balance table...")
+                cursor.execute("ALTER TABLE commission_records ADD COLUMN commission_paid INTEGER DEFAULT 0")
+                conn.commit()
             # ============ CREATE FAKE_PLAYERS TABLE IF NOT EXISTS ============
             cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='fake_players'")
             if not cursor.fetchone():
@@ -958,6 +974,10 @@ class Database:
                 cursor.execute("ALTER TABLE users ADD COLUMN total_deposits REAL DEFAULT 0.00")
                 conn.commit()
                 logger.info("  ✅ total_deposits column added")
+            if 'used_initial_balance' not in columns:
+                logger.info("Adding used_initial_balance column to users table...")
+                cursor.execute("ALTER TABLE users ADD COLUMN used_initial_balance INTEGER DEFAULT 0")
+                conn.commit()
             
             # ============ 4. CREATE INDEXES FOR BETTER PERFORMANCE ============
             logger.info("📋 Creating indexes for better performance...")
@@ -1685,36 +1705,214 @@ class Database:
             return 0.00
     
     @classmethod
-    async def get_weekly_commission(cls, weeks_back: int = 8) -> List[Dict]:
-        """Get weekly commission from commission_records"""
+    def _get_weekly_revenue(cls):
+        """Get weekly revenue data (sync - runs in thread)"""
         try:
+            from datetime import datetime
+
             with cls.get_cursor() as cursor:
+                # Weekly aggregation
                 cursor.execute("""
                     SELECT 
-                        strftime('%Y-%W', recorded_at) as week_number,
-                        MIN(recorded_at) as start_date,
-                        MAX(recorded_at) as end_date,
-                        COUNT(*) as games_count,
-                        SUM(real_players_count) as total_real_players,
-                        SUM(commission_amount) as commission
+                        strftime('%Y-%W', recorded_at),
+                        MIN(recorded_at),
+                        MAX(recorded_at),
+                        COUNT(*),
+                        SUM(real_players_count),
+                        SUM(commission_amount),
+                        SUM(payable_amount)
                     FROM commission_records 
                     GROUP BY strftime('%Y-%W', recorded_at)
-                    ORDER BY week_number DESC
-                    LIMIT ?
-                """, (weeks_back,))
-                
+                    ORDER BY strftime('%Y-%W', recorded_at) DESC
+                    LIMIT 10
+                """)
                 rows = cursor.fetchall()
-                result = []
+
+                weekly_data = []
+                total_commission = 0
+                total_payable = 0
+
                 for row in rows:
-                    data = dict(row)
-                    data['commission'] = float(data['commission'] or 0)
-                    result.append(data)
-                
-                return result
+                    week_data = {
+                        'week': row[0],
+                        'start_date': row[1],
+                        'end_date': row[2],
+                        'games_count': row[3] or 0,
+                        'total_real_players': row[4] or 0,
+                        'commission': float(row[5] or 0),
+                        'payable_amount': float(row[6] or 0),
+                    }
+                    weekly_data.append(week_data)
+                    total_commission += week_data['commission']
+                    total_payable += week_data['payable_amount']
+
+                # Weekly stats
+                this_week_commission = weekly_data[0]['commission'] if weekly_data else 0
+                last_week_commission = weekly_data[1]['commission'] if len(weekly_data) > 1 else 0
+                this_week_payable = weekly_data[0]['payable_amount'] if weekly_data else 0
+                last_week_payable = weekly_data[1]['payable_amount'] if len(weekly_data) > 1 else 0
+
+                # Monthly stats
+                current_year_month = datetime.now().strftime('%Y-%m')
+                cursor.execute("""
+                    SELECT 
+                        COALESCE(SUM(commission_amount), 0),
+                        COALESCE(SUM(payable_amount), 0)
+                    FROM commission_records 
+                    WHERE strftime('%Y-%m', recorded_at) = ?
+                """, (current_year_month,))
+                month_row = cursor.fetchone()
+
+                this_month_commission = float(month_row[0] or 0) if month_row else 0
+                this_month_payable = float(month_row[1] or 0) if month_row else 0
+
+                logger.info(f"📊 Weekly revenue computed (threaded)")
+
+                return {
+                    'weekly_data': weekly_data,
+                    'this_week_commission': this_week_commission,
+                    'last_week_commission': last_week_commission,
+                    'this_month_commission': this_month_commission,
+                    'total_commission': total_commission,
+                    'this_month_payable': this_month_payable,
+                    'total_payable': total_payable,
+                    'this_week_payable': this_week_payable,
+                    'last_week_payable': last_week_payable,
+                    'house_balance_commission': None
+                }
+
         except Exception as e:
-            logger.error(f"Error getting weekly commission: {e}")
-            return []
-    
+            logger.error(f"DB error (weekly revenue): {e}")
+            return {
+                'error': str(e),
+                'weekly_data': [],
+                'this_week_commission': 0,
+                'last_week_commission': 0,
+                'this_month_commission': 0,
+                'total_commission': 0,
+                'this_month_payable': 0,
+                'total_payable': 0,
+                'this_week_payable': 0,
+                'last_week_payable': 0,
+                'house_balance_commission': None
+            }
+    @classmethod
+    def _get_commission_details(cls, page: int, limit: int):
+        """Get commission details (sync - runs in thread)"""
+        try:
+            offset = (page - 1) * limit
+
+            with cls.get_cursor() as cursor:
+
+                # ================== GAMES ==================
+                cursor.execute("""
+                    SELECT 
+                        cr.game_id,
+                        cr.round_number,
+                        cr.recorded_at,
+                        cr.real_players_count,
+                        cr.commission_amount,
+                        cr.status,
+                        g.total_cards_sold,
+                        g.prize_pool,
+                        g.card_price,
+                        (SELECT COUNT(*) FROM player_cards WHERE game_id = cr.game_id AND is_fake = 0 AND is_active = 1),
+                        (SELECT COUNT(*) FROM player_cards WHERE game_id = cr.game_id AND is_fake = 1 AND is_active = 1)
+                    FROM commission_records cr
+                    LEFT JOIN games g ON cr.game_id = g.game_id
+                    ORDER BY cr.recorded_at DESC
+                    LIMIT ? OFFSET ?
+                """, (limit, offset))
+
+                rows = cursor.fetchall()
+                commission_games = []
+
+                for row in rows:
+                    commission_games.append({
+                        'game_id': row[0],
+                        'round_number': row[1] or 1,
+                        'game_date': row[2].isoformat() if row[2] else None,
+                        'real_players': row[3] or 0,
+                        'commission': float(row[4] or 0),
+                        'commission_status': row[5] or 'recorded',
+                        'total_cards_sold': row[6] or 0,
+                        'prize_pool': float(row[7] or 0),
+                        'card_price': float(row[8] or 10.0),
+                        'real_cards_sold': row[9] or 0,
+                        'fake_cards_sold': row[10] or 0,
+                        'total_sales': (row[9] or 0) * float(row[8] or 10.0)
+                    })
+
+                # ================== DAILY ==================
+                cursor.execute("""
+                    SELECT 
+                        date(recorded_at),
+                        COUNT(*),
+                        SUM(real_players_count),
+                        SUM(commission_amount),
+                        SUM(g.total_cards_sold),
+                        SUM(g.total_cards_sold * g.card_price)
+                    FROM commission_records cr
+                    LEFT JOIN games g ON cr.game_id = g.game_id
+                    GROUP BY date(recorded_at)
+                    ORDER BY date(recorded_at) DESC
+                    LIMIT 30
+                """)
+
+                daily_data = [{
+                    'date': row[0],
+                    'games_count': row[1] or 0,
+                    'real_players': row[2] or 0,
+                    'total_commission': float(row[3] or 0),
+                    'total_cards_sold': row[4] or 0,
+                    'total_sales': float(row[5] or 0)
+                } for row in cursor.fetchall()]
+
+                # ================== MONTHLY ==================
+                cursor.execute("""
+                    SELECT 
+                        strftime('%Y-%m', recorded_at),
+                        COUNT(*),
+                        SUM(real_players_count),
+                        SUM(commission_amount),
+                        SUM(g.total_cards_sold),
+                        SUM(g.total_cards_sold * g.card_price)
+                    FROM commission_records cr
+                    LEFT JOIN games g ON cr.game_id = g.game_id
+                    GROUP BY strftime('%Y-%m', recorded_at)
+                    ORDER BY strftime('%Y-%m', recorded_at) DESC
+                    LIMIT 12
+                """)
+
+                monthly_data = [{
+                    'month': row[0],
+                    'games_count': row[1] or 0,
+                    'real_players': row[2] or 0,
+                    'total_commission': float(row[3] or 0),
+                    'total_cards_sold': row[4] or 0,
+                    'total_sales': float(row[5] or 0)
+                } for row in cursor.fetchall()]
+
+                # ================== COUNT ==================
+                cursor.execute("SELECT COUNT(*) FROM commission_records")
+                total = cursor.fetchone()[0] or 0
+
+                return {
+                    "games": commission_games,
+                    "daily": daily_data,
+                    "monthly": monthly_data,
+                    "total": total
+                }
+
+        except Exception as e:
+            logger.error(f"DB error (commission details): {e}", exc_info=True)
+            return {
+                "error": str(e),
+                "games": [],
+                "daily": [],
+                "monthly": [],
+                "total": 0
+            }
     @classmethod
     async def get_this_week_commission(cls) -> float:
         """Get this week's commission from commission_records"""
@@ -1722,7 +1920,7 @@ class Database:
             with cls.get_cursor() as cursor:
                 cursor.execute("""
                     SELECT COALESCE(SUM(commission_amount), 0) as week_commission
-                    FROM commission_records 
+                    FROM 5 
                     WHERE recorded_at >= date('now', '-7 days')
                 """)
                 row = cursor.fetchone()
@@ -1730,7 +1928,79 @@ class Database:
         except Exception as e:
             logger.error(f"Error getting this week commission: {e}")
             return 0.00
-    
+
+    @classmethod
+    def _get_total_balance(cls):
+        """Get total balance of real users (sync - runs in thread)"""
+        try:
+            with cls.get_cursor() as cursor:
+                try:
+                    # Primary method (using fake_players table)
+                    cursor.execute("""
+                        SELECT COALESCE(SUM(balance), 0)
+                        FROM users 
+                        WHERE balance > 0 
+                        AND deleted_at IS NULL
+                        AND user_id NOT IN (
+                            SELECT user_id FROM fake_players
+                        )
+                    """)
+                    row = cursor.fetchone()
+                    total_balance = float(row[0] or 0) if row else 0
+
+                    cursor.execute("""
+                        SELECT COUNT(*)
+                        FROM users 
+                        WHERE deleted_at IS NULL
+                        AND user_id NOT IN (
+                            SELECT user_id FROM fake_players
+                        )
+                    """)
+                    count_row = cursor.fetchone()
+                    real_user_count = count_row[0] if count_row else 0
+
+                    logger.info(f"💰 Total balance (fake_players): {total_balance} birr ({real_user_count} users)")
+
+                except Exception as e:
+                    logger.warning(f"Fallback mode: {e}")
+
+                    # Fallback logic
+                    cursor.execute("""
+                        SELECT COALESCE(SUM(balance), 0)
+                        FROM users 
+                        WHERE balance > 0 
+                        AND deleted_at IS NULL
+                        AND user_id < 1000000
+                        AND (username NOT LIKE 'fake_%' OR username IS NULL)
+                    """)
+                    row = cursor.fetchone()
+                    total_balance = float(row[0] or 0) if row else 0
+
+                    cursor.execute("""
+                        SELECT COUNT(*)
+                        FROM users 
+                        WHERE deleted_at IS NULL
+                        AND user_id < 1000000
+                        AND (username NOT LIKE 'fake_%' OR username IS NULL)
+                    """)
+                    count_row = cursor.fetchone()
+                    real_user_count = count_row[0] if count_row else 0
+
+                    logger.info(f"💰 Total balance (fallback): {total_balance} birr ({real_user_count} users)")
+
+                return {
+                    "total_balance": total_balance,
+                    "real_user_count": real_user_count
+                }
+
+        except Exception as e:
+            logger.error(f"DB error: {e}")
+            return {
+                "total_balance": 0,
+                "real_user_count": 0,
+                "error": str(e)
+            }
+
     # ==================== CARD METHODS ====================
     
     @classmethod
@@ -3309,7 +3579,81 @@ class Database:
         except Exception as e:
             logger.error(f"Error getting user with details: {e}")
             return None
-    
+        
+    @classmethod
+    def _get_user_details(cls, user_id: int):
+        """Get detailed user info (sync - runs in thread)"""
+        try:
+            with cls.get_cursor() as cursor:
+
+                # Main user query
+                cursor.execute("""
+                    SELECT u.*, 
+                           COUNT(DISTINCT uc.game_id) as total_games_played,
+                           COUNT(uc.id) as total_cards_purchased,
+                           SUM(CASE WHEN g.winner_id = u.user_id THEN 1 ELSE 0 END) as total_wins,
+                           SUM(CASE WHEN g.winner_id = u.user_id THEN g.prize_pool ELSE 0 END) as total_winnings
+                    FROM users u
+                    LEFT JOIN player_cards uc ON u.user_id = uc.user_id
+                    LEFT JOIN games g ON uc.game_id = g.game_id AND g.winner_id = u.user_id
+                    WHERE u.user_id = ?
+                    GROUP BY u.user_id
+                """, (user_id,))
+
+                row = cursor.fetchone()
+                if not row:
+                    return None
+
+                user_data = dict(row)
+                user_data['balance'] = float(user_data.get('balance', 0))
+                user_data['total_winnings'] = float(user_data.get('total_winnings', 0))
+
+                # Transactions
+                cursor.execute("""
+                    SELECT * FROM transactions 
+                    WHERE user_id = ? 
+                    ORDER BY created_at DESC 
+                    LIMIT 10
+                """, (user_id,))
+                transactions = [
+                    {**dict(r), 'amount': float(r['amount'])}
+                    for r in cursor.fetchall()
+                ]
+
+                # Payments
+                cursor.execute("""
+                    SELECT * FROM payments 
+                    WHERE user_id = ? 
+                    ORDER BY created_at DESC 
+                    LIMIT 10
+                """, (user_id,))
+                payments = [
+                    {**dict(r), 'amount': float(r['amount'])}
+                    for r in cursor.fetchall()
+                ]
+
+                # Withdrawals
+                cursor.execute("""
+                    SELECT * FROM withdrawal_requests 
+                    WHERE user_id = ? 
+                    ORDER BY requested_at DESC 
+                    LIMIT 10
+                """, (user_id,))
+                withdrawals = [
+                    {**dict(r), 'amount': float(r['amount'])}
+                    for r in cursor.fetchall()
+                ]
+
+                user_data['recent_transactions'] = transactions
+                user_data['payment_history'] = payments
+                user_data['withdrawal_history'] = withdrawals
+
+                return user_data
+
+        except Exception as e:
+            logger.error(f"DB error (user details): {e}")
+            return {"error": str(e)}
+        
     @classmethod
     async def get_user_with_balance(cls, user_id: int) -> Optional[Dict]:
         """Get user with balance"""
@@ -4492,7 +4836,105 @@ class Database:
         except Exception as e:
             logger.error(f"Error getting recent transactions: {e}")
             return []
-    
+    @classmethod
+    def _get_recent_transactions(cls, limit: int = 10) -> List[Dict]:
+        """Get recent transactions"""
+        try:
+            with cls.get_cursor() as cursor:
+                cursor.execute("""
+                    SELECT t.*, u.username, u.full_name
+                    FROM transactions t
+                    LEFT JOIN users u ON t.user_id = u.user_id
+                    ORDER BY t.created_at DESC
+                    LIMIT ?
+                """, (limit,))
+                rows = cursor.fetchall()
+                
+                transactions = []
+                for row in rows:
+                    trans = dict(row)
+                    # Convert decimals to float
+                    for key in ['amount', 'balance_after']:
+                        if trans.get(key) is not None:
+                            trans[key] = float(trans[key])
+                    transactions.append(trans)
+                
+                return transactions
+        except Exception as e:
+            logger.error(f"Error getting recent transactions: {e}")
+            return []
+    #================================================
+    @classmethod
+    def _get_admin_stats_db(cls):
+        """All DB-related admin stats (runs in thread)"""
+        try:
+            with cls.get_cursor() as cursor:
+
+                # Total users
+                total_users = Database._get_total_users()
+                # Total games
+                total_games = Database._get_total_games()
+                # Today's revenue
+                cursor.execute("""
+                    SELECT COALESCE(SUM(commission_amount), 0)
+                    FROM commission_records 
+                    WHERE date(recorded_at) = date('now', 'localtime')
+                """)
+                today_revenue = float(cursor.fetchone()[0] or 0)
+
+                # Total revenue
+                cursor.execute("""
+                    SELECT COALESCE(SUM(commission_amount), 0)
+                    FROM commission_records
+                """)
+                total_revenue = float(cursor.fetchone()[0] or 0)
+
+                # This week revenue
+                cursor.execute("""
+                    SELECT COALESCE(SUM(commission_amount), 0)
+                    FROM commission_records 
+                    WHERE recorded_at >= datetime('now', '-7 days')
+                """)
+                this_week_commission = float(cursor.fetchone()[0] or 0)
+
+                # Total balance (real users with fallback)
+                try:
+                    cursor.execute("""
+                        SELECT COALESCE(SUM(balance), 0)
+                        FROM users 
+                        WHERE balance > 0 
+                        AND user_id NOT IN (SELECT user_id FROM fake_players)
+                        AND user_id < 1000000
+                    """)
+                    total_balance = float(cursor.fetchone()[0] or 0)
+                except:
+                    cursor.execute("""
+                        SELECT COALESCE(SUM(balance), 0)
+                        FROM users 
+                        WHERE balance > 0 AND user_id < 1000000
+                    """)
+                    total_balance = float(cursor.fetchone()[0] or 0)
+
+                return {
+                    "total_games": total_games,
+                    "total_users": total_users,
+                    "today_revenue": today_revenue,
+                    "total_revenue": total_revenue,
+                    "this_week_commission": this_week_commission,
+                    "total_balance": total_balance
+                }
+
+        except Exception as e:
+            logger.error(f"DB error (admin stats): {e}")
+            return {
+                "error": str(e),
+                "total_games": 0,
+                "total_users": 0,
+                "today_revenue": 0,
+                "total_revenue": 0,
+                "this_week_commission": 0,
+                "total_balance": 0
+            }
     @classmethod
     async def get_admin_users(cls, limit: int = 20, offset: int = 0) -> List[Dict]:
         """Get admin users with pagination"""
