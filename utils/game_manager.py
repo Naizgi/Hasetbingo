@@ -587,7 +587,7 @@ class GameManager:
                         game_start_time = datetime.now()
                 
                 time_active = (datetime.now() - game_start_time).total_seconds()
-                if time_active > 180:  # 3 minutes timeout
+                if time_active > 304:  # (75*4)+4 minutes timeout
                     logger.warning(f"Game {game_id} active for {time_active:.0f}s, forcing end")
                     game_active = False
                     break
