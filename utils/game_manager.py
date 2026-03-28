@@ -1277,7 +1277,7 @@ class GameManager:
             
             # wait 1 second before claiming
             if len(fake_winners)>0:
-                asyncio.sleep(1)
+                asyncio.sleep(1.5)
             # Process any fake winners with error handling - NOW SYNCHRONOUS
             for fake_card, pattern_type in fake_winners:
                 user_id = fake_card['user_id']
