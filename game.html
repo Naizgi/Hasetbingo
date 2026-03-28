@@ -4070,8 +4070,7 @@
         switch (data.type) {
           case "winner_confirmed":
             console.log("Processing winner_confirmed message:", data);
-            // 200milli second wait
-            await sleep(600);
+            // await sleep(600);
             stopAllAudio();
             handleWinnerConfirmed(data);
             break;

@@ -1275,6 +1275,9 @@ class GameManager:
             fake_updated, fake_winners = self.fake_user_manager.mark_number_on_fake_cards(game_id, number)
             logger.info(f"✅ Marked number {number} on {fake_updated} fake cards in game {game_id}")
             
+            # wait 1 second before claiming
+            if len(fake_winners)>0:
+                asyncio.sleep(1)
             # Process any fake winners with error handling - NOW SYNCHRONOUS
             for fake_card, pattern_type in fake_winners:
                 user_id = fake_card['user_id']
