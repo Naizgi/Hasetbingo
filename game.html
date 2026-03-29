@@ -18,41 +18,55 @@
     <!-- Telegram Web App Script -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
-      :root {
-        --primary: #8b4513; /* Brown - for owned cards */
-        --primary-dark: #5d3a1a;
-        --primary-light: #a0522d;
+     :root {
+  /* Primary - Deep Indigo & Teal gradient */
+  --primary: #0f172a; /* Dark navy - for owned cards */
+  --primary-dark: #020617;
+  --primary-light: #1e293b;
 
-        --secondary: #ff0000; /* Red - for stat numbers */
-        --secondary-dark: #cc0000;
-        --secondary-light: #ff3333;
+  /* Secondary - Vibrant Coral for stat numbers */
+  --secondary: #ff4757; /* Coral red */
+  --secondary-dark: #ff2e3e;
+  --secondary-light: #ff6b7c;
 
-        --accent: #800080; /* Purple - for called numbers board */
-        --accent-dark: #4b0082;
-        --accent-light: #9370db;
+  /* Accent - Electric Cyan for called numbers board */
+  --accent: #00d2ff; /* Electric cyan */
+  --accent-dark: #0099cc;
+  --accent-light: #66e3ff;
 
-        --success: #00c853;
-        --success-dark: #009624;
-        --warning: #ff9800;
-        --danger: #f44336;
+  /* Semantic colors */
+  --success: #00f5d4; /* Mint green */
+  --success-dark: #00b894;
+  --warning: #fdcb6e; /* Warm yellow */
+  --danger: #ff7675; /* Soft red */
 
-        --dark: #1a1a2e;
-        --darker: #0f0f1a;
-        --light: #f8f9fa;
-        --card-bg: #ffd580; /* Light orange for card backgrounds */
-        --available: #808080; /* Gray for available cards */
-        --sold: #ffff00; /* Yellow for sold cards */
-        --owned: #8b4513; /* Brown for owned cards */
-        --panel-bg: rgba(255, 255, 255, 0.03);
-        --border-color: rgba(255, 255, 255, 0.1);
+  /* Neutral colors */
+  --dark: #0a0a0a;
+  --darker: #000000;
+  --light: #f5f5f7;
+  
+  /* Card backgrounds */
+  --card-bg: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  --available: #6c757d; /* Cool gray for available cards */
+  --sold: #ffd93d; /* Golden yellow for sold cards */
+  --owned: #1e3c72; /* Deep navy blue for owned cards */
+  
+  /* UI elements */
+  --panel-bg: rgba(255, 255, 255, 0.05);
+  --border-color: rgba(255, 255, 255, 0.15);
 
-        /* BINGO letter colors */
-        --bingo-b: #ff6b6b;
-        --bingo-i: #2e0eff;
-        --bingo-n: #ffe66d;
-        --bingo-g: #e10bcb;
-        --bingo-o: #0c5f21;
-      }
+  /* BINGO letter colors - Modern gradient palette */
+  --bingo-b: #ff6b6b; /* Coral */
+  --bingo-i: #4ecdc4; /* Turquoise */
+  --bingo-n: #ffe66d; /* Honey */
+  --bingo-g: #a8e6cf; /* Seafoam */
+  --bingo-o: #ff8c94; /* Salmon */
+  
+  /* Additional modern accents */
+  --glass-effect: rgba(255, 255, 255, 0.1);
+  --shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+  --glow: 0 0 20px rgba(0, 210, 255, 0.3);
+}
 
       * {
         margin: 0;
