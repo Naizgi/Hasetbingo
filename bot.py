@@ -288,21 +288,19 @@ class TelebirrVerificationApiClient:
         return result
 
 class TelebirrScraper:
-    """SMS scraper for Ethio telecom receipts"""
+    """SMS-only scraper for Ethio telecom receipts - MATCHES WORKING VERSION"""
     
     def extract_transaction_id(self, sms_text: str):
-        """Extract transaction ID from SMS"""
         if not sms_text or sms_text == "WITHDRAW":
             return None
             
         sms_text = sms_text.replace('\n', ' ').replace('\r', ' ')
         sms_text = ' '.join(sms_text.split())
         
+        # Patterns from working version - THESE WORK
         patterns = [
             r'transactioninfo\.ethiotelecom\.et/receipt/([A-Z0-9]+)',
             r'receipt/([A-Z0-9]+)',
-            r'የሂሳብ\s*እንቅስቃሴ\s*ቁጥርዎ\s*([A-Z0-9]{8,12})\s*ነዉ',
-            r'ቁጥርዎ\s*([A-Z0-9]{8,12})\s*ነዉ',
             r'transaction\s*(?:No|ID|#)?[:\s]*([A-Z0-9]{8,12})',
             r'TX\s*(?:No|ID|#)?[:\s]*([A-Z0-9]{8,12})',
             r'(\b[A-Z0-9]{8,12}\b)',
@@ -328,21 +326,30 @@ class TelebirrScraper:
             return False
         return True
     
-    def extract_amount(self, sms_text: str):
-        """Extract amount from SMS"""
+    def extract_info_from_sms(self, sms_text: str):
+        result = {
+            'transaction_id': None,
+            'amount': None,
+            'receiver_name': None,
+            'receiver_phone': None,
+            'extracted': False
+        }
+        
         if not sms_text or sms_text == "WITHDRAW":
-            return None
+            return result
             
         sms_text = sms_text.replace('\n', ' ').replace('\r', ' ')
         sms_text = ' '.join(sms_text.split())
         
+        # Extract transaction ID
+        result['transaction_id'] = self.extract_transaction_id(sms_text)
+        
+        # Extract amount - SIMPLE PATTERNS THAT WORK
         amount_patterns = [
-            r'([\d,]+\.?\d*)\s*ብር\s*ልከዋል',
-            r'([\d,]+\.?\d*)\s*ብር',
             r'ETB\s*([\d,]+\.?\d*)',
+            r'ብር\s*([\d,]+\.?\d*)',
             r'BIRR\s*([\d,]+\.?\d*)',
-            r'Amount\s*[:\s]*([\d,]+\.?\d*)',
-            r'([\d,]+\.\d{2})',
+            r'([\d,]+\.?\d{2})\s*(?:ETB|ብር|BIRR)?'
         ]
         
         for pattern in amount_patterns:
@@ -354,38 +361,51 @@ class TelebirrScraper:
                     try:
                         amount_str = str(match).replace(',', '')
                         amount_float = float(amount_str)
-                        if 1 <= amount_float <= 100000:
-                            return amount_float
+                        if amount_float > 0.1:
+                            result['amount'] = amount_float
+                            break
                     except ValueError:
                         continue
         
-        return None
-    
-    def extract_info_from_sms(self, sms_text: str):
-        """Extract all info from SMS"""
-        result = {
-            'transaction_id': None,
-            'amount': None,
-            'extracted': False
-        }
+        # Extract phone number - SIMPLE PATTERNS THAT WORK
+        phone_patterns = [
+            r'to\s+[^\(]*\((\+?2519\d{8}|09\d{8}|2519\*\*\*\*\d{4})\)',
+            r'receiver\s*[:\s]*(\+?2519\d{8}|09\d{8}|2519\*\*\*\*\d{4})',
+            r'(\+2519\d{8})',
+            r'(09\d{8})',
+        ]
         
-        if not sms_text or sms_text == "WITHDRAW":
-            return result
-            
-        sms_text = sms_text.replace('\n', ' ').replace('\r', ' ')
-        sms_text = ' '.join(sms_text.split())
+        for pattern in phone_patterns:
+            match = re.search(pattern, sms_text, re.IGNORECASE)
+            if match:
+                phone = match.group(1).strip()
+                if '****' in phone:
+                    result['receiver_phone'] = phone
+                elif '2519' in phone or '09' in phone:
+                    if phone.startswith('09'):
+                        phone = '+251' + phone[1:]
+                    elif phone.startswith('251'):
+                        phone = '+' + phone
+                    elif not phone.startswith('+'):
+                        phone = '+251' + phone[-9:] if len(phone) >= 9 else phone
+                    result['receiver_phone'] = phone
+                break
         
-        result['transaction_id'] = self.extract_transaction_id(sms_text)
-        result['amount'] = self.extract_amount(sms_text)
+        # For your specific SMS format, also try to extract phone from the name pattern
+        if not result['receiver_phone']:
+            # Look for phone in format (2519****4729)
+            phone_match = re.search(r'\((\+?2519\*\*\*\*\d{4})\)', sms_text)
+            if phone_match:
+                result['receiver_phone'] = phone_match.group(1)
         
         result['extracted'] = all([
             result['transaction_id'] is not None,
-            result['amount'] is not None
+            result['amount'] is not None,
+            result['receiver_phone'] is not None
         ])
         
         logger.info(f"Telebirr SMS Extraction Result: {result}")
         return result
-
 
 # ==================== ENHANCED PAYMENT VALIDATOR ====================
 class EnhancedPaymentValidator:
