@@ -95,7 +95,7 @@ dp = None
 
 # ==================== PAYMENT CONFIGURATION ====================
 PAYMENT_PHONE_NUMBER = "+251973930163"
-PAYMENT_RECEIVER_NAME = "dagmawi"
+PAYMENT_RECEIVER_NAME = "Dagmawi"
 SUPPORT_TELEGRAM_USER = "@Hasetbingosupport"
 
 # API URLs and keys (will be loaded from config)
