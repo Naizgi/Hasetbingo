@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
-Haset Bingo Bot - Round-Based Game Only
-Enhanced with Telebirr/CBE verification, fraud prevention, and Amharic support
+Haset Bingo Bot - Simplified Version
+Only: User Registration, Deposit with Verification, and Balance Check
+No admin commands or functions
 """
 
 import asyncio
@@ -10,7 +11,6 @@ import sys
 import os
 import signal
 import time
-import random
 import hashlib
 import json
 import re
@@ -86,18 +86,14 @@ root_logger.addHandler(file_handler)
 logger = logging.getLogger(__name__)
 
 # ==================== GLOBAL VARIABLES ====================
-runner = None
 shutting_down = False
-restart_flag = False
 aiohttp_session = None
 main_task = None
-game_manager = None
 enhanced_payment_validator = None
 bot = None
 dp = None
 
 # ==================== PAYMENT CONFIGURATION ====================
-MINIMUM_WITHDRAWAL_AMOUNT = 100.00
 PAYMENT_PHONE_NUMBER = "+251989929742"
 PAYMENT_RECEIVER_NAME = "Nebiyu Asefa"
 SUPPORT_TELEGRAM_USER = "@Hasetbingosupport"
@@ -106,8 +102,6 @@ SUPPORT_TELEGRAM_USER = "@Hasetbingosupport"
 TELEBIRR_VERIFICATION_API_URL = "http://verifyapi.leulzenebe.pro/verify-telebirr"
 TELEBIRR_VERIFICATION_API_URL_2 = "https://www.verify.openmella.com.et/verify-telebirr"
 TELEBIRR_API_KEY = ""
-CBE_BIRR_VERIFICATION_API_URL = "https://verifyapi.leulzenebe.pro/verify-cbebirr"
-CBE_BIRR_API_KEY = ""
 
 # ==================== API CLIENTS ====================
 class TelebirrVerificationApiClient:
@@ -232,7 +226,7 @@ class TelebirrVerificationApiClient:
         return None
     
     def _process_response(self, api_data: dict, transaction_id: str):
-        """Process API response for bot use - FIXED to use settledAmount"""
+        """Process API response for bot use"""
         if not api_data:
             return None
             
@@ -305,156 +299,8 @@ class TelebirrVerificationApiClient:
         
         return result
 
-class CbeBirrVerificationApiClient:
-    """Client for CBE Birr verification API"""
-    
-    def __init__(self, api_url: str = CBE_BIRR_VERIFICATION_API_URL, api_key: str = ""):
-        self.api_url = api_url
-        self.api_key = api_key
-        self.timeout = 30
-        self._session = None
-        
-    async def _ensure_session(self):
-        """Ensure we have an aiohttp session"""
-        if self._session is None or self._session.closed:
-            self._session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=self.timeout))
-        
-    async def close(self):
-        """Close the aiohttp session"""
-        if self._session and not self._session.closed:
-            await self._session.close()
-            self._session = None
-        
-    async def verify_transaction(self, receipt_number: str, phone_number: str):
-        """Verify transaction through CBE Birr verification API"""
-        if not receipt_number or receipt_number == "WITHDRAW":
-            logger.error(f"Invalid receipt number for CBE Birr API: {receipt_number}")
-            return None
-            
-        try:
-            await self._ensure_session()
-            logger.info(f"🔍 Calling CBE Birr verification API for receipt: {receipt_number}")
-            logger.info(f"📱 Phone number sent to API: {phone_number}")
-            
-            headers = {
-                "Content-Type": "application/json",
-                "x-api-key": self.api_key
-            }
-            
-            phone_clean = re.sub(r'[^\d]', '', phone_number)
-            if phone_clean.startswith('0'):
-                phone_clean = '251' + phone_clean[1:]
-            elif phone_clean.startswith('+251'):
-                phone_clean = phone_clean[1:]
-            
-            if len(phone_clean) != 12 or not phone_clean.startswith('251'):
-                logger.error(f"Invalid phone format after cleaning: {phone_clean}")
-                return None
-            
-            payload = {
-                "receiptNumber": receipt_number,
-                "phoneNumber": phone_clean
-            }
-            
-            logger.info(f"📦 API Payload: {payload}")
-            
-            async with self._session.post(self.api_url, headers=headers, json=payload) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    logger.info(f"✅ CBE Birr API response received. Status: {data.get('transactionStatus', 'Unknown')}")
-                    return self._process_response(data, receipt_number)
-                else:
-                    error_text = await response.text()
-                    logger.error(f"CBE Birr API Error {response.status}: {error_text}")
-                    return None
-                    
-        except asyncio.TimeoutError:
-            logger.error(f"Timeout verifying CBE Birr receipt {receipt_number}")
-            return None
-        except Exception as e:
-            logger.error(f"Error calling CBE Birr API: {e}")
-            return None
-    
-    def _process_response(self, api_data: dict, receipt_number: str):
-        """Process API response for bot use - UPDATED FOR NEW STRUCTURE"""
-        if not api_data:
-            return None
-            
-        transaction_status = api_data.get('transactionStatus', 'Unknown')
-        
-        amount = 0.0
-        amount_str = api_data.get('amount', '0.00') or api_data.get('paidAmount', '0.00')
-        if amount_str:
-            try:
-                amount_str_clean = re.sub(r'[^\d.]', '', amount_str)
-                amount = float(amount_str_clean)
-            except ValueError:
-                amount = 0.0
-        
-        credit_account = api_data.get('creditAccount', '')
-        receiver_name = api_data.get('receiverName', '')
-        customer_name = api_data.get('customerName', '')
-        
-        phone_match = False
-        phone_number = ""
-        
-        if credit_account and ' - ' in credit_account:
-            possible_phone = credit_account.split(' - ')[0].strip()
-            phone_number = re.sub(r'[^\d]', '', possible_phone)
-        
-        if not phone_number and receiver_name:
-            match = re.search(r'(\d{12})', receiver_name)
-            if match:
-                phone_number = match.group(1)
-        
-        admin_digits = re.sub(r'[^\d]', '', PAYMENT_PHONE_NUMBER)
-        if phone_number and admin_digits and len(phone_number) >= 12:
-            if phone_number[-9:] == admin_digits[-9:]:
-                phone_match = True
-        
-        name_match = False
-        name_to_check = ""
-        
-        if customer_name:
-            name_to_check = customer_name
-        elif receiver_name:
-            name_to_check = re.sub(r'\d{12}\s*-\s*', '', receiver_name).strip()
-        
-        if name_to_check and PAYMENT_RECEIVER_NAME:
-            receiver_name_norm = ' '.join(name_to_check.lower().split())
-            payment_name_norm = ' '.join(PAYMENT_RECEIVER_NAME.lower().split())
-            
-            if (payment_name_norm in receiver_name_norm or 
-                receiver_name_norm in payment_name_norm):
-                name_match = True
-        
-        result = {
-            'success': transaction_status == 'Completed',
-            'transaction_status': transaction_status,
-            'receipt_number': receipt_number,
-            'amount': amount,
-            'credit_account': credit_account,
-            'receiver_name': receiver_name,
-            'customer_name': customer_name,
-            'phone_match': phone_match,
-            'name_match': name_match,
-            'phone_number': phone_number,
-            'raw_data': api_data
-        }
-        
-        result['is_valid'] = (
-            result['success'] and
-            result.get('amount', 0) > 0 and
-            result.get('phone_match') == True and
-            result.get('transaction_status') == 'Completed'
-        )
-        
-        return result
-
-# ==================== ENHANCED SMS SCRAPERS WITH AMHARIC & OROMIFA SUPPORT ====================
-
 class TelebirrScraper:
-    """SMS scraper for Ethio telecom receipts - Enhanced with Amharic & Oromifa support"""
+    """SMS scraper for Ethio telecom receipts"""
     
     def extract_transaction_id(self, sms_text: str):
         """Extract transaction ID from SMS"""
@@ -464,20 +310,11 @@ class TelebirrScraper:
         sms_text = sms_text.replace('\n', ' ').replace('\r', ' ')
         sms_text = ' '.join(sms_text.split())
         
-        # Your specific pattern - from the example
-        # "የሂሳብ እንቅስቃሴ ቁጥርዎ DC12B3F6J8 ነዉ"
-        # Also the URL: https://transactioninfo.ethiotelecom.et/receipt/DC12B3F6J8
-        
         patterns = [
-            # From URL - most reliable
             r'transactioninfo\.ethiotelecom\.et/receipt/([A-Z0-9]+)',
             r'receipt/([A-Z0-9]+)',
-            
-            # Amharic pattern - የሂሳብ እንቅስቃሴ ቁጥርዎ XXXX ነዉ
             r'የሂሳብ\s*እንቅስቃሴ\s*ቁጥርዎ\s*([A-Z0-9]{8,12})\s*ነዉ',
             r'ቁጥርዎ\s*([A-Z0-9]{8,12})\s*ነዉ',
-            
-            # English patterns
             r'transaction\s*(?:No|ID|#)?[:\s]*([A-Z0-9]{8,12})',
             r'TX\s*(?:No|ID|#)?[:\s]*([A-Z0-9]{8,12})',
             r'(\b[A-Z0-9]{8,12}\b)',
@@ -497,7 +334,6 @@ class TelebirrScraper:
             return False
         if not re.match(r'^[A-Z0-9]+$', tx_id):
             return False
-        # Transaction IDs usually have both letters and numbers
         if tx_id.isdigit():
             return False
         if not re.search(r'[A-Z]', tx_id):
@@ -505,32 +341,19 @@ class TelebirrScraper:
         return True
     
     def extract_amount(self, sms_text: str):
-        """Extract amount with Amharic support - specifically for your format"""
+        """Extract amount from SMS"""
         if not sms_text or sms_text == "WITHDRAW":
             return None
             
         sms_text = sms_text.replace('\n', ' ').replace('\r', ' ')
         sms_text = ' '.join(sms_text.split())
         
-        # Your specific pattern: "ወደ YITBAREK AMARE(0938****89) 5.00 ብር ልከዋል"
-        # Look for number before "ብር"
-        
         amount_patterns = [
-            # Your specific Amharic pattern - number before ብር
             r'([\d,]+\.?\d*)\s*ብር\s*ልከዋል',
             r'([\d,]+\.?\d*)\s*ብር',
-            
-            # English patterns
             r'ETB\s*([\d,]+\.?\d*)',
             r'BIRR\s*([\d,]+\.?\d*)',
             r'Amount\s*[:\s]*([\d,]+\.?\d*)',
-            r'([\d,]+\.?\d{2})\s*(?:ETB|BIRR)',
-            
-            # Oromifa patterns
-            r'Qarshii\s*([\d,]+\.?\d*)',
-            r'([\d,]+\.?\d{2})\s*(?:Qarshii|Birrii)',
-            
-            # Generic number pattern (as fallback)
             r'([\d,]+\.\d{2})',
         ]
         
@@ -543,7 +366,6 @@ class TelebirrScraper:
                     try:
                         amount_str = str(match).replace(',', '')
                         amount_float = float(amount_str)
-                        # Validate reasonable amount (between 1 and 100,000)
                         if 1 <= amount_float <= 100000:
                             return amount_float
                     except ValueError:
@@ -551,123 +373,11 @@ class TelebirrScraper:
         
         return None
     
-    def extract_phone_number(self, sms_text: str):
-        """Extract phone number from SMS - handles your masked format"""
-        if not sms_text or sms_text == "WITHDRAW":
-            return None
-            
-        sms_text = sms_text.replace('\n', ' ').replace('\r', ' ')
-        sms_text = ' '.join(sms_text.split())
-        
-        # Your specific pattern: "ወደ YITBAREK AMARE(0938****89)"
-        # Look for phone in parentheses
-        
-        phone_patterns = [
-            # Your specific Amharic pattern - phone in parentheses
-            r'\((\+?2519\*\*\*\*\d{2,4})\)',
-            r'\((\+?2519\d{4}\*\*\*\*\d{2,4})\)',
-            r'\((\+?2519\d{8})\)',
-            r'\((\+?251\d{9})\)',
-            r'\((\+?2519\*\*\*\*\d{2,4})\)',
-            r'\((\+?2519\d{4}\*\*\*\*\d{2,4})\)',
-            
-            # Standard patterns
-            r'to\s+[^\(]*\((\+?2519\*\*\*\*\d{4})\)',
-            r'receiver\s*[:\s]*\((\+?2519\*\*\*\*\d{4})\)',
-            r'(\+2519\d{8})',
-            r'(2519\d{8})',
-            r'(09\d{8})',
-            
-            # Amharic patterns
-            r'ስልክ\s*[:\s]*(\+?2519\d{8}|09\d{8})',
-            r'ስልክ\s*[:\s]*\((\+?2519\d{4}\*\*\*\*\d{4})\)',
-            
-            # Oromifa patterns
-            r'bilbilaa\s*[:\s]*(\+?2519\d{8}|09\d{8})',
-        ]
-        
-        for pattern in phone_patterns:
-            match = re.search(pattern, sms_text, re.IGNORECASE)
-            if match:
-                phone = match.group(1).strip()
-                return self._format_phone_number(phone)
-        
-        return None
-    
-    def extract_receiver_name(self, sms_text: str):
-        """Extract receiver name from SMS - handles your format"""
-        if not sms_text or sms_text == "WITHDRAW":
-            return None
-            
-        sms_text = sms_text.replace('\n', ' ').replace('\r', ' ')
-        sms_text = ' '.join(sms_text.split())
-        
-        # Your specific pattern: "ወደ YITBAREK AMARE(0938****89)"
-        # Name before the parentheses
-        
-        name_patterns = [
-            # Your specific Amharic pattern - after ወደ and before (
-            r'ወደ\s+([A-Za-zሀ-ፐ\s]+?)\(',
-            r'ወደ\s+([A-Za-zሀ-ፐ\s]+?)(?:\s+\(|\s*$)',
-            
-            # English patterns
-            r'to\s+([A-Za-z\s]+?)(?:\s+\(|\s+on|\s*[,.]|\s+at|$)',
-            r'receiver\s*[:\s]*([A-Za-z\s]+?)(?:\s+[,.]|\s*$|\.)',
-            
-            # Amharic patterns
-            r'ለ\s+([ሀ-ፐ\s]+?)(?:\s+በ|\s*[,.]|\s*$|\))',
-            r'ተቀባይ\s*[:\s]*([ሀ-ፐ\s]+?)(?:\s+[,.]|\s*$|\))',
-            
-            # Oromifa patterns
-            r'gara\s+([A-Za-zሀ-ፐ\s]+?)(?:\s+\(|\s+irratti|\s*[,.]|\s*$)',
-            r'fudhataa\s*[:\s]*([A-Za-zሀ-ፐ\s]+?)(?:\s+[,.]|\s*$|\))',
-        ]
-        
-        for pattern in name_patterns:
-            match = re.search(pattern, sms_text, re.IGNORECASE)
-            if match:
-                name = match.group(1).strip()
-                # Clean up name (remove extra spaces, etc.)
-                name = re.sub(r'\s+', ' ', name)
-                if len(name) > 2 and not name.isdigit():
-                    return name
-        
-        return None
-    
-    def _format_phone_number(self, phone: str):
-        """Format phone number to standard format - preserves masked format"""
-        if not phone:
-            return None
-            
-        # If it's already masked, keep it as is for display
-        if '****' in phone:
-            # Ensure it has +251 prefix if missing
-            if not phone.startswith('+') and not phone.startswith('0'):
-                return '+251' + phone
-            return phone
-            
-        # Remove non-digits
-        phone_clean = re.sub(r'[^\d]', '', phone)
-        
-        # Format to +251XXXXXXXXX
-        if phone_clean.startswith('09') and len(phone_clean) == 10:
-            return '+251' + phone_clean[1:]
-        elif phone_clean.startswith('251') and len(phone_clean) == 12:
-            return '+' + phone_clean
-        elif phone_clean.startswith('0') and len(phone_clean) == 10:
-            return '+251' + phone_clean[1:]
-        elif len(phone_clean) == 9:
-            return '+251' + phone_clean
-        
-        return phone
-    
     def extract_info_from_sms(self, sms_text: str):
-        """Extract all info from SMS with multilingual support"""
+        """Extract all info from SMS"""
         result = {
             'transaction_id': None,
             'amount': None,
-            'receiver_name': None,
-            'receiver_phone': None,
             'extracted': False
         }
         
@@ -677,27 +387,18 @@ class TelebirrScraper:
         sms_text = sms_text.replace('\n', ' ').replace('\r', ' ')
         sms_text = ' '.join(sms_text.split())
         
-        # Extract transaction ID
         result['transaction_id'] = self.extract_transaction_id(sms_text)
-        
-        # Extract amount
         result['amount'] = self.extract_amount(sms_text)
         
-        # Extract phone number
-        result['receiver_phone'] = self.extract_phone_number(sms_text)
-        
-        # Extract receiver name
-        result['receiver_name'] = self.extract_receiver_name(sms_text)
-        
-        # Check if extraction was successful
         result['extracted'] = all([
             result['transaction_id'] is not None,
-            result['amount'] is not None,
-            result['receiver_phone'] is not None
+            result['amount'] is not None
         ])
         
         logger.info(f"Telebirr SMS Extraction Result: {result}")
         return result
+
+
 # ==================== ENHANCED PAYMENT VALIDATOR ====================
 class EnhancedPaymentValidator:
     """Enhanced validator with SMS parsing and API verification"""
@@ -707,35 +408,24 @@ class EnhancedPaymentValidator:
         self.admin_name = admin_name or PAYMENT_RECEIVER_NAME
         self.admin_phone_digits = re.sub(r'[^\d]', '', admin_phone)
         self.telebirr_scraper = TelebirrScraper()
-        self.cbebirr_scraper = CbeBirrScraper()
         self.telebirr_client = None
-        self.cbebirr_client = None
         
         logger.info("✅ Payment verification API clients initialized")
     
-    async def initialize_clients(self, telebirr_api_key: str = "", cbebirr_api_key: str = ""):
+    async def initialize_clients(self, telebirr_api_key: str = ""):
         """Initialize API clients with proper session management"""
         self.telebirr_client = TelebirrVerificationApiClient(
             api_url=TELEBIRR_VERIFICATION_API_URL,
             api_key=telebirr_api_key
         )
         
-        self.cbebirr_client = CbeBirrVerificationApiClient(
-            api_url=CBE_BIRR_VERIFICATION_API_URL,
-            api_key=cbebirr_api_key
-        )
-        
         if telebirr_api_key:
             await self.telebirr_client._ensure_session()
-        if cbebirr_api_key:
-            await self.cbebirr_client._ensure_session()
     
     async def close(self):
         """Close all API client sessions"""
         if self.telebirr_client:
             await self.telebirr_client.close()
-        if self.cbebirr_client:
-            await self.cbebirr_client.close()
     
     def calculate_sms_hash(self, sms_text: str) -> str:
         """Create unique hash of SMS to prevent reuse"""
@@ -821,7 +511,6 @@ class EnhancedPaymentValidator:
             if not self.telebirr_client:
                 return False, None, ["Telebirr client not initialized"]
             
-            # Use the verify_transaction method that tries both APIs with fallback
             api_result = await self.telebirr_client.verify_transaction(sms_info['transaction_id'])
             
             if not api_result:
@@ -858,405 +547,18 @@ class EnhancedPaymentValidator:
         except Exception as e:
             logger.error(f"Telebirr verification error: {e}", exc_info=True)
             return False, None, [f"Verification error: {str(e)}"]
-    
-    async def verify_cbebirr_transaction(self, sms_text: str):
-        """Verify CBE Birr transaction - UPDATED"""
-        try:
-            if not sms_text or sms_text == "WITHDRAW":
-                return False, None, ["Invalid SMS text provided"]
-                
-            sms_info = self.cbebirr_scraper.extract_info_from_sms(sms_text)
-            
-            logger.info(f"CBE Birr SMS info extracted: {sms_info}")
-            
-            if not sms_info['extracted']:
-                receipt_no = self.cbebirr_scraper.extract_receipt_number(sms_text)
-                if not receipt_no:
-                    return False, None, ["Failed to extract receipt number from SMS"]
-                
-                sms_info['receipt_number'] = receipt_no
-                sms_info['phone_number'] = self.cbebirr_scraper.extract_phone_number(sms_text)
-                sms_info['amount'] = self.cbebirr_scraper.extract_amount(sms_text)
-            
-            if not sms_info.get('receipt_number'):
-                return False, None, ["Receipt number not found in SMS"]
-                
-            if not sms_info.get('phone_number'):
-                logger.error(f"No phone number extracted from SMS: {sms_text[:100]}...")
-                return False, None, ["Phone number not found in SMS"]
-            
-            sms_hash = self.calculate_sms_hash(sms_text)
-            is_duplicate = await self.check_duplicate_transaction(sms_info['receipt_number'], sms_hash, 'CBE Birr')
-            
-            if is_duplicate:
-                return False, None, ["This transaction has already been used"]
-            
-            if not self.cbebirr_client:
-                return False, None, ["CBE Birr client not initialized"]
-            
-            api_result = await self.cbebirr_client.verify_transaction(
-                sms_info['receipt_number'], 
-                sms_info['phone_number']
-            )
-            
-            if not api_result:
-                return False, None, ["Failed to verify transaction via CBE Birr API"]
-            
-            if not api_result.get('success', False):
-                return False, None, ["Transaction verification failed"]
-            
-            errors = []
-            api_amount = api_result.get('amount')
-            
-            if api_amount is None or api_amount <= 0:
-                errors.append("No valid amount found in receipt")
-            elif sms_info.get('amount'):
-                sms_amount = sms_info['amount']
-                max_allowed_difference = 2.0
-                if abs(sms_amount - api_amount) > max_allowed_difference:
-                    errors.append(f"Amount mismatch (SMS: {sms_amount:.2f} vs API: {api_amount:.2f})")
-            
-            if not api_result.get('is_valid', False):
-                if not api_result.get('phone_match'):
-                    errors.append(f"Payment phone not found in receipt. Expected: {PAYMENT_PHONE_NUMBER}")
-                else:
-                    errors.append("Transaction not valid")
-            
-            if api_result.get('transaction_status') != 'Completed':
-                errors.append("Transaction status is not completed")
-            
-            if sms_info.get('receiver_name') and api_result.get('customer_name'):
-                receiver_name_norm = ' '.join(sms_info['receiver_name'].lower().split())
-                customer_name_norm = ' '.join(api_result['customer_name'].lower().split())
-                payment_name_norm = ' '.join(PAYMENT_RECEIVER_NAME.lower().split())
-                
-                name_matches = (
-                    payment_name_norm in customer_name_norm or 
-                    customer_name_norm in payment_name_norm or
-                    payment_name_norm in receiver_name_norm or
-                    receiver_name_norm in payment_name_norm
-                )
-                
-                if not name_matches:
-                    errors.append(f"Receiver name mismatch. Expected: {PAYMENT_RECEIVER_NAME}")
-            
-            if errors:
-                return False, api_amount, errors
-            else:
-                return True, api_amount, []
-            
-        except Exception as e:
-            logger.error(f"CBE Birr verification error: {e}", exc_info=True)
-            return False, None, [f"Verification error: {str(e)}"]
-        
-        
-        
-        
-        
-        # ==================== ENHANCED CBE BIRR SCRAPER WITH AMHARIC & OROMIFA SUPPORT ====================
 
-class CbeBirrScraper:
-    """SMS scraper for CBE Birr receipts - Enhanced with Amharic & Oromifa support"""
-    
-    def extract_receipt_number(self, sms_text: str):
-        """Extract receipt/transaction number from SMS"""
-        if not sms_text or sms_text == "WITHDRAW":
-            return None
-            
-        sms_text = sms_text.replace('\n', ' ').replace('\r', ' ')
-        sms_text = ' '.join(sms_text.split())
-        
-        # Receipt number patterns (mostly alphanumeric)
-        patterns = [
-            # English patterns
-            r'Txn\s*ID\s*([A-Z0-9]{10,15})',
-            r'Receipt\s*(?:No|Number|#)?[:\s]*([A-Z0-9]{8,15})',
-            r'receipt\s*(?:No|Number|#)?[:\s]*([A-Z0-9]{8,15})',
-            r'Ref\s*(?:No|Number|#)?[:\s]*([A-Z0-9]{8,15})',
-            r'Transaction\s*(?:ID|No)?[:\s]*([A-Z0-9]{8,15})',
-            r'(\b[A-Z0-9]{10,15}\b)',
-            
-            # Amharic patterns
-            r'የግብይት\s*ቁጥር\s*([A-Z0-9]{8,15})',
-            r'ደረሳኝ\s*(?:ቁጥር)?[:\s]*([A-Z0-9]{8,15})',
-            r'ማጣቀሻ\s*(?:ቁጥር)?[:\s]*([A-Z0-9]{8,15})',
-            r'የክፍያ\s*ማረጋገጫ\s*([A-Z0-9]{8,15})',
-            
-            # Oromifa patterns
-            r'Lakkoofsa\s*Tiraanzaakshinii\s*([A-Z0-9]{8,15})',
-            r'lakkoofsa\s*[:\s]*([A-Z0-9]{8,15})',
-            r'ref\s*[:\s]*([A-Z0-9]{8,15})',
-        ]
-        
-        for pattern in patterns:
-            match = re.search(pattern, sms_text, re.IGNORECASE)
-            if match:
-                receipt_no = match.group(1).strip().upper()
-                if self.validate_receipt_number(receipt_no):
-                    return receipt_no
-        
-        return None
-    
-    def validate_receipt_number(self, receipt_no: str):
-        if not receipt_no or len(receipt_no) < 8:
-            return False
-        if not re.match(r'^[A-Z0-9]+$', receipt_no):
-            return False
-        return True
-    
-    def extract_phone_number(self, sms_text: str):
-        """Extract phone number from SMS with multilingual support"""
-        if not sms_text or sms_text == "WITHDRAW":
-            return None
-            
-        sms_text = sms_text.replace('\n', ' ').replace('\r', ' ')
-        sms_text = ' '.join(sms_text.split())
-        
-        # Phone patterns with language support
-        phone_patterns = [
-            # Standard patterns
-            r'PH=(\d{12})',
-            r'Phone\s*(?:No|Number)?[:\s]*(\+?251\d{9})',
-            r'phone\s*(?:No|Number)?[:\s]*(\+?251\d{9})',
-            r'(\+251\d{9})',
-            r'(09\d{8})',
-            r'(251\d{9})',
-            
-            # Amharic patterns
-            r'ስልክ\s*(?:ቁጥር)?[:\s]*(\+?251\d{9}|09\d{8})',
-            r'ስ.ቁ\s*[:\s]*(\+?251\d{9}|09\d{8})',
-            r'ተንቀሳቃሽ\s*ስልክ\s*[:\s]*(\+?251\d{9}|09\d{8})',
-            
-            # Oromifa patterns
-            r'bilbilaa\s*(?:lakkoofsa)?[:\s]*(\+?251\d{9}|09\d{8})',
-            r'lakkoofsa\s*bilbilaa\s*[:\s]*(\+?251\d{9}|09\d{8})',
-            r'mobayilii\s*[:\s]*(\+?251\d{9}|09\d{8})',
-        ]
-        
-        for pattern in phone_patterns:
-            match = re.search(pattern, sms_text, re.IGNORECASE)
-            if match:
-                phone = match.group(1).strip()
-                return self._format_phone_number(phone)
-        
-        logger.warning(f"No valid phone number found in SMS: {sms_text[:100]}...")
-        return None
-    
-    def extract_amount(self, sms_text: str):
-        """Extract amount with multilingual support"""
-        if not sms_text or sms_text == "WITHDRAW":
-            return None
-            
-        sms_text = sms_text.replace('\n', ' ').replace('\r', ' ')
-        sms_text = ' '.join(sms_text.split())
-        
-        # Multilingual amount patterns
-        amount_patterns = [
-            # English patterns
-            r'sent\s*([\d,]+\.?\d*)\s*Br',
-            r'Amount\s*[:\s]*([\d,]+\.?\d*)',
-            r'amount\s*[:\s]*([\d,]+\.?\d*)',
-            r'ETB\s*([\d,]+\.?\d*)',
-            r'([\d,]+\.\d{2})\s*(?:ETB|BIRR|Br)',
-            r'([\d,]+)\s*(?:ETB|BIRR|Br)',
-            
-            # Amharic patterns
-            r'ተልኳል\s*([\d,]+\.?\d*)\s*ብር',
-            r'ተልክዋል\s*([\d,]+\.?\d*)\s*ብር',
-            r'መጠን\s*[:\s]*([\d,]+\.?\d*)',
-            r'([\d,]+\.?\d{2})\s*ብር',
-            r'([\d,]+)\s*ብር',
-            
-            # Oromifa patterns
-            r'ergame\s*([\d,]+\.?\d*)\s*(?:Qarshii|Birrii)',
-            r'ergamte\s*([\d,]+\.?\d*)\s*(?:Qarshii|Birrii)',
-            r'hangam\s*[:\s]*([\d,]+\.?\d*)',
-            r'maallaqa\s*[:\s]*([\d,]+\.?\d*)',
-            r'([\d,]+\.?\d{2})\s*(?:Qarshii|Birrii)',
-            r'Qarshii\s*([\d,]+\.?\d*)',
-            r'Birrii\s*([\d,]+\.?\d*)',
-        ]
-        
-        for pattern in amount_patterns:
-            matches = re.findall(pattern, sms_text, re.IGNORECASE)
-            if matches:
-                for match in matches:
-                    if isinstance(match, tuple):
-                        match = match[0]
-                    try:
-                        amount_str = str(match).replace(',', '')
-                        amount_float = float(amount_str)
-                        # Validate reasonable amount (between 1 and 100,000)
-                        if 1 <= amount_float <= 100000:
-                            return amount_float
-                    except ValueError:
-                        continue
-        
-        return None
-    
-    def extract_receiver_name(self, sms_text: str):
-        """Extract receiver name with multilingual support"""
-        if not sms_text or sms_text == "WITHDRAW":
-            return None
-            
-        sms_text = sms_text.replace('\n', ' ').replace('\r', ' ')
-        sms_text = ' '.join(sms_text.split())
-        
-        # Name patterns in multiple languages
-        name_patterns = [
-            # English patterns
-            r'to\s+([A-Za-z\s]+?)(?:\s+on\s+|\s*,\s*|\.|$)',
-            r'for\s+([A-Za-z\s]+?)(?:\s+on\s+|\s*,\s*|\.|$)',
-            r'Receiver\s*[:\s]*([A-Za-z\s]+?)(?:\s*[,.]|\s*$)',
-            r'Beneficiary\s*[:\s]*([A-Za-z\s]+?)(?:\s*[,.]|\s*$)',
-            
-            # Amharic patterns
-            r'ለ\s+([ሀ-ፐ\s]+?)(?:\s+በ\s+|\s*[,.]|\s*$|\))',
-            r'ወደ\s+([ሀ-ፐ\s]+?)(?:\s+በ\s+|\s*[,.]|\s*$|\))',
-            r'ተቀባይ\s*[:\s]*([ሀ-ፐ\s]+?)(?:\s*[,.]|\s*$|\))',
-            r'ለሚከተለው\s+([ሀ-ፐ\s]+?)(?:\s*[,.]|\s*$)',
-            
-            # Oromifa patterns
-            r'gara\s+([A-Za-zሀ-ፐ\s]+?)(?:\s+irratti|\s*[,.]|\s*$|\))',
-            r'fudhataa\s*[:\s]*([A-Za-zሀ-ፐ\s]+?)(?:\s*[,.]|\s*$|\))',
-            r'maqaa\s*[:\s]*([A-Za-zሀ-ፐ\s]+?)(?:\s*[,.]|\s*$|\))',
-            r'kan\s+([A-Za-zሀ-ፐ\s]+?)(?:\s*[,.]|\s*$)',
-        ]
-        
-        for pattern in name_patterns:
-            match = re.search(pattern, sms_text, re.IGNORECASE)
-            if match:
-                name = match.group(1).strip()
-                # Clean up name
-                name = re.sub(r'\s+', ' ', name)
-                # Remove any trailing punctuation
-                name = re.sub(r'[.,;:\s]+$', '', name)
-                if len(name) > 2 and not name.isdigit():
-                    return name
-        
-        return None
-    
-    def extract_date_time(self, sms_text: str):
-        """Extract transaction date and time"""
-        if not sms_text or sms_text == "WITHDRAW":
-            return None, None
-            
-        sms_text = sms_text.replace('\n', ' ').replace('\r', ' ')
-        sms_text = ' '.join(sms_text.split())
-        
-        # Date patterns
-        date_patterns = [
-            # English patterns
-            r'on\s+(\d{2}[/-]\d{2}[/-]\d{4})',
-            r'date\s*[:\s]*(\d{2}[/-]\d{2}[/-]\d{4})',
-            
-            # Amharic patterns
-            r'በ\s+(\d{2}[/-]\d{2}[/-]\d{4})',
-            r'ቀን\s*[:\s]*(\d{2}[/-]\d{2}[/-]\d{4})',
-            
-            # Oromifa patterns
-            r'guyyaa\s*[:\s]*(\d{2}[/-]\d{2}[/-]\d{4})',
-            r'tti\s+(\d{2}[/-]\d{2}[/-]\d{4})',
-        ]
-        
-        date = None
-        for pattern in date_patterns:
-            match = re.search(pattern, sms_text, re.IGNORECASE)
-            if match:
-                date = match.group(1)
-                break
-        
-        # Time patterns
-        time_patterns = [
-            r'at\s+(\d{2}:\d{2}:\d{2})',
-            r'time\s*[:\s]*(\d{2}:\d{2}:\d{2})',
-            r'(\d{2}:\d{2}:\d{2})',
-            r'በ\s+(\d{2}:\d{2}:\d{2})',
-            r'ሰዓት\s*[:\s]*(\d{2}:\d{2}:\d{2})',
-        ]
-        
-        time = None
-        for pattern in time_patterns:
-            match = re.search(pattern, sms_text, re.IGNORECASE)
-            if match:
-                time = match.group(1)
-                break
-        
-        return date, time
-    
-    def _format_phone_number(self, phone: str):
-        """Format phone number to standard format (251XXXXXXXXX) for API"""
-        if not phone:
-            return None
-        
-        # If it's masked, keep it for display but also try to extract digits
-        if '****' in phone:
-            # Try to get the full number from context if possible
-            # For API, we need the full number, so this might fail
-            # Return as is for now - API might still work with masked?
-            return phone
-            
-        # Remove non-digits
-        phone_clean = re.sub(r'[^\d]', '', phone)
-        
-        # Format to 251XXXXXXXXX (12 digits) for API
-        if phone_clean.startswith('09') and len(phone_clean) == 10:
-            return '251' + phone_clean[1:]
-        elif phone_clean.startswith('+251') and len(phone_clean) == 13:
-            return phone_clean[1:]
-        elif phone_clean.startswith('251') and len(phone_clean) == 12:
-            return phone_clean
-        elif len(phone_clean) == 9:
-            return '251' + phone_clean
-        
-        return phone_clean
-    
-    def extract_info_from_sms(self, sms_text: str):
-        """Extract all info from SMS with multilingual support"""
-        result = {
-            'receipt_number': None,
-            'phone_number': None,
-            'amount': None,
-            'receiver_name': None,
-            'date': None,
-            'time': None,
-            'extracted': False
-        }
-        
-        if not sms_text or sms_text == "WITHDRAW":
-            return result
-            
-        sms_text = sms_text.replace('\n', ' ').replace('\r', ' ')
-        sms_text = ' '.join(sms_text.split())
-        
-        # Extract all fields
-        result['receipt_number'] = self.extract_receipt_number(sms_text)
-        result['phone_number'] = self.extract_phone_number(sms_text)
-        result['amount'] = self.extract_amount(sms_text)
-        result['receiver_name'] = self.extract_receiver_name(sms_text)
-        result['date'], result['time'] = self.extract_date_time(sms_text)
-        
-        # Check if extraction was successful (receipt, phone, and amount are essential)
-        result['extracted'] = all([
-            result['receipt_number'] is not None,
-            result['phone_number'] is not None,
-            result['amount'] is not None
-        ])
-        
-        logger.info(f"CBE SMS Extraction Result: {result}")
-        return result
 
 # ==================== SHUTDOWN HANDLERS ====================
 async def enhanced_shutdown(restart: bool = False):
     """Enhanced clean shutdown with optional restart flag"""
-    global shutting_down, main_task, enhanced_payment_validator, restart_flag
+    global shutting_down, main_task, enhanced_payment_validator
     if shutting_down:
         return
     
-    restart_flag = restart
     shutting_down = True
     
-    logger.info(f"Initiating enhanced shutdown... {'(RESTART MODE)' if restart else ''}")
+    logger.info(f"Initiating enhanced shutdown...")
     
     try:
         # Cancel main task
@@ -1272,10 +574,6 @@ async def enhanced_shutdown(restart: bool = False):
             if hasattr(enhanced_payment_validator, 'telebirr_client'):
                 await enhanced_payment_validator.telebirr_client.close()
                 logger.info("✅ Closed Telebirr API client")
-            
-            if hasattr(enhanced_payment_validator, 'cbebirr_client'):
-                await enhanced_payment_validator.cbebirr_client.close()
-                logger.info("✅ Closed CBE Birr API client")
         
         # Stop bot polling
         try:
@@ -1313,11 +611,7 @@ async def enhanced_shutdown(restart: bool = False):
         logger.error(f"Error during enhanced shutdown: {e}")
     finally:
         await asyncio.sleep(1)
-        if restart:
-            logger.info("🔄 Restarting bot...")
-            os.execv(sys.executable, ['python'] + sys.argv)
-        else:
-            os._exit(0)
+        os._exit(0)
 
 def handle_signal(signum, frame):
     """Handle system signals"""
@@ -1329,9 +623,8 @@ currency = None
 
 # ==================== NOTIFICATION FUNCTIONS ====================
 async def send_notification_to_user(user_id: int, message: str) -> bool:
-    """Send a notification message to a user - USING QUEUE SYSTEM"""
+    """Send a notification message to a user"""
     try:
-        # Import the web_server notification queue
         from web_server import notification_queue
         return notification_queue.add_notification(user_id, message)
     except Exception as e:
@@ -1347,8 +640,7 @@ async def notify_deposit_request_submitted(user_id: int, amount: float, payment_
         f"*መጠን:* {amount:.2f} {currency}\n"
         f"*ሁኔታ:* በአስተዳዳሪዎች ፍቃድ በመጠባበቅ ላይ\n\n"
         "✅ የገንዘብ ክፍያ ጥያቄዎ ለአስተዳዳሪዎቻችን ለማረጋገጥ ቀርቧል።\n"
-        "📬 እንዲፈቀድለት ወይም እንዲተው ሲደረግ ማሳወቂያ ይደርስዎታል።\n"
-        "⏰ የማቀነባበሪያ ጊዜ፡ ብዙውን ጊዜ በ24 ሰዓታት ውስጥ\n\n"
+        "📬 እንዲፈቀድለት ወይም እንዲተው ሲደረግ ማሳወቂያ ይደርስዎታል።\n\n"
         "ለትዕግስትዎ እናመሰግናለን! 🎮"
     )
     return await send_notification_to_user(user_id, message)
@@ -1366,27 +658,13 @@ async def notify_deposit_approved(user_id: int, amount: float, payment_id: int):
         f"*💵 መጠን:* {amount:.2f} {currency}\n"
         f"*🏦 አዲስ ቀሪ ሒሳብ:* {new_balance:.2f} {currency}\n\n"
         "🎉 እንኳን ደስ አሎት! የገንዘብ ክፍያዎ ተሰርቶ በቀሪ ሒሳብዎ ላይ ታክሏል።\n"
-        "🎮 አሁን /balance ብለው አዲሱን ቀሪ ሒሳብዎ ለመመልከት እና መጫወት መጀመር ይችላሉ!\n\n"
+        "🎮 አሁን /balance ብለው አዲሱን ቀሪ ሒሳብዎ ለመመልከት ይችላሉ!\n\n"
         "Haset Bingo ስለመረጡዎ እናመሰግናለን! 🎯"
     )
     return await send_notification_to_user(user_id, message)
 
-async def notify_deposit_rejected(user_id: int, amount: float, payment_id: int, reason: str):
-    """Notify user that deposit was rejected"""
-    global currency
-    message = (
-        "*❌ የገንዘብ ክፍያ ተቀብሏል*\n\n"
-        f"*📋 የፒሜንት መታወቂያ:* {payment_id}\n"
-        f"*💵 መጠን:* {amount:.2f} {currency}\n\n"
-        "⚠️ የገንዘብ ክፍያ ጥያቄዎ ተቀብሏል።\n"
-        "🔄 እባክዎ እውነተኛ የቴሌብር ማረጋገጫ SMS ይላኩ።\n\n"
-        "አዲስ የገንዘብ ክፍያ ጥያቄ ለመጨመር በ /deposit መጠቀም ይችላሉ\n"
-        "ወይም ለእርዳታ ድጋፍ ያግኙ።"
-    )
-    return await send_notification_to_user(user_id, message)
-
 async def notify_auto_approved_deposit(user_id: int, amount: float, payment_id: int, transaction_id: str, payment_method: str):
-    """Notify user that deposit was auto-approved - FIXED"""
+    """Notify user that deposit was auto-approved"""
     global currency, enhanced_payment_validator
     from database.db import Database
     user = await Database.get_user(user_id)
@@ -1399,14 +677,13 @@ async def notify_auto_approved_deposit(user_id: int, amount: float, payment_id: 
         f"🔢 *የግብይት መታወቂያ:* {transaction_id[:12]}...\n"
         f"🏦 *አዲስ ቀሪ ሒሳብ:* {new_balance:.2f} {currency}\n\n"
         f"🎉 ገንዘብዎ በቀሪ ሒሳብዎ ላይ ተጨምሯል!\n"
-        f"🚀 አሁን ቢንጎ መጫወት መጀመር ይችላሉ!"
     )
     
     return await send_notification_to_user(user_id, message)
 
 # ==================== PAYMENT DATABASE METHODS ====================
 async def create_payment_request(user_id: int, amount: float, payment_method: str, transaction_proof: str = None) -> int:
-    """Create a payment (deposit) request - FIXED FOREIGN KEY ISSUE"""
+    """Create a payment (deposit) request"""
     try:
         from database.db import Database
         
@@ -1435,8 +712,8 @@ async def create_payment_request(user_id: int, amount: float, payment_method: st
         logger.error(f"Error creating payment request: {e}")
         return 0
 
-async def approve_payment(payment_id: int, admin_id: int) -> bool:
-    """Approve a payment (deposit) request"""
+async def approve_payment(payment_id: int) -> bool:
+    """Approve a payment (deposit) request - auto approval"""
     try:
         from database.db import Database
         
@@ -1458,12 +735,11 @@ async def approve_payment(payment_id: int, admin_id: int) -> bool:
                 UPDATE payments 
                 SET status = 'approved', 
                     processed_at = ?,
-                    processed_by = ?,
-                    admin_notes = 'Approved by admin ' || ?
+                    processed_by = 0,
+                    admin_notes = 'Auto-approved'
                 WHERE id = ?
-            """, (datetime.now(), admin_id, str(admin_id), payment_id))
+            """, (datetime.now(), payment_id))
             
-            # FIXED: Add transaction_type parameter
             await Database.add_user_balance(user_id, amount, 'deposit', f'Payment approved: {payment_id}')
             
             logger.info(f"Payment {payment_id} approved for user {user_id}, amount {amount}")
@@ -1476,46 +752,8 @@ async def approve_payment(payment_id: int, admin_id: int) -> bool:
         logger.error(f"Error approving payment: {e}")
         return False
 
-async def reject_payment(payment_id: int, admin_id: int, reason: str) -> bool:
-    """Reject a payment (deposit) request"""
-    try:
-        from database.db import Database
-        
-        with Database.get_cursor() as cursor:
-            cursor.execute("""
-                SELECT p.* FROM payments p
-                WHERE p.id = ? AND p.status = 'pending'
-            """, (payment_id,))
-            payment = cursor.fetchone()
-            
-            if not payment:
-                return False
-            
-            payment_dict = dict(payment)
-            user_id = payment_dict['user_id']
-            amount = payment_dict['amount']
-            
-            cursor.execute("""
-                UPDATE payments 
-                SET status = 'rejected', 
-                    processed_at = ?,
-                    processed_by = ?,
-                    admin_notes = ?
-                WHERE id = ?
-            """, (datetime.now(), admin_id, f'Rejected by admin {admin_id}: {reason}', payment_id))
-            
-            logger.info(f"Payment {payment_id} rejected")
-            
-            await notify_deposit_rejected(user_id, amount, payment_id, reason)
-            
-            return True
-            
-    except Exception as e:
-        logger.error(f"Error rejecting payment: {e}")
-        return False
-
 async def auto_approve_deposit(user_id: int, payment_id: int, amount: float, transaction_id: str, sms_text: str, api_data: dict = None, payment_method: str = "Telebirr") -> bool:
-    """Auto-approve deposit after successful verification - FIXED FOR DATABASE SCHEMA"""
+    """Auto-approve deposit after successful verification"""
     from database.db import Database
     
     try:
@@ -1543,7 +781,6 @@ async def auto_approve_deposit(user_id: int, payment_id: int, amount: float, tra
             
             api_json = json.dumps(api_data) if api_data else "{}"
             
-            # FIXED: Remove receiver_phone, receiver_name, payment_method - these columns don't exist in schema
             try:
                 cursor.execute("""
                     INSERT INTO telebirr_transactions 
@@ -1566,7 +803,6 @@ async def auto_approve_deposit(user_id: int, payment_id: int, amount: float, tra
             except Exception as db_error:
                 logger.error(f"Failed to insert into telebirr_transactions: {db_error}")
             
-            # FIXED: Add transaction_type parameter
             await Database.add_user_balance(user_id, amount, 'deposit', f'Auto-approved via {payment_method}: {payment_id}')
         
         await notify_auto_approved_deposit(user_id, amount, payment_id, transaction_id, payment_method)
@@ -1578,645 +814,61 @@ async def auto_approve_deposit(user_id: int, payment_id: int, amount: float, tra
         logger.error(f"Error auto-approving deposit: {e}", exc_info=True)
         return False
 
-# ==================== WITHDRAWAL DATABASE METHODS - COMPLETELY FIXED ====================
-async def create_withdrawal_request(user_id: int, amount: float, payment_method: str, full_name: str = None, phone_number: str = None) -> int:
-    """Create a withdrawal request with full name and phone - COMPLETE FIX with all columns"""
-    try:
-        from database.db import Database
-        
-        user = await Database.get_user(user_id)
-        if not user or user.get('balance', 0) < amount:
-            return 0
-        
-        with Database.get_cursor() as cursor:
-            # First, create transaction (THIS ALREADY UPDATES THE BALANCE)
-            transaction_id = await Database.add_transaction(
-                user_id,
-                'withdrawal_request',
-                -amount,
-                f"Withdrawal request via {payment_method} to {phone_number}"
-            )
-            
-            # Create withdrawal request with ALL available columns
-            # Check which columns exist in the table
-            cursor.execute("PRAGMA table_info(withdrawal_requests)")
-            columns = cursor.fetchall()
-            column_names = [col[1] for col in columns]
-            
-            # Build the INSERT statement dynamically based on existing columns
-            if 'full_name' in column_names and 'payment_method' in column_names:
-                # New schema with all columns
-                cursor.execute('''
-                    INSERT INTO withdrawal_requests 
-                    (user_id, amount, phone_number, method, payment_method, full_name, status, transaction_id, requested_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-                ''', (user_id, amount, phone_number, payment_method, payment_method, full_name, 'pending', transaction_id))
-            elif 'full_name' in column_names:
-                # Has full_name but not payment_method
-                cursor.execute('''
-                    INSERT INTO withdrawal_requests 
-                    (user_id, amount, phone_number, method, full_name, status, transaction_id, requested_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
-                ''', (user_id, amount, phone_number, payment_method, full_name, 'pending', transaction_id))
-            elif 'payment_method' in column_names:
-                # Has payment_method but not full_name
-                cursor.execute('''
-                    INSERT INTO withdrawal_requests 
-                    (user_id, amount, phone_number, method, payment_method, status, transaction_id, requested_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
-                ''', (user_id, amount, phone_number, payment_method, payment_method, 'pending', transaction_id))
-            else:
-                # Minimal schema
-                cursor.execute('''
-                    INSERT INTO withdrawal_requests 
-                    (user_id, amount, phone_number, method, status, transaction_id, requested_at)
-                    VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
-                ''', (user_id, amount, phone_number, payment_method, 'pending', transaction_id))
-            
-            withdrawal_id = cursor.lastrowid
-            
-            logger.info(f"Withdrawal request {withdrawal_id} created for user {user_id}, amount {amount}")
-            
-            return withdrawal_id
-            
-    except Exception as e:
-        logger.error(f"Error creating withdrawal request: {e}")
-        import traceback
-        traceback.print_exc()
-        return 0
-
-async def process_withdrawal_request(withdrawal_id: int, admin_id: int, approve: bool = True, reason: str = "") -> bool:
-    """Process a withdrawal request (approve or reject) - COMPLETE FIX"""
-    try:
-        from database.db import Database
-        
-        with Database.get_cursor() as cursor:
-            cursor.execute("""
-                SELECT wr.* FROM withdrawal_requests wr
-                WHERE wr.id = ? AND wr.status = 'pending'
-            """, (withdrawal_id,))
-            withdrawal = cursor.fetchone()
-            
-            if not withdrawal:
-                return False
-            
-            withdrawal_dict = dict(withdrawal)
-            user_id = withdrawal_dict['user_id']
-            amount = withdrawal_dict['amount']
-            payment_method = withdrawal_dict.get('payment_method', withdrawal_dict.get('method', 'Unknown'))
-            phone_number = withdrawal_dict.get('phone_number', 'N/A')
-            full_name = withdrawal_dict.get('full_name', 'N/A')
-            
-            if approve:
-                # APPROVE WITHDRAWAL
-                cursor.execute("""
-                    UPDATE withdrawal_requests 
-                    SET status = 'approved', 
-                        processed_at = ?,
-                        processed_by = ?,
-                        admin_notes = 'Approved by admin ' || ?
-                    WHERE id = ?
-                """, (datetime.now(), admin_id, str(admin_id), withdrawal_id))
-                
-                if cursor.rowcount > 0:
-                    # Record transaction for approved withdrawal
-                    await Database.add_transaction(
-                        user_id,
-                        'withdrawal_approved',
-                        -amount,
-                        f"Withdrawal approved via {payment_method} to {phone_number}"
-                    )
-                    
-                    # Update user's total_withdrawals (if column exists)
-                    try:
-                        cursor.execute("""
-                            UPDATE users 
-                            SET total_withdrawals = COALESCE(total_withdrawals, 0) + ?
-                            WHERE user_id = ?
-                        """, (amount, user_id))
-                    except Exception as column_err:
-                        logger.warning(f"Could not update total_withdrawals: {column_err}")
-                    
-                    logger.info(f"Withdrawal {withdrawal_id} approved by admin {admin_id} for user {user_id}, amount {amount}")
-                    
-                    # Send success notification to user
-                    await send_notification_to_user(user_id, 
-                        f"✅ *የገንዘብ ማውጣት ፈቅዷል!*\n\n"
-                        f"💰 *መጠን:* {amount:.2f} {currency}\n"
-                        f"📋 *የማውጣት መታወቂያ:* {withdrawal_id}\n"
-                        f"🏦 *ዘዴ:* {payment_method}\n"
-                        f"👤 *ስም:* {full_name}\n"
-                        f"📱 *ስልክ:* {phone_number}\n\n"
-                        f"💳 ገንዘብዎ በቅርቡ ይላካል።\n"
-                        f"⏰ በ24 ሰዓታት ውስጥ መቀበል ይጠበቃል።"
-                    )
-                    return True
-            else:
-                # REJECT WITHDRAWAL
-                cursor.execute("""
-                    UPDATE withdrawal_requests 
-                    SET status = 'rejected', 
-                        processed_at = ?,
-                        processed_by = ?,
-                        admin_notes = ?
-                    WHERE id = ?
-                """, (datetime.now(), admin_id, f'Rejected by admin {admin_id}: {reason}', withdrawal_id))
-                
-                if cursor.rowcount > 0:
-                    # REFUND the amount back to user
-                    await Database.add_transaction(
-                        user_id,
-                        'withdrawal_refund',
-                        amount,
-                        f"Withdrawal rejected, refunded: {reason}"
-                    )
-                    
-                    logger.info(f"Withdrawal {withdrawal_id} rejected by admin {admin_id}, refunded {amount} to user {user_id}")
-                    
-                    # Send rejection notification to user
-                    await send_notification_to_user(user_id,
-                        f"❌ *የገንዘብ ማውጣት ተቋርጧል!*\n\n"
-                        f"💰 *መጠን:* {amount:.2f} {currency}\n"
-                        f"📋 *የማውጣት መታወቂያ:* {withdrawal_id}\n\n"
-                        f"📝 *ምክንያት:* {reason}\n\n"
-                        f"🔄 እባክዎ አዲስ የገንዘብ ማውጣት ጥያቄ ይጀምሩ /withdraw"
-                    )
-                    return True
-            
-            return False
-            
-    except Exception as e:
-        logger.error(f"Error processing withdrawal request: {e}")
-        import traceback
-        traceback.print_exc()
-        return False
-
-# ==================== GAME MANAGEMENT FUNCTIONS ====================
-async def start_new_round_game(admin_id: int) -> Tuple[bool, str]:
-    """Start a new round game"""
-    try:
-        from utils.game_manager import game_manager
-        
-        # Check if game is already running
-        if game_manager and game_manager.is_game_running():
-            return False, "A game is already running. Stop it first with /stopgame"
-        
-        # Start a new game
-        if game_manager:
-            success = await game_manager.start_new_round()
-            if success:
-                # Log the action
-                from database.db import Database
-                with Database.get_cursor() as cursor:
-                    cursor.execute("""
-                        CREATE TABLE IF NOT EXISTS admin_actions (
-                            id INTEGER PRIMARY KEY AUTOINCREMENT,
-                            admin_id INTEGER NOT NULL,
-                            action_type TEXT NOT NULL,
-                            details TEXT,
-                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                        )
-                    """)
-                    cursor.execute("""
-                        INSERT INTO admin_actions (admin_id, action_type, details)
-                        VALUES (?, ?, ?)
-                    """, (admin_id, 'start_game', 'Started new round game'))
-                
-                # Notify all players
-                await notify_all_players("🎮 *አዲስ የቢንጎ ዙር ተጀምሯል!*\n\nወደ /play በመሄድ ካርድ ይግዙ እና ይጫወቱ! 🎯")
-                
-                return True, "New round game started successfully!"
-            else:
-                return False, "Failed to start new round game"
-        else:
-            return False, "Game manager not initialized"
-            
-    except Exception as e:
-        logger.error(f"Error starting game: {e}", exc_info=True)
-        return False, f"Error: {str(e)[:100]}"
-
-async def stop_current_game(admin_id: int) -> Tuple[bool, str]:
-    """Stop the current game"""
-    try:
-        from utils.game_manager import game_manager
-        
-        # Check if game is running
-        if not game_manager or not game_manager.is_game_running():
-            return False, "No game is currently running"
-        
-        # Stop the game
-        if game_manager:
-            success = await game_manager.stop_game()
-            if success:
-                # Log the action
-                from database.db import Database
-                with Database.get_cursor() as cursor:
-                    cursor.execute("""
-                        CREATE TABLE IF NOT EXISTS admin_actions (
-                            id INTEGER PRIMARY KEY AUTOINCREMENT,
-                            admin_id INTEGER NOT NULL,
-                            action_type TEXT NOT NULL,
-                            details TEXT,
-                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                        )
-                    """)
-                    cursor.execute("""
-                        INSERT INTO admin_actions (admin_id, action_type, details)
-                        VALUES (?, ?, ?)
-                    """, (admin_id, 'stop_game', 'Stopped current game'))
-                
-                # Notify all players
-                await notify_all_players("🛑 *የቢንጎ ዙር ተቋርጧል!*\n\nለቀጣይ ዙር ይጠብቁ። አዲስ ዙር ሲጀመር እናሳውቅዎታለን።")
-                
-                return True, "Game stopped successfully!"
-            else:
-                return False, "Failed to stop game"
-        else:
-            return False, "Game manager not initialized"
-            
-    except Exception as e:
-        logger.error(f"Error stopping game: {e}", exc_info=True)
-        return False, f"Error: {str(e)[:100]}"
-
-async def notify_all_players(message: str):
-    """Notify all active players about game events"""
-    try:
-        from database.db import Database
-        from web_server import notification_queue
-        
-        # Get all users who have played recently
-        with Database.get_cursor() as cursor:
-            cursor.execute("""
-                SELECT DISTINCT user_id FROM games 
-                WHERE created_at > datetime('now', '-7 days')
-                UNION
-                SELECT DISTINCT user_id FROM users
-                WHERE balance > 0
-                LIMIT 100
-            """)
-            users = cursor.fetchall()
-        
-        for user in users:
-            user_id = user['user_id']
-            notification_queue.add_notification(user_id, message)
-            
-        logger.info(f"Sent notification to {len(users)} players")
-        
-    except Exception as e:
-        logger.error(f"Error notifying players: {e}")
-
-# ==================== SAFE DATABASE RESTORE FUNCTION ====================
-async def restore_database_from_file(file_path: str, admin_id: int, original_message, status_msg) -> Tuple[bool, str]:
-    """
-    Safely restore database from a backup file with complete shutdown
-    
-    This function:
-    1. Validates the uploaded file
-    2. Stops ALL database operations
-    3. Creates a backup of current database
-    4. Safely replaces the database file
-    5. Restarts the bot to ensure clean state
-    
-    Args:
-        file_path: Path to the uploaded database file
-        admin_id: Admin ID performing the restore
-        original_message: Original message from user
-        status_msg: Status message to update
-    
-    Returns:
-        Tuple of (success, message)
-    """
-    try:
-        from database.db import Database
-        import time
-        
-        logger.warning(f"⚠️ DATABASE RESTORE INITIATED by admin {admin_id}")
-        
-        # ========== STEP 1: VALIDATE FILE ==========
-        logger.info("Step 1: Validating uploaded database file...")
-        
-        # Update status
-        try:
-            await status_msg.edit_text(
-                "⏳ SAFE RESTORE PROCESS\n\n"
-                "✅ Step 1/6: File downloaded\n"
-                "✅ Step 2/6: Basic validation passed\n"
-                "🔄 Step 3/6: Testing database integrity..."
-            )
-        except:
-            pass
-        
-        # Validate file exists
-        if not os.path.exists(file_path):
-            return False, "❌ Database file not found"
-        
-        # Validate file size (prevent huge files)
-        file_size = os.path.getsize(file_path)
-        if file_size > 100 * 1024 * 1024:  # 100 MB limit
-            return False, "❌ File too large (max 100 MB)"
-        
-        # Validate it's a SQLite database by checking header
-        with open(file_path, 'rb') as f:
-            header = f.read(16)
-            if header[:16] != b'SQLite format 3\x00':
-                return False, "❌ Invalid database file format - not a SQLite database"
-        
-        # Try to open the database to ensure it's valid
-        try:
-            test_conn = sqlite3.connect(file_path)
-            test_conn.execute("SELECT name FROM sqlite_master WHERE type='table' LIMIT 1")
-            test_conn.close()
-            logger.info("✅ Uploaded database file is valid")
-        except Exception as e:
-            return False, f"❌ Corrupted database file: {str(e)[:100]}"
-        
-        # Get current database path
-        current_db_path = getattr(Database, '_db_path', 'habesha_bingo.db')
-        logger.info(f"Current database path: {current_db_path}")
-        
-        # Update status
-        try:
-            await status_msg.edit_text(
-                "⏳ SAFE RESTORE PROCESS\n\n"
-                "✅ Step 1/6: File downloaded\n"
-                "✅ Step 2/6: Basic validation passed\n"
-                "✅ Step 3/6: Database integrity verified\n"
-                "🔄 Step 4/6: Creating backup..."
-            )
-        except:
-            pass
-        
-        # ========== STEP 2: CREATE BACKUP ==========
-        logger.info("Step 2: Creating backup of current database...")
-        
-        # Create backup with timestamp
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        backup_path = f"{current_db_path}.backup_{timestamp}"
-        
-        if os.path.exists(current_db_path):
-            # Use copy2 to preserve metadata
-            shutil.copy2(current_db_path, backup_path)
-            logger.info(f"✅ Backup created at: {backup_path}")
-            backup_size = os.path.getsize(backup_path)
-            logger.info(f"Backup size: {backup_size / (1024*1024):.2f} MB")
-        else:
-            logger.warning("⚠️ No existing database found to backup")
-            backup_path = None
-        
-        # Update status
-        try:
-            await status_msg.edit_text(
-                "⏳ SAFE RESTORE PROCESS\n\n"
-                "✅ Step 1/6: File downloaded\n"
-                "✅ Step 2/6: Basic validation passed\n"
-                "✅ Step 3/6: Database integrity verified\n"
-                "✅ Step 4/6: Backup created\n"
-                "🔄 Step 5/6: Shutting down bot..."
-            )
-        except:
-            pass
-        
-        # ========== STEP 3: GRACEFUL SHUTDOWN ==========
-        logger.info("Step 3: Performing graceful shutdown of all bot components...")
-        
-        global shutting_down, dp, bot, main_task, enhanced_payment_validator
-        
-        # Set shutdown flag to prevent new operations
-        original_shutdown_state = shutting_down
-        shutting_down = True
-        logger.info("✅ Shutdown flag set")
-        
-        # Stop accepting new requests
-        logger.info("Stopping bot polling...")
-        if dp:
-            try:
-                await dp.stop_polling()
-                logger.info("✅ Bot polling stopped")
-            except Exception as e:
-                logger.warning(f"Error stopping polling: {e}")
-        
-        # Close bot session
-        if bot and hasattr(bot, 'session') and bot.session:
-            try:
-                await bot.session.close()
-                logger.info("✅ Bot session closed")
-            except Exception as e:
-                logger.warning(f"Error closing bot session: {e}")
-        
-        # Close payment validator clients
-        if enhanced_payment_validator:
-            try:
-                await enhanced_payment_validator.close()
-                logger.info("✅ Payment validator closed")
-            except Exception as e:
-                logger.warning(f"Error closing payment validator: {e}")
-        
-        # CRITICAL: Close ALL database connections
-        logger.info("Closing all database connections...")
-        try:
-            await Database.close_all_connections()
-            logger.info("✅ All database connections closed")
-        except Exception as e:
-            logger.warning(f"Error closing database connections: {e}")
-        
-        # Force garbage collection to ensure all connections are released
-        gc.collect()
-        logger.info("✅ Garbage collection completed")
-        
-        # Wait to ensure all operations complete
-        logger.info("Waiting 3 seconds for all operations to settle...")
-        await asyncio.sleep(3)
-        
-        # Update status
-        try:
-            await status_msg.edit_text(
-                "⏳ SAFE RESTORE PROCESS\n\n"
-                "✅ Step 1/6: File downloaded\n"
-                "✅ Step 2/6: Basic validation passed\n"
-                "✅ Step 3/6: Database integrity verified\n"
-                "✅ Step 4/6: Backup created\n"
-                "✅ Step 5/6: Bot shutdown complete\n"
-                "🔄 Step 6/6: Replacing database..."
-            )
-        except:
-            pass
-        
-        # ========== STEP 4: SAFELY REPLACE DATABASE ==========
-        logger.info("Step 4: Safely replacing database file...")
-        
-        # Create a temporary file for the new database
-        temp_restore_path = f"{current_db_path}.restore_temp"
-        
-        # Copy uploaded file to temp location
-        shutil.copy2(file_path, temp_restore_path)
-        logger.info(f"✅ Copied uploaded file to temp location: {temp_restore_path}")
-        
-        # On Unix, rename is atomic; on Windows, we need to be careful
-        try:
-            # Remove old database if it exists
-            if os.path.exists(current_db_path):
-                os.remove(current_db_path)
-                logger.info("✅ Removed old database file")
-            
-            # Rename temp file to actual database file (atomic on Unix)
-            os.rename(temp_restore_path, current_db_path)
-            logger.info(f"✅ New database file placed at: {current_db_path}")
-            
-        except Exception as e:
-            logger.error(f"❌ Error replacing database: {e}")
-            
-            # If something went wrong, try to restore from backup
-            if backup_path and os.path.exists(backup_path):
-                logger.info("🔄 Attempting to restore from backup...")
-                if os.path.exists(current_db_path):
-                    os.remove(current_db_path)
-                shutil.copy2(backup_path, current_db_path)
-                logger.info("✅ Restored from backup")
-            
-            return False, f"❌ Failed to replace database: {str(e)[:100]}"
-        
-        # Verify new database is readable
-        try:
-            test_conn = sqlite3.connect(current_db_path)
-            test_conn.execute("SELECT name FROM sqlite_master WHERE type='table' LIMIT 1")
-            test_conn.close()
-            logger.info("✅ New database is readable and valid")
-        except Exception as e:
-            logger.error(f"❌ New database is corrupted: {e}")
-            
-            # Restore from backup
-            if backup_path and os.path.exists(backup_path):
-                logger.info("🔄 Restoring from backup...")
-                if os.path.exists(current_db_path):
-                    os.remove(current_db_path)
-                shutil.copy2(backup_path, current_db_path)
-                logger.info("✅ Restored from backup")
-            
-            return False, f"❌ Restored database is corrupted: {str(e)[:100]}"
-        
-        # Update final status
-        try:
-            await status_msg.edit_text(
-                "✅ SAFE RESTORE PROCESS COMPLETE\n\n"
-                "✅ Step 1/6: File downloaded\n"
-                "✅ Step 2/6: Basic validation passed\n"
-                "✅ Step 3/6: Database integrity verified\n"
-                "✅ Step 4/6: Backup created\n"
-                "✅ Step 5/6: Bot shutdown complete\n"
-                "✅ Step 6/6: Database replaced successfully\n\n"
-                f"📁 Backup saved: {os.path.basename(backup_path) if backup_path else 'None'}\n"
-                f"📊 New database size: {file_size / (1024*1024):.2f} MB\n\n"
-                "🔄 Bot is restarting now..."
-            )
-        except:
-            pass
-        
-        # ========== STEP 5: LOG THE RESTORE ACTION ==========
-        logger.info("Step 5: Logging restore action...")
-        
-        # Try to log to the new database (may fail if admin_actions table doesn't exist)
-        try:
-            with Database.get_cursor() as cursor:
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS admin_actions (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        admin_id INTEGER NOT NULL,
-                        action_type TEXT NOT NULL,
-                        details TEXT,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    )
-                """)
-                cursor.execute("""
-                    INSERT INTO admin_actions (admin_id, action_type, details)
-                    VALUES (?, ?, ?)
-                """, (admin_id, 'database_restore', f'Database restored from backup. Backup saved as: {os.path.basename(backup_path) if backup_path else "None"}'))
-            logger.info("✅ Restore action logged")
-        except Exception as e:
-            logger.warning(f"Could not log restore action: {e}")
-        
-        # Wait a moment for final message
-        await asyncio.sleep(2)
-        
-        # ========== STEP 6: RESTART BOT ==========
-        logger.info("Step 6: Restarting bot...")
-        
-        # Perform full restart
-        logger.info("🚀 Executing bot restart...")
-        await enhanced_shutdown(restart=True)
-        
-        # This line will never be reached
-        return True, "Database restored successfully. Bot restarting..."
-        
-    except Exception as e:
-        logger.error(f"Error in database restore: {e}", exc_info=True)
-        return False, f"❌ Error: {str(e)[:200]}"
-
 # ==================== MAIN FUNCTION ====================
 async def main():
     """Main application entry point"""
-    global runner, currency, enhanced_payment_validator, game_manager, main_task, bot, dp
+    global currency, enhanced_payment_validator, main_task, bot, dp
     
-    import sys
     if sys.platform != "win32":
         signal.signal(signal.SIGTERM, handle_signal)
     signal.signal(signal.SIGINT, handle_signal)
     
-    logger.info("Starting Haset Bingo Bot - Enhanced with Fraud Prevention...")
+    logger.info("Starting Haset Bingo Bot - Simplified Version...")
     
     try:
-        from config import BOT_TOKEN, GAME_CONFIG, WEBSERVER_HOST, WEBSERVER_PORT, WEB_APP_URL, ADMIN_IDS
+        from config import BOT_TOKEN, GAME_CONFIG, WEBSERVER_HOST, WEBSERVER_PORT, WEB_APP_URL
     except ImportError as e:
         logger.error(f"Failed to import config: {e}")
         return
     
     try:
         TELEBIRR_API_KEY = GAME_CONFIG.get('telebirr_api_key', '')
-        CBE_BIRR_API_KEY = GAME_CONFIG.get('cbebirr_api_key', '')
         if not TELEBIRR_API_KEY:
             logger.warning("⚠️ Telebirr API key not found in config.")
-        if not CBE_BIRR_API_KEY:
-            logger.warning("⚠️ CBE Birr API key not found in config.")
     except:
         TELEBIRR_API_KEY = ''
-        CBE_BIRR_API_KEY = ''
         logger.warning("⚠️ API keys not configured.")
     
     currency = GAME_CONFIG.get('currency', 'birr')
-    card_price = GAME_CONFIG.get('card_price', 10.00)
     
     enhanced_payment_validator = EnhancedPaymentValidator(
         PAYMENT_PHONE_NUMBER,
         PAYMENT_RECEIVER_NAME
     )
     
-    await enhanced_payment_validator.initialize_clients(TELEBIRR_API_KEY, CBE_BIRR_API_KEY)
+    await enhanced_payment_validator.initialize_clients(TELEBIRR_API_KEY)
     
     banner = """
 ╔══════════════════════════════════════════════════════════════╗
 ║                    HASET BINGO BOT                         ║
-║                     ROUND-BASED GAME                         ║
-║                   FRAUD PREVENTION SYSTEM                    ║
-║           WITH TELEBIRR & CBE BIRR API INTEGRATION           ║
-║                WITH SAFE DATABASE RESTORE                    ║
+║                   SIMPLIFIED VERSION                         ║
+║              REGISTER | DEPOSIT | BALANCE                    ║
+║           WITH TELEBIRR API INTEGRATION                      ║
 ╚══════════════════════════════════════════════════════════════╝
     """
     print(banner)
     
     print("\n" + "="*60)
-    print("🎯 HASET BINGO - ENHANCED EDITION 🎯")
+    print("🎯 HASET BINGO - SIMPLIFIED EDITION 🎯")
     print("="*60)
     print(f"💰 Currency: {currency.upper()}")
-    print(f"🎟️  Card Price: {card_price:.2f} {currency}")
-    print(f"💸 Minimum Withdrawal: {MINIMUM_WITHDRAWAL_AMOUNT:.2f} {currency}")
     print(f"📱 Payment Phone: {PAYMENT_PHONE_NUMBER}")
     print(f"👤 Receiver Name: {PAYMENT_RECEIVER_NAME}")
     print(f"🆘 Support: {SUPPORT_TELEGRAM_USER}")
     print(f"🛡️ Fraud Prevention: ENABLED")
     print(f"🌐 Telebirr Primary API: {TELEBIRR_VERIFICATION_API_URL} (POST)")
     print(f"🌐 Telebirr Secondary API: {TELEBIRR_VERIFICATION_API_URL_2} (GET)")
-    print(f"🌐 CBE Birr API: {CBE_BIRR_VERIFICATION_API_URL}")
     print(f"🔑 Telebirr API Key: {'Configured' if TELEBIRR_API_KEY else 'Not Configured'}")
-    print(f"🔑 CBE Birr API Key: {'Configured' if CBE_BIRR_API_KEY else 'Not Configured'}")
     print("="*60)
     
     from aiogram import Bot, Dispatcher, types
@@ -2228,49 +880,33 @@ async def main():
     
     bot = Bot(token=BOT_TOKEN)
     
-    # ==================== INITIALIZE NOTIFICATION QUEUE ====================
+    # Initialize notification queue
     try:
         from web_server import notification_queue, set_bot_instance
-        # Get the current event loop
         loop = asyncio.get_running_loop()
-        # Set bot and loop in queue
         notification_queue.set_bot(bot, loop)
-        # Start the queue processor
         notification_queue.start(loop)
-        # Register bot instance for backward compatibility
         set_bot_instance(bot)
         logger.info("✅ Registered bot with notification queue and web_server")
     except Exception as e:
         logger.error(f"❌ Failed to initialize notification queue: {e}")
-        import traceback
-        traceback.print_exc()
     
     storage = MemoryStorage()
     dp = Dispatcher(bot, storage=storage)
     
-    # ==================== ENHANCED COMMAND STATES ====================
+    # Command States
     class DepositStates(StatesGroup):
         waiting_for_payment_method = State()
         waiting_for_transaction_proof = State()
-
-    class WithdrawalStates(StatesGroup):
-        waiting_for_amount = State()
-        waiting_for_payment_method = State()
-        waiting_for_full_name = State()
-        waiting_for_phone_number = State()
-
-    # New state for database restore
-    class DatabaseRestoreStates(StatesGroup):
-        waiting_for_file = State()
-
+    
     seen_start_users = set()
-
-    # ==================== ENHANCED COMMAND HANDLERS ====================
-
+    
+    # ==================== COMMAND HANDLERS ====================
+    
     @dp.message_handler(Command("start"))
     async def cmd_start_enhanced(message: types.Message):
         user_id = message.from_user.id
-        first_name = message.from_user.first_name or "ተጫዋች"
+        first_name = message.from_user.first_name or "ተጠቃሚ"
         
         from database.db import Database
         
@@ -2300,15 +936,8 @@ async def main():
 ✅ *መዝግብዎ ተሳክቷል!* 
 💰 *የመጀመሪያ ስጦታዎ*: 10 {currency} ነፃ ቀሪ ሒሳብ ተሰጥቶዎታል!
 
-🌟 *እንዴት መጀመር እንደሚቻለ*:
-1️⃣ /play ብለው ጨዋታውን ይጀምሩ
-2️⃣ ከ 400 የተለያዩ ካርዶች ውስጥ አንዱን ይምረጡ
-3️⃣ ቁጥሮች ሲጠሩ በካርድዎ ላይ ያድርጉባቸው
-4️⃣ 5 ቁጥሮች በአንድ መስመር ሲያስተካክሉ - ቢንጎ! 🎯
-
-⏰ *የግዢ ጊዜ*: 30 ሰከንድ በእያንዳንዱ ሮውንድ
-
 📊 *ቀሪ ሒሳብዎን ለማየት*: /balance
+💰 *ገንዘብ ለማስገባት*: /deposit
 📖 *ህጎች ለማወቅ*: /instructions
 🆘 *እርዳታ ለማግኘት*: /support
 
@@ -2321,45 +950,21 @@ async def main():
 🎮 *Haset Bingo እንደገና አርበዎታል!* 🎮
 
 🚀 *ፈጣን ትእዛዞች*:
-• /play - አዲስ ጨዋታ ይጀምሩ
 • /balance - ቀሪ ሒሳብዎን ይመልከቱ
 • /deposit - ገንዘብ ያስገቡ
-• /withdraw - ገንዘብ ያውጡ
-
-🌟 *አዲስ ባህሪያት*:
-• ⭐ አዲስ ካርዶች በእያንዳንዱ ጨዋታ
-• 🏆 የድል ማስታወቂያዎች
-• 🔄 ለሁሉም ተጫዋቾች እኩል እድል
 
 {f"💬 *ድጋፍ*: {SUPPORT_TELEGRAM_USER}" if SUPPORT_TELEGRAM_USER else ""}
             """
         
-        from config import ADMIN_IDS
-        is_admin = user_id in ADMIN_IDS
-        
-        if is_admin:
-            welcome_message += f"\n\n👑 *የአስተዳዳሪ ትእዛዞች:*\n"
-            welcome_message += "• /admin - አስተዳዳሪ ፓነል\n"
-            welcome_message += "• /adminpanel - ድር ፓነል ይክፈቱ\n"
-            welcome_message += "• /stats - ስታቲስቲክስ\n"
-            welcome_message += "• /pendingdeposits - በመጠባበቅ ላይ ያሉ ክፍያዎች\n"
-            welcome_message += "• /startgame - አዲስ ጨዋታ ይጀምሩ\n"
-            welcome_message += "• /stopgame - የአሁኑን ጨዋታ ያቁሙ\n"
-            welcome_message += "• /getdb - የውሂብ ጎታ ያውርዱ (Download database)\n"
-            welcome_message += "• /restoredb - የውሂብ ጎታ ወደነበረበት ይመልሱ (SAFE - Restore & Restart)\n"
-        
-        welcome_message += f"\n💡 *ምክር*: 'Play Bingo' የሚለውን ሜኑ ቁልፍ ጫን ሁሉም የሚገኙ ትእዛዞችን ለማየት!"
-        
         await message.answer(welcome_message, parse_mode=ParseMode.MARKDOWN)
-
-    # ==================== FIXED DEPOSIT SECTION WITH 3 ATTEMPTS ====================
-
+    
+    # ==================== DEPOSIT SECTION ====================
+    
     @dp.message_handler(Command("deposit"))
     async def cmd_deposit_enhanced(message: types.Message, state: FSMContext):
         """Start deposit process with 3 attempts limit"""
         user_id = message.from_user.id
         
-        # Create keyboard with Cancel button - ONLY TELEBIRR OPTION
         keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True, selective=True)
         keyboard.add("ቴሌ ብር")
         keyboard.add("Cancel")
@@ -2374,23 +979,21 @@ async def main():
         )
         
         await DepositStates.waiting_for_payment_method.set()
-
+    
     @dp.message_handler(state=DepositStates.waiting_for_payment_method)
     async def process_deposit_method_enhanced(message: types.Message, state: FSMContext):
         """Handle payment method selection"""
         user_id = message.from_user.id
         
-        # Check for Cancel
         if message.text and message.text.strip() == 'Cancel':
             await state.finish()
             await message.answer("❌ የገንዘብ ክፍያ ሂደት ተቋርጧል።", reply_markup=types.ReplyKeyboardRemove())
             return
         
         payment_method = message.text
-        valid_methods = ["ቴሌ ብር"]  # ONLY TELEBIRR
+        valid_methods = ["ቴሌ ብር"]
         
         if payment_method not in valid_methods:
-            # Re-show keyboard with Cancel
             keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True, selective=True)
             keyboard.add("ቴሌ ብር")
             keyboard.add("Cancel")
@@ -2403,7 +1006,6 @@ async def main():
             )
             return
         
-        # Create payment request
         payment_id = await create_payment_request(user_id, 0.00, payment_method, None)
         
         if not payment_id:
@@ -2411,7 +1013,6 @@ async def main():
             await message.answer("❌ የፒሜንት ጥያቄ ለመፍጠር አልተቻለም። እባክዎ እንደገና ይሞክሩ።", reply_markup=types.ReplyKeyboardRemove())
             return
         
-        # Store payment info in state
         await state.update_data(
             payment_id=payment_id,
             payment_method=payment_method,
@@ -2425,19 +1026,16 @@ async def main():
         instructions += f"📋 የፒሜንት መታወቂያ: {payment_id}\n\n"
         instructions += f"1️⃣ ቴሌብር አፕዎን ይክፈቱ\n"
         instructions += f"2️⃣ የሚፈልጉትን መጠን ወደዚህ ይላኩ፡\n"
-        instructions += f"   📱 ስልክ: +251989929742\n"
-        instructions += f"   👤 ስም: Nebiyu Asefa\n\n"
+        instructions += f"   📱 ስልክ: {PAYMENT_PHONE_NUMBER}\n"
+        instructions += f"   👤 ስም: {PAYMENT_RECEIVER_NAME}\n\n"
         instructions += f"3️⃣ ከላኩ በኋላ፣ የማረጋገጫ መልእክት ይደርስዎታል\n"
         instructions += f"4️⃣ አጠቃላይ የግብይት መልእክቱን *COPY* ያድርጉ\n"
         instructions += f"5️⃣ እዚህ በቻት ውስጥ *PASTE* ያድርጉት\n\n"
         instructions += f"🔍 *ማስታወሻ:* ስርዓታችን በራስ-ሰር የግብይት መረጃዎን ያረጋግጣል!\n\n"
-        instructions += f"እባክዎ የግብይት መልእክቱን ከታች ይጣበቁ፡\n"
-        instructions += f"(❌ *ለማቋረጥ*: 'Cancel' ቁልፉን ይጫኑ)"
+        instructions += f"❌ *ለማቋረጥ*: 'Cancel' ቁልፉን ይጫኑ"
         
-        # Remove keyboard before showing instructions
         await message.answer(instructions, reply_markup=types.ReplyKeyboardRemove(), parse_mode=ParseMode.MARKDOWN)
         
-        # Show keyboard with Cancel for transaction proof
         cancel_keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True, selective=True)
         cancel_keyboard.add("Cancel")
         
@@ -2448,19 +1046,17 @@ async def main():
         )
         
         await DepositStates.waiting_for_transaction_proof.set()
-
+    
     @dp.message_handler(state=DepositStates.waiting_for_transaction_proof)
     async def process_payment_sms_enhanced(message: types.Message, state: FSMContext):
         """Process SMS with 3 attempts limit"""
         user_id = message.from_user.id
         
-        # Check for Cancel
         if message.text and message.text.strip() == 'Cancel':
             await state.finish()
             await message.answer("❌ የገንዘብ ክፍያ ሂደት ተቋርጧል።", reply_markup=types.ReplyKeyboardRemove())
             return
         
-        # Get state data
         data = await state.get_data()
         payment_id = data.get('payment_id')
         attempts = data.get('verification_attempts', 0)
@@ -2470,13 +1066,11 @@ async def main():
             await message.answer("❌ የፒሜንት መረጃ አልተገኘም። እንደገና ይሞክሩ።", reply_markup=types.ReplyKeyboardRemove())
             return
         
-        # Validate SMS text
         if not message.text or message.text.strip() == "" or message.text.strip() == "WITHDRAW" or message.text.startswith('/'):
             attempts += 1
             await state.update_data(verification_attempts=attempts)
             
             if attempts >= 3:
-                # Reject after 3 failed attempts
                 from database.db import Database
                 with Database.get_cursor() as cursor:
                     cursor.execute("""
@@ -2504,7 +1098,6 @@ async def main():
                 )
                 return
             
-            # Show keyboard with Cancel again
             cancel_keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True, selective=True)
             cancel_keyboard.add("Cancel")
             
@@ -2518,22 +1111,18 @@ async def main():
             )
             return
         
-        # Process Telebirr transaction
         await process_telebirr_transaction_enhanced(user_id, payment_id, message, state, attempts)
-
+    
     async def process_telebirr_transaction_enhanced(user_id: int, payment_id: int, message: types.Message, state: FSMContext, attempts: int):
         """Verify Telebirr transaction with 3 attempts limit"""
         
-        # Extract transaction ID from SMS
         tx_id = enhanced_payment_validator.telebirr_scraper.extract_transaction_id(message.text)
         
-        # -------- TRANSACTION ID NOT FOUND --------
         if not tx_id:
             attempts += 1
             await state.update_data(verification_attempts=attempts)
             
             if attempts >= 3:
-                # Reject after 3 failed attempts
                 from database.db import Database
                 with Database.get_cursor() as cursor:
                     cursor.execute("""
@@ -2562,7 +1151,6 @@ async def main():
                 )
                 return
             
-            # Show keyboard with Cancel again
             cancel_keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True, selective=True)
             cancel_keyboard.add("Cancel")
             
@@ -2576,7 +1164,6 @@ async def main():
             )
             return
         
-        # -------- CHECK API KEY --------
         if not TELEBIRR_API_KEY:
             await state.finish()
             from database.db import Database
@@ -2599,8 +1186,6 @@ async def main():
             )
             return
         
-        # -------- PROCESS VERIFICATION --------
-        # Send processing message
         await message.answer(
             "🔍 *የቴሌብር ግብይት ማረጋገጫ በመስራት ላይ...*\n\n"
             f"📋 የፒሜንት መታወቂያ: {payment_id}\n"
@@ -2609,15 +1194,12 @@ async def main():
             parse_mode=ParseMode.MARKDOWN
         )
         
-        # Verify transaction
         verified, amount, errors = await enhanced_payment_validator.verify_telebirr_transaction(message.text)
         
-        # Get API result if available
         api_result = None
         if verified and enhanced_payment_validator.telebirr_client:
             api_result = await enhanced_payment_validator.telebirr_client.verify_transaction(tx_id)
         
-        # Update payment record with amount
         from database.db import Database
         with Database.get_cursor() as cursor:
             cursor.execute("""
@@ -2628,13 +1210,11 @@ async def main():
                 WHERE id = ?
             """, (amount if amount else 0.00, message.text[:500], f"Telebirr API: {'Success' if verified else 'Failed'}", payment_id))
         
-        # -------- VERIFICATION FAILED --------
         if not verified:
             attempts += 1
             await state.update_data(verification_attempts=attempts)
             
             if attempts >= 3:
-                # Reject after 3 failed attempts
                 with Database.get_cursor() as cursor:
                     cursor.execute("""
                         UPDATE payments 
@@ -2664,7 +1244,6 @@ async def main():
                 )
                 return
             
-            # Show keyboard with Cancel again
             cancel_keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True, selective=True)
             cancel_keyboard.add("Cancel")
             
@@ -2686,8 +1265,7 @@ async def main():
             )
             return
         
-        # -------- VERIFICATION SUCCESSFUL --------
-        # Auto-approve the deposit
+        # Verification successful - auto-approve
         success = await auto_approve_deposit(
             user_id, payment_id, amount, tx_id, message.text, api_result, "Telebirr"
         )
@@ -2702,8 +1280,6 @@ async def main():
                 f"📋 *የፒሜንት መታወቂያ:* {payment_id}\n"
                 f"🔢 *የግብይት መታወቂያ:* {tx_id}\n\n"
                 f"🔍 *የድር ማረጋገጫ ተሳክቷል!*\n\n"
-                f"🚀 አሁን ቢንጎ መጫወት መጀመር ይችላሉ!\n"
-                f"🎮 ለመጫወት: /play\n"
                 f"💰 ቀሪ ሒሳብ: /balance",
                 parse_mode=ParseMode.MARKDOWN,
                 reply_markup=types.ReplyKeyboardRemove()
@@ -2717,305 +1293,9 @@ async def main():
             )
         
         await state.finish()
-
-    # ==================== REST OF THE COMMANDS (KEEP EXISTING CODE) ====================
-
-    @dp.message_handler(Command("withdraw"))
-    async def cmd_withdraw_enhanced(message: types.Message, state: FSMContext):
-        user_id = message.from_user.id
-        
-        from database.db import Database
-        user = await Database.get_user(user_id)
-        
-        if not user:
-            await message.answer("❌ በመጀመሪያ መዝግበዎ ያስፈልጋል። /start ብለው ይጀምሩ።")
-            return
-        
-        balance = user.get('balance', 0.00)
-        
-        if balance < MINIMUM_WITHDRAWAL_AMOUNT:
-            await message.answer(
-                f"⚠️ *ዝቅተኛ ቀሪ ሒሳብ!*\n\n"
-                f"💰 የእርስዎ ቀሪ ሒሳብ: {balance:.2f} {currency}\n"
-                f"📊 ዝቅተኛ ማውጣት: {MINIMUM_WITHDRAWAL_AMOUNT:.2f} {currency}\n\n"
-                f"💳 ቀሪ ሒሳብዎን ለመጨመር: /deposit"
-            )
-            return
-        
-        keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True, selective=True)
-        keyboard.add("Cancel")
-        
-        await message.answer(
-            f"💸 *የገንዘብ ማውጣት ሂደት*\n\n"
-            f"💰 የእርስዎ ቀሪ ሒሳብ: {balance:.2f} {currency}\n"
-            f"📊 ዝቅተኛ ማውጣት: {MINIMUM_WITHDRAWAL_AMOUNT:.2f} {currency}\n\n"
-            f"📝 እባክዎ የሚያውጡትን የገንዘብ መጠን ያስገቡ፡\n\n"
-            f"❌ *ለማቋረጥ*: 'Cancel' ቁልፉን ይጫኑ",
-            reply_markup=keyboard
-        )
-        
-        await WithdrawalStates.waiting_for_amount.set()
-
-    @dp.message_handler(state=WithdrawalStates.waiting_for_amount)
-    async def process_withdrawal_amount_enhanced(message: types.Message, state: FSMContext):
-        user_id = message.from_user.id
-        
-        if message.text and message.text.strip() == 'Cancel':
-            await state.finish()
-            await message.answer("❌ የገንዘብ ማውጣት ሂደት ተቋርጧል።", reply_markup=types.ReplyKeyboardRemove())
-            return
-        
-        try:
-            amount = float(message.text.replace(',', '').strip())
-            
-            if amount < MINIMUM_WITHDRAWAL_AMOUNT:
-                keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True, selective=True)
-                keyboard.add("Cancel")
-                
-                await message.answer(
-                    f"⚠️ *ዝቅተኛ የማውጣት መጠን!*\n\n"
-                    f"💰 የጠየቁት መጠን: {amount:.2f} {currency}\n"
-                    f"📊 ዝቅተኛ ማውጣት: {MINIMUM_WITHDRAWAL_AMOUNT:.2f} {currency}\n\n"
-                    f"📝 እባክዎ ከ {MINIMUM_WITHDRAWAL_AMOUNT:.2f} በላይ መጠን ያስገቡ።\n\n"
-                    f"❌ *ለማቋረጥ*: 'Cancel' ቁልፉን ይጫኑ",
-                    reply_markup=keyboard
-                )
-                return
-            
-            from database.db import Database
-            user = await Database.get_user(user_id)
-            balance = user.get('balance', 0.00)
-            
-            if amount > balance:
-                keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True, selective=True)
-                keyboard.add("Cancel")
-                
-                await message.answer(
-                    f"⚠️ *በቂ ቀሪ ሒሳብ የለም!*\n\n"
-                    f"💰 የጠየቁት መጠን: {amount:.2f} {currency}\n"
-                    f"🏦 የእርስዎ ቀሪ ሒሳብ: {balance:.2f} {currency}\n\n"
-                    f"💳 ቀሪ ሒሳብዎን ለመጨመር: /deposit\n\n"
-                    f"❌ *ለማቋረጥ*: 'Cancel' ቁልፉን ይጫኑ",
-                    reply_markup=keyboard
-                )
-                return
-            
-            await state.update_data(withdrawal_amount=amount)
-            
-            keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True, selective=True)
-            keyboard.add("ቴሌ ብር")
-            # CBE BIRR OPTION REMOVED FROM WITHDRAWAL
-            keyboard.add("Cancel")
-            
-            await message.answer(
-                f"✅ *መጠን ተቀብሏል!*\n\n"
-                f"💰 የጠየቁት መጠን: {amount:.2f} {currency}\n\n"
-                f"💳 እባክዎ የክፍያ ዘዴዎን ይምረጡ፡\n\n"
-                f"❌ *ለማቋረጥ*: 'Cancel' ቁልፉን ይጫኑ",
-                reply_markup=keyboard
-            )
-            
-            await WithdrawalStates.waiting_for_payment_method.set()
-            
-        except ValueError:
-            keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True, selective=True)
-            keyboard.add("Cancel")
-            
-            await message.answer(
-                "❌ *ልክ ያልሆነ መጠን!*\n\n"
-                "📝 እባክዎ ትክክለኛ የገንዘብ መጠን ያስገቡ።\n"
-                "ምሳሌ: 100, 150.50, 200.00\n\n"
-                f"❌ *ለማቋረጥ*: 'Cancel' ቁልፉን ይጫኑ",
-                reply_markup=keyboard
-            )
-
-    @dp.message_handler(state=WithdrawalStates.waiting_for_payment_method)
-    async def process_withdrawal_method_enhanced(message: types.Message, state: FSMContext):
-        user_id = message.from_user.id
-        
-        if message.text and message.text.strip() == 'Cancel':
-            await state.finish()
-            await message.answer("❌ የገንዘብ ማውጣት ሂደት ተቋርጧል።", reply_markup=types.ReplyKeyboardRemove())
-            return
-        
-        payment_method = message.text
-        valid_methods = ["ቴሌ ብር"]  # ONLY TELEBIRR FOR WITHDRAWAL
-        
-        if payment_method not in valid_methods:
-            keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True, selective=True)
-            keyboard.add("ቴሌ ብር")
-            keyboard.add("Cancel")
-            
-            await message.answer(
-                "⚠️ እባክዎ ትክክለኛ የክፍያ ዘዴ ይምረጡ፡\n"
-                "• ቴሌ ብር\n\n"
-                "❌ *ለማቋረጥ*: 'Cancel' ቁልፉን ይጫኑ",
-                reply_markup=keyboard
-            )
-            return
-        
-        await state.update_data(payment_method=payment_method)
-        
-        keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True, selective=True)
-        keyboard.add("Cancel")
-        
-        await message.answer(
-            f"✅ *የክፍያ ዘዴ ተመርጧል!*\n\n"
-            f"🏦 ዘዴ: {payment_method}\n\n"
-            f"📝 እባክዎ ሙሉ ስምዎን ያስገቡ፡\n"
-            f"(ምሳሌ: አብዲስ አበባ)\n\n"
-            f"❌ *ለማቋረጥ*: 'Cancel' ቁልፉን ይጫኑ",
-            reply_markup=keyboard
-        )
-        
-        await WithdrawalStates.waiting_for_full_name.set()
-
-    @dp.message_handler(state=WithdrawalStates.waiting_for_full_name)
-    async def process_withdrawal_full_name_enhanced(message: types.Message, state: FSMContext):
-        user_id = message.from_user.id
-        
-        if message.text and message.text.strip() == 'Cancel':
-            await state.finish()
-            await message.answer("❌ የገንዘብ ማውጣት ሂደት ተቋርጧል።", reply_markup=types.ReplyKeyboardRemove())
-            return
-        
-        full_name = message.text.strip()
-        
-        if len(full_name) < 2:
-            keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True, selective=True)
-            keyboard.add("Cancel")
-            
-            await message.answer(
-                "❌ *ሙሉ ስም ልክ ያልሆነ!*\n\n"
-                "📝 እባክዎ ትክክለኛ ሙሉ ስምዎን ያስገቡ።\n\n"
-                f"❌ *ለማቋረጥ*: 'Cancel' ቁልፉን ይጫኑ",
-                reply_markup=keyboard
-            )
-            return
-        
-        await state.update_data(full_name=full_name)
-        
-        keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True, selective=True)
-        keyboard.add("Cancel")
-        
-        await message.answer(
-            f"✅ *ሙሉ ስም ተቀብሏል!*\n\n"
-            f"👤 ሙሉ ስም: {full_name}\n\n"
-            f"📱 እባክዎ ስልክ ቁጥርዎን ያስገቡ፡\n"
-            f"(ምሳሌ: +25190000000 ወይም 0900000000)\n\n"
-            f"❌ *ለማቋረጥ*: 'Cancel' ቁልፉን ይጫኑ",
-            reply_markup=keyboard
-        )
-        
-        await WithdrawalStates.waiting_for_phone_number.set()
-
-    @dp.message_handler(state=WithdrawalStates.waiting_for_phone_number)
-    async def process_withdrawal_phone_number_enhanced(message: types.Message, state: FSMContext):
-        user_id = message.from_user.id
-        
-        if message.text and message.text.strip() == 'Cancel':
-            await state.finish()
-            await message.answer("❌ የገንዘብ ማውጣት ሂደት ተቋርጧል።", reply_markup=types.ReplyKeyboardRemove())
-            return
-        
-        phone_number = message.text.strip()
-        
-        phone_clean = re.sub(r'[^\d]', '', phone_number)
-        
-        if not (phone_clean.startswith('2519') and len(phone_clean) == 12) and \
-           not (phone_clean.startswith('09') and len(phone_clean) == 10):
-            keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True, selective=True)
-            keyboard.add("Cancel")
-            
-            await message.answer(
-                "❌ *ልክ ያልሆነ ስልክ ቁጥር!*\n\n"
-                "📱 እባክዎ ትክክለኛ ስልክ ቁጥር ያስገቡ።\n"
-                "ምሳሌ: +251900000000 ወይም 0900000000\n\n"
-                f"❌ *ለማቋረጥ*: 'Cancel' ቁልፉን ይጫኑ",
-                reply_markup=keyboard
-            )
-            return
-        
-        data = await state.get_data()
-        amount = data.get('withdrawal_amount')
-        payment_method = data.get('payment_method')
-        full_name = data.get('full_name')
-        
-        if phone_clean.startswith('09'):
-            formatted_phone = '+251' + phone_clean[1:]
-        elif phone_clean.startswith('251'):
-            formatted_phone = '+' + phone_clean
-        else:
-            formatted_phone = phone_number
-        
-        withdrawal_id = await create_withdrawal_request(user_id, amount, payment_method, full_name, formatted_phone)
-        
-        if not withdrawal_id:
-            await state.finish()
-            await message.answer("❌ የገንዘብ ማውጣት ጥያቄ ለመፍጠር አልተቻለም። እባክዎ እንደገና ይሞክሩ።")
-            return
-        
-        await state.finish()
-        
-        await message.answer(
-            f"✅ *የገንዘብ ማውጣት ጥያቄ ተላልፏል!*\n\n"
-            f"📋 *የማውጣት መታወቂያ:* {withdrawal_id}\n"
-            f"💰 *መጠን:* {amount:.2f} {currency}\n"
-            f"🏦 *ዘዴ:* {payment_method}\n"
-            f"👤 *ሙሉ ስም:* {full_name}\n"
-            f"📱 *ስልክ:* {formatted_phone}\n\n"
-            f"⏳ *ሁኔታ:* በአስተዳዳሪዎች ፍቃድ በመጠባበቅ ላይ\n\n"
-            f"✅ የገንዘብ ማውጣት ጥያቄዎ ለአስተዳዳሪዎቻችን ለማረጋገጥ ቀርቧል።\n"
-            f"📬 እንዲፈቀድለት ወይም እንዲተው ሲደረግ ማሳወቂያ ይደርስዎታል።\n"
-            f"⏰ የማቀነባበሪያ ጊዜ፡ ብዙውን ጊዜ በ24 ሰዓታት ውስጥ",
-            reply_markup=types.ReplyKeyboardRemove()
-        )
-        
-        from config import ADMIN_IDS
-        for admin_id in ADMIN_IDS:
-            try:
-                await bot.send_message(
-                    admin_id,
-                    f"📢 *አዲስ የገንዘብ ማውጣት ጥያቄ!*\n\n"
-                    f"👤 ተጠቃሚ: {user_id}\n"
-                    f"📋 መታወቂያ: {withdrawal_id}\n"
-                    f"💰 መጠን: {amount:.2f} {currency}\n"
-                    f"🏦 ዘዴ: {payment_method}\n"
-                    f"👤 ስም: {full_name}\n"
-                    f"📱 ስልክ: {formatted_phone}\n\n"
-                    f"📊 ለማረጋገጥ: /pendingwithdrawals",
-                    parse_mode=ParseMode.MARKDOWN
-                )
-            except Exception as e:
-                logger.error(f"Failed to notify admin {admin_id}: {e}")
-
-    @dp.message_handler(Command("play"))
-    async def cmd_play_enhanced(message: types.Message):
-        user_id = message.from_user.id
-        
-        from config import WEB_APP_URL, WEBSERVER_HOST, WEBSERVER_PORT
-        if WEB_APP_URL:
-            webapp_url = f"{WEB_APP_URL}/game.html?user_id={user_id}"
-        else:
-            webapp_url = f"http://{WEBSERVER_HOST}:{WEBSERVER_PORT}/game.html?user_id={user_id}"
-        
-        keyboard = types.InlineKeyboardMarkup(
-            inline_keyboard=[
-                [types.InlineKeyboardButton(
-                    text="🎮 ቢንጎ ተጫውት",
-                    web_app=types.WebAppInfo(url=webapp_url)
-                )]
-            ]
-        )
-        
-        await message.answer(
-            "🎯 ቢንጎ 🎯\n\n"
-            "✨ ጨዋታውን ለመጀመር ከታች ያለውን ቁልፍ ይጫኑ!\n\n"
-            f"🎟️ የካርድ ዋጋ: {card_price:.2f} {currency}",
-            reply_markup=keyboard,
-            parse_mode=ParseMode.MARKDOWN
-        )
-
+    
+    # ==================== BALANCE COMMAND ====================
+    
     @dp.message_handler(Command("balance"))
     async def cmd_balance_enhanced(message: types.Message):
         user_id = message.from_user.id
@@ -3036,883 +1316,38 @@ async def main():
             await message.answer(
                 f"💰 *የእርስዎ ቀሪ ሒሳብ*\n\n"
                 f"🏦 የአሁኑ ቀሪ ሒሳብ: {balance:.2f} {currency}\n\n"
-                f"💳 *ገንዘብ ለማስገባት:* /deposit\n"
-                f"💸 *ገንዘብ ለማውጣት:* /withdraw\n\n"
+                f"💳 *ገንዘብ ለማስገባት:* /deposit\n\n"
                 f"🆘 እርዳታ ያስፈልግዎታል? /support",
                 parse_mode=ParseMode.MARKDOWN
             )
         else:
             await message.answer(f"⚠️ ቀሪ ሒሳብዎን ማግኘት አልተቻለም። እባክዎን እንደገና ይሞክሩ።")
-
+    
+    # ==================== SUPPORT AND INSTRUCTIONS ====================
+    
     @dp.message_handler(Command("instructions"))
     async def cmd_instructions_enhanced(message: types.Message):
-        from config import GAME_CONFIG
-        card_price = GAME_CONFIG.get('card_price', 10.00)
-        
         await message.answer(
-            "📖 *የቢንጎ ጨዋታ ህጎች እና መመሪያዎች*\n\n"
-            f"🎟️ የካርድ ዋጋ: {card_price:.2f} {currency}\n"
-            f"💰 ዝቅተኛ ማውጣት: {MINIMUM_WITHDRAWAL_AMOUNT:.2f} {currency}\n\n"
-            "🎮 እንዴት መጫወት እንደሚቻል:\n"
-            "1️⃣ /play ብለው ጨዋታውን ይጀምሩ\n"
-            "2️⃣ ካርድ ይግዙ\n"
-            "3️⃣ ቁጥሮች ሲጠሩ በካርድዎ ላይ ምልክት ያድርጉ\n"
-            "4️⃣ 5 ቁጥሮች በአንድ መስመር ሲያስተካክሉ - ቢንጎ! 🎯\n\n"
+            "📖 *መመሪያዎች*\n\n"
+            f"📊 *ቀሪ ሒሳብዎን ለማየት*: /balance\n"
+            f"💰 *ገንዘብ ለማስገባት*: /deposit\n\n"
             f"🆘 ድጋፍ: {SUPPORT_TELEGRAM_USER}",
             parse_mode=ParseMode.MARKDOWN
         )
-
+    
     @dp.message_handler(Command("support"))
     async def cmd_support_enhanced(message: types.Message):
         await message.answer(
             f"🆘 *ድጋፍ እና እርዳታ*\n\n"
             f"*📱 የቴሌግራም ድጋፍ:* {SUPPORT_TELEGRAM_USER}\n\n"
             "*📞 ለሚከተሉት እርዳታ ያግኙን:*\n"
-            "• የጨዋታ ችግሮች\n"
-            "• የገንዘብ ክፍያ/ማውጣት ጥያቄዎች\n"
+            "• የገንዘብ ክፍያ ጥያቄዎች\n"
             "• የሂሳብ ችግሮች\n"
             "• የቴክኒካር ችግሮች\n\n"
             "*⏰ የድጋፍ ሰዓት:* 24/7",
             parse_mode=ParseMode.MARKDOWN
         )
-
-    @dp.message_handler(Command("history"))
-    async def cmd_history_enhanced(message: types.Message):
-        user_id = message.from_user.id
-        
-        try:
-            from database.db import Database
-            user = await Database.get_user(user_id)
-            
-            if not user:
-                await message.answer("❌ መጀመሪያ መዝግበዎ ያስፈልጋል። /start ብለው ይጀምሩ።")
-                return
-            
-            with Database.get_cursor() as cursor:
-                cursor.execute("PRAGMA table_info(games)")
-                columns = cursor.fetchall()
-                
-                if not columns:
-                    await message.answer("📜 እስካሁን ምንም የጨዋታ ታሪክ የሎትም።\n\n🎮 መጀመሪያ ጨዋታዎን ይጀምሩ: /play")
-                    return
-                
-                cursor.execute("""
-                    SELECT id, card_numbers, status, created_at 
-                    FROM games 
-                    WHERE user_id = ? 
-                    ORDER BY created_at DESC 
-                    LIMIT 10
-                """, (user_id,))
-                games = cursor.fetchall()
-                
-                if not games:
-                    await message.answer("📜 እስካሁን ምንም የጨዋታ ታሪክ የሎትም።\n\n🎮 መጀመሪያ ጨዋታዎን ይጀምሩ: /play")
-                    return
-                
-                history_text = "📜 *የጨዋታ ታሪክዎ*\n\n"
-                
-                for game in games:
-                    game_id = game['id'] if 'id' in game else 0
-                    card_numbers = game['card_numbers'] if 'card_numbers' in game else "N/A"
-                    status = game['status'] if 'status' in game else "unknown"
-                    created_at = game['created_at'] if 'created_at' in game else ""
-                    
-                    time_str = ""
-                    try:
-                        if isinstance(created_at, str):
-                            if created_at:
-                                time_str = created_at[:16]
-                            else:
-                                time_str = "Unknown"
-                        elif hasattr(created_at, 'strftime'):
-                            time_str = created_at.strftime('%Y-%m-%d %H:%M')
-                        else:
-                            time_str = str(created_at)[:16]
-                    except:
-                        time_str = "Unknown"
-                    
-                    if status.lower() == 'won':
-                        status_emoji = "🏆"
-                        status_text = "ደስተኛ"
-                    elif status.lower() == 'lost':
-                        status_emoji = "💔"
-                        status_text = "የተሸነፈ"
-                    elif status.lower() == 'active':
-                        status_emoji = "⏳"
-                        status_text = "በሂደት ላይ"
-                    else:
-                        status_emoji = "📋"
-                        status_text = status
-                    
-                    card_display = card_numbers
-                    if len(card_numbers) > 30:
-                        card_display = card_numbers[:27] + "..."
-                    
-                    history_text += f"{status_emoji} *ጨዋታ {game_id}* - {time_str}\n"
-                    history_text += f"📋 ሁኔታ: {status_text}\n"
-                    history_text += f"🎟️ ካርድ: {card_display}\n"
-                    history_text += "─" * 20 + "\n"
-            
-            history_text += f"\n🎮 አዲስ ጨዋታ ለመጀመር: /play"
-            
-            await message.answer(history_text, parse_mode=ParseMode.MARKDOWN)
-            
-        except Exception as e:
-            logger.error(f"Error fetching history for user {user_id}: {e}")
-            await message.answer("⚠️ የጨዋታ ታሪክዎን ማግኘት አልተቻለም። እባክዎ ቆይተው እንደገና ይሞክሩ።")
-
-    @dp.message_handler(Command("admin"))
-    async def cmd_admin_enhanced(message: types.Message):
-        from config import ADMIN_IDS
-        
-        user_id = message.from_user.id
-        if user_id not in ADMIN_IDS:
-            await message.answer("⛔ ይህ ትእዛዝ ለአስተዳዳሪዎች ብቻ ነው።")
-            return
-        
-        from database.db import Database
-        
-        with Database.get_cursor() as cursor:
-            cursor.execute("SELECT COUNT(*) as count FROM users")
-            user_count = cursor.fetchone()['count']
-            
-            cursor.execute("SELECT COUNT(*) as count FROM games WHERE status = 'active'")
-            active_games = cursor.fetchone()['count']
-            
-            cursor.execute("SELECT SUM(amount) as total FROM transactions WHERE transaction_type = 'card_purchase'")
-            card_sales = cursor.fetchone()['total'] or 0
-            
-            cursor.execute("SELECT COUNT(*) as count FROM payments WHERE status = 'pending'")
-            pending_deposits = cursor.fetchone()['count']
-            
-            cursor.execute("SELECT COUNT(*) as count FROM withdrawal_requests WHERE status = 'pending'")
-            pending_withdrawals = cursor.fetchone()['count']
-        
-        admin_panel = f"""
-👑 *አስተዳዳሪ ፓነል*
-
-📊 *ስታቲስቲክስ*
-👥 ተጠቃሚዎች: {user_count}
-🎮 ንቁ ጨዋታዎች: {active_games}
-💰 ካርድ ሽያጭ: {card_sales:.2f} {currency}
-⏳ በመጠባበቅ ላይ ያሉ ክፍያዎች: {pending_deposits}
-⏳ በመጠባበቅ ላይ ያሉ የገንዘብ ማውጣቶች: {pending_withdrawals}
-
-⚡ *ፈጣን ትእዛዞች*
-• /pendingdeposits - በመጠባበቅ ላይ ያሉ ክፍያዎች
-• /pendingwithdrawals - በመጠባበቅ ላይ ያሉ የገንዘብ ማውጣቶች
-• /stats - ዝርዝር ስታቲስቲክስ
-• /adminpanel - ድር ፓነል ይክፈቱ
-• /startgame - አዲስ ጨዋታ ይጀምሩ
-• /stopgame - የአሁኑን ጨዋታ ያቁሙ
-• /addbalance - ለተጠቃሚ ገንዘብ ያክሉ
-• /callnumber - ቁጥር በእጅ ይጥሩ
-• /getdb - የውሂብ ጎታ ያውርዱ (Download database)
-• /restoredb - የውሂብ ጎታ ወደነበረበት ይመልሱ (SAFE - Restore & Restart)
-    """
-        
-        await message.answer(admin_panel, parse_mode=ParseMode.MARKDOWN)
-
-    # ==================== GAME CONTROL COMMANDS ====================
-    @dp.message_handler(Command("startgame"))
-    async def cmd_start_game(message: types.Message):
-        """Admin command to start a new game"""
-        from config import ADMIN_IDS
-        
-        user_id = message.from_user.id
-        if user_id not in ADMIN_IDS:
-            await message.answer("⛔ ይህ ትእዛዝ ለአስተዳዳሪዎች ብቻ ነው።")
-            return
-        
-        status_msg = await message.answer("🔄 Starting new game...")
-        
-        success, result_msg = await start_new_round_game(user_id)
-        
-        await status_msg.edit_text(result_msg)
-        
-        # Log the action
-        logger.info(f"Admin {user_id} started a new game: {result_msg}")
-
-    @dp.message_handler(Command("stopgame"))
-    async def cmd_stop_game(message: types.Message):
-        """Admin command to stop the current game"""
-        from config import ADMIN_IDS
-        
-        user_id = message.from_user.id
-        if user_id not in ADMIN_IDS:
-            await message.answer("⛔ ይህ ትእዛዝ ለአስተዳዳሪዎች ብቻ ነው።")
-            return
-        
-        status_msg = await message.answer("🛑 Stopping current game...")
-        
-        success, result_msg = await stop_current_game(user_id)
-        
-        await status_msg.edit_text(result_msg)
-        
-        # Log the action
-        logger.info(f"Admin {user_id} stopped the game: {result_msg}")
-
-    # ==================== DATABASE BACKUP COMMAND ====================
-    @dp.message_handler(Command("getdb"))
-    async def cmd_get_database(message: types.Message):
-        """Admin command to download database file"""
-        from config import ADMIN_IDS
-        
-        user_id = message.from_user.id
-        if user_id not in ADMIN_IDS:
-            await message.answer("⛔ This command is for admins only.")
-            return
-        
-        # Send "processing" message (plain text, no markdown)
-        status_msg = await message.answer("📦 Preparing database file...")
-        
-        try:
-            from database.db import Database
-            import os
-            import tempfile
-            import shutil
-            from datetime import datetime
-            
-            # Get database path from Database class
-            db_path = getattr(Database, '_db_path', 'habesha_bingo.db')
-            logger.info(f"Looking for database at: {db_path}")
-            
-            # If path doesn't exist, try common locations
-            if not os.path.exists(db_path):
-                possible_paths = [
-                    'habesha_bingo.db',
-                    '/app/habesha_bingo.db',
-                    './habesha_bingo.db',
-                    '/data/habesha_bingo.db',
-                    os.path.join(os.getcwd(), 'habesha_bingo.db')
-                ]
-                for path in possible_paths:
-                    if os.path.exists(path):
-                        db_path = path
-                        logger.info(f"Found database at: {db_path}")
-                        break
-            
-            if not os.path.exists(db_path):
-                await status_msg.edit_text(
-                    "❌ Database file not found!\n\n"
-                    f"🔍 Searched in:\n- " + "\n- ".join(possible_paths)
-                )
-                return
-            
-            # Create a temporary copy with timestamp
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            temp_dir = tempfile.mkdtemp()
-            temp_path = os.path.join(temp_dir, f"habesha_bingo_{timestamp}.db")
-            
-            # Copy database to temp location (to avoid locking issues)
-            shutil.copy2(db_path, temp_path)
-            logger.info(f"Created temp copy at: {temp_path}")
-            
-            # Get file size
-            file_size_bytes = os.path.getsize(temp_path)
-            file_size_mb = file_size_bytes / (1024 * 1024)
-            
-            # Get record counts
-            records = []
-            try:
-                with Database.get_cursor() as cursor:
-                    tables = ['users', 'games', 'player_cards', 'transactions', 'commission_records']
-                    for table in tables:
-                        try:
-                            cursor.execute(f"SELECT COUNT(*) as count FROM {table}")
-                            result = cursor.fetchone()
-                            if result:
-                                records.append(f"{table}: {result['count']}")
-                        except:
-                            pass
-                record_counts = " | ".join(records) if records else "N/A"
-            except:
-                record_counts = "N/A"
-            
-            await status_msg.edit_text(
-                f"✅ Database prepared!\n"
-                f"📁 Size: {file_size_mb:.2f} MB\n"
-                f"📊 {record_counts}\n"
-                f"⏱️ Sending file..."
-            )
-            
-            # Send the file with PLAIN TEXT caption (no markdown)
-            with open(temp_path, 'rb') as f:
-                await message.reply_document(
-                    document=f,
-                    caption=f"📊 Haset Bingo Database Backup\n"
-                           f"🕐 {timestamp}\n"
-                           f"📁 Size: {file_size_mb:.2f} MB\n"
-                           f"📊 {record_counts}"
-                )
-            
-            # Clean up temp directory
-            shutil.rmtree(temp_dir, ignore_errors=True)
-            logger.info("Temporary files cleaned up")
-            
-            await status_msg.delete()
-            
-        except Exception as e:
-            await status_msg.edit_text(f"❌ Error: {str(e)[:200]}")
-            logger.error(f"Error sending database: {e}", exc_info=True)
-
-    # ==================== DATABASE RESTORE COMMAND (SAFE VERSION WITH FIXED MARKDOWN) ====================
-    @dp.message_handler(Command("restoredb"))
-    async def cmd_restore_database(message: types.Message, state: FSMContext):
-        """Admin command to safely restore database from backup file with auto-restart"""
-        from config import ADMIN_IDS
-        
-        user_id = message.from_user.id
-        if user_id not in ADMIN_IDS:
-            await message.answer("⛔ This command is for admins only.")
-            return
-        
-        # Send warning message with proper escaping
-        warning_msg = (
-            "⚠️ ⚠️ DATABASE RESTORE WARNING ⚠️\n\n"
-            "This will COMPLETELY REPLACE the current database with the uploaded file.\n\n"
-            "SAFE RESTORE PROCESS:\n"
-            "✅ Automatically creates backup of current database\n"
-            "✅ Gracefully shuts down all bot operations\n"
-            "✅ Closes all database connections\n"
-            "✅ Validates uploaded file for corruption\n"
-            "✅ Safely replaces the database file\n"
-            "✅ Automatically restarts the bot\n\n"
-            "IMPORTANT:\n"
-            "• All current data will be REPLACED\n"
-            "• Bot will RESTART automatically\n"
-            "• Users will be temporarily disconnected\n\n"
-            "Please upload the database file you want to restore.\n"
-            "(Supported format: SQLite .db files, max 100 MB)\n\n"
-            "❌ Type /cancel to abort."
-        )
-        
-        await message.answer(warning_msg)
-        
-        # Create keyboard with Cancel button
-        keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True, selective=True)
-        keyboard.add("Cancel")
-        
-        await message.answer(
-            "📤 Please upload the database file:",
-            reply_markup=keyboard
-        )
-        
-        await DatabaseRestoreStates.waiting_for_file.set()
-
-    @dp.message_handler(state=DatabaseRestoreStates.waiting_for_file, content_types=types.ContentTypes.DOCUMENT)
-    async def process_database_restore_file(message: types.Message, state: FSMContext):
-        """Process uploaded database file for safe restore"""
-        from config import ADMIN_IDS
-        
-        user_id = message.from_user.id
-        if user_id not in ADMIN_IDS:
-            await state.finish()
-            await message.answer("⛔ Unauthorized.", reply_markup=types.ReplyKeyboardRemove())
-            return
-        
-        document = message.document
-        
-        # Check if it's a database file
-        if not document.file_name.endswith('.db'):
-            await message.answer(
-                "❌ Invalid file type. Please upload a SQLite database file (.db)",
-                reply_markup=types.ReplyKeyboardRemove()
-            )
-            await state.finish()
-            return
-        
-        # Send initial processing message (this will be our status message) - WITHOUT MARKDOWN
-        status_msg = await message.answer(
-            "⏳ SAFE RESTORE PROCESS INITIATED\n\n"
-            "⬇️ Step 1/6: Downloading file...",
-            reply_markup=types.ReplyKeyboardRemove()
-        )
-        
-        try:
-            # Create temp directory
-            temp_dir = tempfile.mkdtemp()
-            temp_file_path = os.path.join(temp_dir, document.file_name)
-            
-            # Download file
-            file = await bot.get_file(document.file_id)
-            await bot.download_file(file.file_path, temp_file_path)
-            
-            logger.info(f"Admin {user_id} uploaded database file for restore: {document.file_name} ({file.file_size} bytes)")
-            
-            # Update status - Step 2 - WITHOUT MARKDOWN
-            try:
-                await status_msg.edit_text(
-                    "⏳ SAFE RESTORE PROCESS\n\n"
-                    "✅ Step 1/6: File downloaded\n"
-                    "🔄 Step 2/6: Validating file...\n"
-                    f"📁 File: {document.file_name}\n"
-                    f"📊 Size: {file.file_size / (1024*1024):.2f} MB"
-                )
-            except Exception as e:
-                # If edit fails, send new message
-                logger.warning(f"Could not edit message, sending new one: {e}")
-                status_msg = await message.answer(
-                    "⏳ SAFE RESTORE PROCESS\n\n"
-                    "✅ Step 1/6: File downloaded\n"
-                    "🔄 Step 2/6: Validating file...\n"
-                    f"📁 File: {document.file_name}\n"
-                    f"📊 Size: {file.file_size / (1024*1024):.2f} MB"
-                )
-            
-            # Call the safe restore function
-            success, message_text = await restore_database_from_file(temp_file_path, user_id, message, status_msg)
-            
-            # Clean up temp directory
-            shutil.rmtree(temp_dir, ignore_errors=True)
-            
-            if success:
-                # This message may not be sent if bot restarts immediately
-                try:
-                    await message.answer(
-                        f"✅ {message_text}\n\n"
-                        f"🔄 Bot is restarting..."
-                    )
-                except:
-                    pass
-            else:
-                await message.answer(f"❌ {message_text}")
-            
-        except Exception as e:
-            logger.error(f"Error in database restore: {e}", exc_info=True)
-            await message.answer(f"❌ Error: {str(e)[:200]}")
-            
-        await state.finish()
-
-    @dp.message_handler(state=DatabaseRestoreStates.waiting_for_file, content_types=types.ContentTypes.TEXT)
-    async def process_database_restore_cancel(message: types.Message, state: FSMContext):
-        """Handle cancel during file upload"""
-        if message.text and message.text.strip() == 'Cancel':
-            await state.finish()
-            await message.answer("❌ Database restore cancelled.", reply_markup=types.ReplyKeyboardRemove())
-        else:
-            # User sent text instead of file
-            keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True, selective=True)
-            keyboard.add("Cancel")
-            
-            await message.answer(
-                "❌ Please upload a database file (.db) or type Cancel to abort.",
-                reply_markup=keyboard
-            )
-
-    @dp.message_handler(Command("pendingdeposits"))
-    async def cmd_pendingdeposits_enhanced(message: types.Message):
-        from config import ADMIN_IDS
-        
-        user_id = message.from_user.id
-        if user_id not in ADMIN_IDS:
-            await message.answer("⛔ ይህ ትእዛዝ ለአስተዳዳሪዎች ብቻ ነው።")
-            return
-        
-        try:
-            from database.db import Database
-            pending_payments = await Database.get_pending_payments()
-            
-            if not pending_payments:
-                await message.answer("✅ ምንም በመጠባበቅ ላይ ያሉ ክፍያዎች የሉም።")
-                return
-            
-            response = "⏳ *በመጠባበቅ ላይ ያሉ ክፍያዎች*\n\n"
-            
-            for payment in pending_payments:
-                payment_id = payment['id']
-                user_id_val = payment['user_id']
-                amount = payment['amount']
-                method = payment['payment_method']
-                created = payment['created_at']
-                
-                if isinstance(created, str):
-                    time_str = created
-                else:
-                    time_str = created.strftime('%Y-%m-%d %H:%M')
-                
-                response += f"📋 *ፒሜንት {payment_id}*\n"
-                response += f"👤 ተጠቃሚ: {user_id_val}\n"
-                response += f"💰 መጠን: {amount:.2f} {currency}\n"
-                response += f"🏦 ዘዴ: {method}\n"
-                response += f"⏰ ጊዜ: {time_str}\n"
-                response += f"✅ ለማጽደቅ: /approvedeposit {payment_id}\n"
-                response += "─" * 20 + "\n"
-            
-            await message.answer(response, parse_mode=ParseMode.MARKDOWN)
-            
-        except Exception as e:
-            await message.answer(f"❌ ስህተት: {str(e)[:100]}")
-
-    @dp.message_handler(Command("pendingwithdrawals"))
-    async def cmd_pendingwithdrawals_enhanced(message: types.Message):
-        from config import ADMIN_IDS
-        
-        user_id = message.from_user.id
-        if user_id not in ADMIN_IDS:
-            await message.answer("⛔ ይህ ትእዛዝ ለአስተዳዳሪዎች ብቻ ነው።")
-            return
-        
-        try:
-            from database.db import Database
-            pending_withdrawals = await Database.get_pending_withdrawals()
-            
-            if not pending_withdrawals:
-                await message.answer("✅ ምንም በመጠባበቅ ላይ ያሉ የገንዘብ ማውጣቶች የሉም።")
-                return
-            
-            response = "⏳ *በመጠባበቅ ላይ ያሉ የገንዘብ ማውጣቶች*\n\n"
-            
-            for withdrawal in pending_withdrawals:
-                withdrawal_id = withdrawal['id']
-                user_id_val = withdrawal['user_id']
-                amount = withdrawal['amount']
-                method = withdrawal.get('payment_method', withdrawal.get('method', 'Unknown'))
-                full_name = withdrawal.get('full_name', 'N/A')
-                phone = withdrawal.get('phone_number', 'N/A')
-                created = withdrawal.get('created_at') or withdrawal.get('requested_at')
-                
-                if isinstance(created, str):
-                    time_str = created
-                else:
-                    time_str = created.strftime('%Y-%m-%d %H:%M') if created else 'Unknown'
-                
-                response += f"📋 *ማውጣት {withdrawal_id}*\n"
-                response += f"👤 ተጠቃሚ: {user_id_val}\n"
-                response += f"💰 መጠን: {amount:.2f} {currency}\n"
-                response += f"🏦 ዘዴ: {method}\n"
-                response += f"👤 ስም: {full_name}\n"
-                response += f"📱 ስልክ: {phone}\n"
-                response += f"⏰ ጊዜ: {time_str}\n"
-                response += f"✅ ለማጽደቅ: /approvewithdrawal {withdrawal_id}\n"
-                response += "─" * 20 + "\n"
-        
-            await message.answer(response, parse_mode=ParseMode.MARKDOWN)
-        except Exception as e:
-            await message.answer(f"❌ ስህተት: {str(e)[:100]}")
-
-    @dp.message_handler(Command("adminpanel"))
-    async def cmd_adminpanel_miniapp(message: types.Message):
-        from config import ADMIN_IDS, WEB_APP_URL, WEBSERVER_HOST, WEBSERVER_PORT
-
-        user_id = message.from_user.id
-        if user_id not in ADMIN_IDS:
-            await message.answer("⛔ ይህ ትእዛዝ ለአስተዳዳሪዎች ብቻ ነው።")
-            return
-
-        if WEB_APP_URL:
-            admin_url = f"{WEB_APP_URL}/admin.html"
-        else:
-            admin_url = f"http://{WEBSERVER_HOST}:{WEBSERVER_PORT}/admin.html"
-
-        try:
-            keyboard = types.InlineKeyboardMarkup()
-            keyboard.add(
-                types.InlineKeyboardButton(
-                    text="🛡️ አስተዳዳሪ ፓነል ይክፈቱ",
-                    web_app=types.WebAppInfo(url=admin_url)
-                )
-            )
-            
-            message_text = (
-                f"👑 <b>አስተዳዳሪ ፓነል</b>\n\n"
-                f"ፓነሉን በቴሌግራም ውስጥ ለመክፈት ከታች ያለውን ቁልፍ ይጫኑ።"
-            )
-            
-            await message.answer(message_text, reply_markup=keyboard, parse_mode=ParseMode.HTML)
-            
-        except Exception as e:
-            logger.error(f"Error creating admin panel Mini App: {e}")
-            
-            try:
-                keyboard = types.InlineKeyboardMarkup()
-                keyboard.add(types.InlineKeyboardButton("🛡️ አስተዳዳሪ ፓነል ይክፈቱ", url=admin_url))
-                
-                await message.answer(
-                    f"👑 አስተዳዳሪ ፓነል\n\n"
-                    f"🌐 {admin_url}\n\n"
-                    f"ፓነሉን ለመክፈት ከታች ያለውን ቁልፍ ይጫኑ።",
-                    reply_markup=keyboard
-                )
-            except Exception as e2:
-                logger.error(f"Fallback also failed: {e2}")
-                await message.answer(f"👑 አስተዳዳሪ ፓነል\n\n🌐 {admin_url}")
-
-    @dp.message_handler(Command("approvedeposit"))
-    async def cmd_approvedeposit_enhanced(message: types.Message):
-        from config import ADMIN_IDS
-        
-        user_id = message.from_user.id
-        if user_id not in ADMIN_IDS:
-            await message.answer("⛔ ይህ ትእዛዝ ለአስተዳዳሪዎች ብቻ ነው።")
-            return
-        
-        args = message.text.split()
-        if len(args) < 2:
-            await message.answer("📋 አጠቃቀም: /approvedeposit <payment_id>\n\n📝 ምሳሌ: /approvedeposit 123")
-            return
-        
-        try:
-            payment_id = int(args[1])
-            success = await approve_payment(payment_id, user_id)
-            
-            if success:
-                await message.answer(f"✅ ፒሜንት {payment_id} ፈቅዷል!")
-            else:
-                await message.answer(f"❌ ፒሜንት {payment_id} ማጽደቅ አልተቻለም።")
-            
-        except ValueError:
-            await message.answer("❌ እባክዎ ትክክለኛ የፒሜንት መታወቂያ ያስገቡ።")
-        except Exception as e:
-            await message.answer(f"❌ ስህተት: {str(e)[:100]}")
-
-    @dp.message_handler(Command("approvewithdrawal"))
-    async def cmd_approvewithdrawal_enhanced(message: types.Message):
-        from config import ADMIN_IDS
-        
-        user_id = message.from_user.id
-        if user_id not in ADMIN_IDS:
-            await message.answer("⛔ ይህ ትእዛዝ ለአስተዳዳሪዎች ብቻ ነው።")
-            return
-        
-        args = message.text.split()
-        if len(args) < 2:
-            await message.answer("📋 አጠቃቀም: /approvewithdrawal <withdrawal_id>\n\n📝 ምሳሌ: /approvewithdrawal 123")
-            return
-        
-        try:
-            withdrawal_id = int(args[1])
-            success = await process_withdrawal_request(withdrawal_id, user_id, approve=True)
-            
-            if success:
-                await message.answer(f"✅ የገንዘብ ማውጣት {withdrawal_id} ፈቅዷል!")
-            else:
-                await message.answer(f"❌ የገንዘብ ማውጣት {withdrawal_id} ማጽደቅ አልተቻለም።")
-            
-        except ValueError:
-            await message.answer("❌ እባክዎ ትክክለኛ የማውጣት መታወቂያ ያስገቡ።")
-        except Exception as e:
-            await message.answer(f"❌ ስህተት: {str(e)[:100]}")
     
-    # ==================== ADDITIONAL ADMIN COMMANDS ====================
-    @dp.message_handler(Command("addbalance"))
-    async def cmd_add_balance(message: types.Message):
-        """Admin command to add balance to user (format: /addbalance user_id amount)"""
-        from config import ADMIN_IDS
-        from database.db import Database
-        
-        user_id = message.from_user.id
-        if user_id not in ADMIN_IDS:
-            await message.answer("⛔ ይህ ትእዛዝ ለአስተዳዳሪዎች ብቻ ነው።")
-            return
-        
-        args = message.text.split()
-        if len(args) < 3:
-            await message.answer("📋 አጠቃቀም: /addbalance <user_id> <amount>\n\n📝 ምሳሌ: /addbalance 123456789 100")
-            return
-        
-        try:
-            target_user_id = int(args[1])
-            amount = float(args[2])
-            
-            if amount <= 0:
-                await message.answer("❌ መጠን ከዜሮ መብለጥ አለበት።")
-                return
-            
-            # Add balance
-            await Database.add_user_balance(target_user_id, amount, 'admin_add', f'Added by admin {user_id}')
-            
-            # Get updated balance
-            user = await Database.get_user(target_user_id)
-            new_balance = user.get('balance', 0) if user else 0
-            
-            await message.answer(
-                f"✅ *ገንዘብ ተጨምሯል!*\n\n"
-                f"👤 ተጠቃሚ: {target_user_id}\n"
-                f"💰 የተጨመረው መጠን: {amount:.2f} {currency}\n"
-                f"🏦 አዲስ ቀሪ ሒሳብ: {new_balance:.2f} {currency}"
-            )
-            
-            # Notify user
-            await send_notification_to_user(target_user_id,
-                f"💰 *ገንዘብ ተጨምሯል!*\n\n"
-                f"ወደ መለያዎ {amount:.2f} {currency} ተጨምሯል።\n"
-                f"አሁን ያለዎት ቀሪ ሒሳብ: {new_balance:.2f} {currency}\n\n"
-                f"ለማጫወት: /play"
-            )
-            
-            # Log the action
-            with Database.get_cursor() as cursor:
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS admin_actions (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        admin_id INTEGER NOT NULL,
-                        action_type TEXT NOT NULL,
-                        details TEXT,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    )
-                """)
-                cursor.execute("""
-                    INSERT INTO admin_actions (admin_id, action_type, details)
-                    VALUES (?, ?, ?)
-                """, (user_id, 'add_balance', f'Added {amount} to user {target_user_id}'))
-            
-        except ValueError:
-            await message.answer("❌ እባክዎ ትክክለኛ የተጠቃሚ መታወቂያ እና መጠን ያስገቡ።")
-        except Exception as e:
-            await message.answer(f"❌ ስህተት: {str(e)[:100]}")
-
-    @dp.message_handler(Command("stats"))
-    async def cmd_stats(message: types.Message):
-        """Admin command to view game statistics"""
-        from config import ADMIN_IDS
-        from database.db import Database
-        
-        user_id = message.from_user.id
-        if user_id not in ADMIN_IDS:
-            await message.answer("⛔ ይህ ትእዛዝ ለአስተዳዳሪዎች ብቻ ነው።")
-            return
-        
-        try:
-            with Database.get_cursor() as cursor:
-                # Total users
-                cursor.execute("SELECT COUNT(*) as count FROM users")
-                total_users = cursor.fetchone()['count']
-                
-                # Active users (with balance > 0)
-                cursor.execute("SELECT COUNT(*) as count FROM users WHERE balance > 0")
-                active_users = cursor.fetchone()['count']
-                
-                # Total games
-                cursor.execute("SELECT COUNT(*) as count FROM games")
-                total_games = cursor.fetchone()['count']
-                
-                # Games won
-                cursor.execute("SELECT COUNT(*) as count FROM games WHERE status = 'won'")
-                games_won = cursor.fetchone()['count']
-                
-                # Total deposits
-                cursor.execute("SELECT COUNT(*) as count, SUM(amount) as total FROM payments WHERE status = 'approved'")
-                deposits = cursor.fetchone()
-                total_deposits = deposits['count'] or 0
-                deposit_amount = deposits['total'] or 0
-                
-                # Total withdrawals
-                cursor.execute("SELECT COUNT(*) as count, SUM(amount) as total FROM withdrawal_requests WHERE status = 'approved'")
-                withdrawals = cursor.fetchone()
-                total_withdrawals = withdrawals['count'] or 0
-                withdrawal_amount = withdrawals['total'] or 0
-                
-                # Total card sales
-                cursor.execute("SELECT COUNT(*) as count, SUM(amount) as total FROM transactions WHERE transaction_type = 'card_purchase'")
-                card_sales = cursor.fetchone()
-                total_cards = card_sales['count'] or 0
-                card_revenue = card_sales['total'] or 0
-                
-                # Today's stats
-                today = datetime.now().strftime('%Y-%m-%d')
-                cursor.execute("""
-                    SELECT COUNT(*) as count, SUM(amount) as total 
-                    FROM payments 
-                    WHERE status = 'approved' AND date(created_at) = date('now')
-                """)
-                today_deposits = cursor.fetchone()
-                today_deposit_count = today_deposits['count'] or 0
-                today_deposit_amount = today_deposits['total'] or 0
-                
-                cursor.execute("""
-                    SELECT COUNT(*) as count, SUM(amount) as total 
-                    FROM games 
-                    WHERE date(created_at) = date('now')
-                """)
-                today_games = cursor.fetchone()
-                today_games_count = today_games['count'] or 0
-            
-            stats_text = (
-                f"📊 *የስርዓት ስታቲስቲክስ*\n\n"
-                f"*ተጠቃሚዎች:*\n"
-                f"👥 ጠቅላላ ተጠቃሚዎች: {total_users}\n"
-                f"✨ ንቁ ተጠቃሚዎች: {active_users}\n\n"
-                f"*ጨዋታዎች:*\n"
-                f"🎮 ጠቅላላ ጨዋታዎች: {total_games}\n"
-                f"🏆 የተሸነፉ ጨዋታዎች: {games_won}\n"
-                f"📅 የዛሬ ጨዋታዎች: {today_games_count}\n\n"
-                f"*ክፍያዎች:*\n"
-                f"💰 ጠቅላላ ተቀማጭ: {total_deposits} ጊዜ\n"
-                f"💵 ጠቅላላ ተቀማጭ መጠን: {deposit_amount:.2f} {currency}\n"
-                f"📤 ጠቅላላ ማውጣት: {total_withdrawals} ጊዜ\n"
-                f"💸 ጠቅላላ ማውጣት መጠን: {withdrawal_amount:.2f} {currency}\n\n"
-                f"*ካርድ ሽያጭ:*\n"
-                f"🎟️ ጠቅላላ ካርዶች: {total_cards}\n"
-                f"💳 ጠቅላላ ገቢ: {card_revenue:.2f} {currency}\n\n"
-                f"*የዛሬ እንቅስቃሴ:*\n"
-                f"📥 የዛሬ ተቀማጭ: {today_deposit_count} ጊዜ ({today_deposit_amount:.2f} {currency})\n"
-            )
-            
-            await message.answer(stats_text, parse_mode=ParseMode.MARKDOWN)
-            
-        except Exception as e:
-            logger.error(f"Error getting stats: {e}")
-            await message.answer(f"❌ ስህተት: {str(e)[:100]}")
-
-    @dp.message_handler(Command("callnumber"))
-    async def cmd_call_number(message: types.Message):
-        """Admin command to manually call a number (format: /callnumber number)"""
-        from config import ADMIN_IDS
-        
-        user_id = message.from_user.id
-        if user_id not in ADMIN_IDS:
-            await message.answer("⛔ ይህ ትእዛዝ ለአስተዳዳሪዎች ብቻ ነው።")
-            return
-        
-        args = message.text.split()
-        if len(args) < 2:
-            await message.answer("📋 አጠቃቀም: /callnumber <number>\n\n📝 ምሳሌ: /callnumber 42")
-            return
-        
-        try:
-            number = int(args[1])
-            if number < 1 or number > 75:
-                await message.answer("❌ ቁጥር ከ1 እስከ 75 መሆን አለበት።")
-                return
-            
-            from utils.game_manager import game_manager
-            
-            if not game_manager or not game_manager.is_game_running():
-                await message.answer("❌ ምንም ጨዋታ እየተካሄደ አይደለም። መጀመሪያ /startgame ይጠቀሙ።")
-                return
-            
-            # Call the number
-            success = await game_manager.call_number(number)
-            
-            if success:
-                await message.answer(f"✅ ቁጥር {number} ተጠርቷል!")
-                
-                # Log the action
-                from database.db import Database
-                with Database.get_cursor() as cursor:
-                    cursor.execute("""
-                        CREATE TABLE IF NOT EXISTS admin_actions (
-                            id INTEGER PRIMARY KEY AUTOINCREMENT,
-                            admin_id INTEGER NOT NULL,
-                            action_type TEXT NOT NULL,
-                            details TEXT,
-                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                        )
-                    """)
-                    cursor.execute("""
-                        INSERT INTO admin_actions (admin_id, action_type, details)
-                        VALUES (?, ?, ?)
-                    """, (user_id, 'call_number', f'Called number {number}'))
-            else:
-                await message.answer(f"❌ ቁጥር {number} መጥራት አልተቻለም (ምናልባት ቀድሞ ተጠርቷል)።")
-            
-        except ValueError:
-            await message.answer("❌ እባክዎ ትክክለኛ ቁጥር ያስገቡ።")
-        except Exception as e:
-            logger.error(f"Error calling number: {e}")
-            await message.answer(f"❌ ስህተት: {str(e)[:100]}")
-
     # Initialize database
     try:
         logger.info("Initializing enhanced database...")
@@ -3920,42 +1355,14 @@ async def main():
         await Database.init_db()
         logger.info("[OK] Database tables initialized!")
         
-        # Create admin_actions table if it doesn't exist
-        with Database.get_cursor() as cursor:
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS admin_actions (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    admin_id INTEGER NOT NULL,
-                    action_type TEXT NOT NULL,
-                    details TEXT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-        logger.info("[OK] Admin actions table created/verified")
-        
         await Database.migrate_db()
         logger.info("[OK] Database migrations completed!")
         
-        cleaned = await Database.cleanup_orphaned_cards()
-        if cleaned > 0:
-            logger.info(f"[CLEANUP] Cleaned up {cleaned} orphaned cards")
-            
     except Exception as e:
         logger.error(f"[ERROR] Database initialization failed: {e}")
         import traceback
         traceback.print_exc()
     
-    # Initialize game manager
-    try:
-        logger.info("Initializing game manager...")
-        from utils.game_manager import game_manager
-        await game_manager.initialize()
-        game_manager_obj = game_manager
-        logger.info("[OK] Game manager initialized!")
-    except Exception as e:
-        logger.error(f"[ERROR] Game manager initialization failed: {e}")
-        game_manager_obj = None
-        
     # Start web servers as background task
     try:
         from web_server import start_web_server
@@ -3964,7 +1371,6 @@ async def main():
         def run_web_server_in_thread():
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            
             try:
                 loop.run_until_complete(start_web_server())
             except Exception as e:
@@ -3990,124 +1396,69 @@ async def main():
     
     # Update bot commands
     try:
-        from aiogram.types import BotCommand, BotCommandScopeChat
+        from aiogram.types import BotCommand
         
         user_commands = [
             BotCommand(command="start", description="Start bot and see menu"),
-            BotCommand(command="play", description=f"Play bingo"),
             BotCommand(command="balance", description=f"Check your balance ({currency})"),
             BotCommand(command="deposit", description=f"Deposit money"),
-            BotCommand(command="withdraw", description=f"Withdraw money"),
-            BotCommand(command="history", description="View your game history"),
-            BotCommand(command="instructions", description="Game rules and instructions"),
+            BotCommand(command="instructions", description="Instructions"),
             BotCommand(command="support", description="Get support"),
         ]
         
-        admin_commands = [
-            BotCommand(command="admin", description="Admin panel"),
-            BotCommand(command="adminpanel", description="Open admin web panel"),
-            BotCommand(command="pendingdeposits", description="View pending deposits"),
-            BotCommand(command="pendingwithdrawals", description="View pending withdrawal requests"),
-            BotCommand(command="approvedeposit", description="Approve a deposit"),
-            BotCommand(command="approvewithdrawal", description="Approve a withdrawal request"),
-            BotCommand(command="startgame", description="Start new round game"),
-            BotCommand(command="stopgame", description="Stop current round"),
-            BotCommand(command="addbalance", description="Add balance to user"),
-            BotCommand(command="stats", description="Game statistics"),
-            BotCommand(command="callnumber", description="Manually call number"),
-            BotCommand(command="getdb", description="Download database backup"),
-            BotCommand(command="restoredb", description="SAFELY restore database from backup (auto-restart)"),
-        ]
-        
         await bot.set_my_commands(user_commands)
-        
-        for admin_id in ADMIN_IDS:
-            try:
-                await bot.set_my_commands(admin_commands, scope=BotCommandScopeChat(chat_id=admin_id))
-                logger.info(f"[OK] Admin commands set for admin {admin_id}")
-            except Exception as e:
-                logger.warning(f"[WARNING] Could not set admin commands for {admin_id}: {e}")
-        
         logger.info("[OK] Bot commands registered!")
     except Exception as e:
         logger.warning(f"[WARNING] Could not register commands: {e}")
     
     # Show startup info
     print("\n" + "="*60)
-    print("🚀 ENHANCED BOT STARTUP COMPLETE")
+    print("🚀 SIMPLIFIED BOT STARTUP COMPLETE")
     print("="*60)
     print(f"🤖 Bot: @habesh_bingo_bot")
-    print(f"🎟️ Card Price: {card_price:.2f} {currency}")
-    print(f"💸 Minimum Withdrawal: {MINIMUM_WITHDRAWAL_AMOUNT:.2f} {currency}")
+    print(f"💰 Currency: {currency.upper()}")
     print(f"📱 Payment Phone: {PAYMENT_PHONE_NUMBER}")
     print(f"👤 Receiver Name: {PAYMENT_RECEIVER_NAME}")
     print(f"🆘 Support: {SUPPORT_TELEGRAM_USER}")
     print(f"🛡️ Fraud Prevention: ENABLED")
     print(f"🌐 Telebirr Primary API: {TELEBIRR_VERIFICATION_API_URL} (POST)")
     print(f"🌐 Telebirr Secondary API: {TELEBIRR_VERIFICATION_API_URL_2} (GET)")
-    print(f"🌐 CBE Birr API: {CBE_BIRR_VERIFICATION_API_URL}")
     print(f"🔑 Telebirr API Key: {'Configured' if TELEBIRR_API_KEY else 'Not Configured'}")
-    print(f"🔑 CBE Birr API Key: {'Configured' if CBE_BIRR_API_KEY else 'Not Configured'}")
-    print(f"🎮 Game Mode: Round-Based Only")
-    print(f"👑 Admins: {len(ADMIN_IDS)} configured")
     print(f"🌐 Web Interface: http://{WEBSERVER_HOST}:{WEBSERVER_PORT}/game.html")
-    print(f"🛡️ Admin Panel: http://{WEBSERVER_HOST}:{WEBSERVER_PORT}/admin.html")
     if WEB_APP_URL:
         print(f"🌍 Public URL: {WEB_APP_URL}/game.html")
-        print(f"🛡️ Admin URL: {WEB_APP_URL}/admin.html")
-    print(f"✅ Status: Ready with enhanced features")
+    print(f"✅ Status: Ready with simplified features")
     print("="*60 + "\n")
     
-    print("📋 ENHANCED COMMANDS:")
-    print("  For All Users:")
-    print(f"    /start        - Start bot and see menu")
-    print(f"    /play         - Launch Round-Based Bingo")
-    print(f"    /balance      - Check your balance (birr)")
-    print(f"    /deposit      - Enhanced deposit with SMS verification (3 attempts)")
-    print(f"    /withdraw     - Withdraw money from your account")
-    print(f"    /history      - View your game history")
-    print(f"    /instructions - Game rules and instructions")
+    print("📋 COMMANDS:")
+    print(f"    /start        - Register and see menu")
+    print(f"    /balance      - Check your balance")
+    print(f"    /deposit      - Deposit with SMS verification (3 attempts)")
+    print(f"    /instructions - Instructions")
     print(f"    /support      - Get support")
-    print("")
-    print("  For Admins Only:")
-    print(f"    /admin          - Admin panel")
-    print(f"    /adminpanel     - Open admin web panel")
-    print(f"    /pendingdeposits - View pending deposits")
-    print(f"    /pendingwithdrawals - View pending withdrawals")
-    print(f"    /approvedeposit  - Approve a deposit")
-    print(f"    /approvewithdrawal - Approve a withdrawal")
-    print(f"    /startgame       - Start new round game")
-    print(f"    /stopgame        - Stop current round")
-    print(f"    /addbalance      - Add balance to user")
-    print(f"    /stats           - Game statistics")
-    print(f"    /callnumber      - Manually call number")
-    print(f"    /getdb           - Download database backup")
-    print(f"    /restoredb       - **SAFE DATABASE RESTORE** - Upload .db file, auto-restart")
     print("="*60 + "\n")
     
-    
-    # ==================== REGISTER BOT WITH WEB_SERVER ====================
+    # Register bot with web_server
     try:
         from web_server import set_bot_instance
         set_bot_instance(bot)
-        logger.info("✅ Registered bot instance with web_server for notifications")
+        logger.info("✅ Registered bot instance with web_server")
         
-        # Also store bot in a global variable that's easily accessible
         import sys
         sys.modules['bot'] = sys.modules[__name__]
         sys.modules['bot'].bot = bot
         logger.info("✅ Also registered bot in sys.modules")
     except Exception as e:
         logger.error(f"❌ Failed to register bot with web_server: {e}")
-
-    # ==================== RUN ENHANCED BOT ====================
+    
+    # Run bot
     try:
-        logger.info("Starting enhanced bot polling...")
+        logger.info("Starting bot polling...")
         main_task = asyncio.current_task()
         await dp.start_polling()
         
     except Exception as e:
-        logger.error(f"Error starting enhanced bot: {e}")
+        logger.error(f"Error starting bot: {e}")
         import traceback
         traceback.print_exc()
     
@@ -4118,8 +1469,8 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        logger.info("Enhanced bot stopped by user")
-        print("\nEnhanced bot stopped by user")
+        logger.info("Bot stopped by user")
+        print("\nBot stopped by user")
     except Exception as e:
-        logger.error(f"Fatal error in enhanced bot: {e}", exc_info=True)
-        print(f"\nFatal error in enhanced bot: {e}")
+        logger.error(f"Fatal error in bot: {e}", exc_info=True)
+        print(f"\nFatal error in bot: {e}")
