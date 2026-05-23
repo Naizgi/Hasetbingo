@@ -94,8 +94,8 @@ bot = None
 dp = None
 
 # ==================== PAYMENT CONFIGURATION ====================
-PAYMENT_PHONE_NUMBER = "+251989929742"
-PAYMENT_RECEIVER_NAME = "Nebiyu Asefa"
+PAYMENT_PHONE_NUMBER = "+251973930163"
+PAYMENT_RECEIVER_NAME = "dagmawi nebiyu"
 SUPPORT_TELEGRAM_USER = "@Hasetbingosupport"
 
 # API URLs and keys (will be loaded from config)
