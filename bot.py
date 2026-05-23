@@ -7,7 +7,7 @@ No admin commands or functions
 
 import asyncio
 import logging
-import sys
+import sys as sys_module  # Renamed to avoid conflict
 import os
 import signal
 import time
@@ -26,7 +26,7 @@ from typing import Dict, List, Optional, Tuple
 from urllib.parse import urlencode
 
 # ==================== FIX FOR WINDOWS CONSOLE ====================
-if sys.platform == "win32":
+if sys_module.platform == "win32":
     os.system('chcp 65001 > nul')
     
     class UnicodeStdout:
@@ -44,8 +44,8 @@ if sys.platform == "win32":
         def flush(self):
             self.stream.flush()
     
-    sys.stdout = UnicodeStdout(sys.stdout)
-    sys.stderr = UnicodeStdout(sys.stderr)
+    sys_module.stdout = UnicodeStdout(sys_module.stdout)
+    sys_module.stderr = UnicodeStdout(sys_module.stderr)
 
 # ==================== CUSTOM LOG HANDLER FOR WINDOWS ====================
 class WindowsSafeLogHandler(logging.StreamHandler):
@@ -71,7 +71,7 @@ formatter = logging.Formatter(
     datefmt='%Y-%m-%d %H:%M:%S'
 )
 
-if sys.platform == "win32":
+if sys_module.platform == "win32":
     handler = WindowsSafeLogHandler()
 else:
     handler = logging.StreamHandler()
@@ -94,8 +94,8 @@ bot = None
 dp = None
 
 # ==================== PAYMENT CONFIGURATION ====================
-PAYMENT_PHONE_NUMBER = "+251973930163"
-PAYMENT_RECEIVER_NAME = "dagmawi nebiyu"
+PAYMENT_PHONE_NUMBER = "+251989929742"
+PAYMENT_RECEIVER_NAME = "Nebiyu Asefa"
 SUPPORT_TELEGRAM_USER = "@Hasetbingosupport"
 
 # API URLs and keys (will be loaded from config)
@@ -171,7 +171,6 @@ class TelebirrVerificationApiClient:
             await self._ensure_session()
             logger.info(f"🔍 Calling secondary Telebirr verification API (GET) for transaction: {transaction_id}")
             
-            # Build GET URL with query parameters
             params = {"reference": transaction_id}
             url = f"{self.secondary_api_url}?{urlencode(params)}"
             
@@ -197,23 +196,17 @@ class TelebirrVerificationApiClient:
             return None
     
     async def verify_transaction(self, transaction_id: str):
-        """
-        Verify transaction through Telebirr verification API with fallback
-        First tries primary API (POST), if fails tries secondary API (GET)
-        """
+        """Verify transaction through Telebirr verification API with fallback"""
         if not transaction_id or transaction_id == "WITHDRAW":
             logger.error(f"Invalid transaction ID for Telebirr API: {transaction_id}")
             return None
         
-        # Try primary API first
         result = await self.verify_transaction_primary(transaction_id)
         
-        # If primary API succeeded, return result
         if result and result.get('success', False):
             logger.info(f"✅ Primary Telebirr API verification successful for {transaction_id}")
             return result
         
-        # If primary API failed, try secondary API
         logger.info(f"⚠️ Primary Telebirr API failed, trying secondary API for {transaction_id}")
         result = await self.verify_transaction_secondary(transaction_id)
         
@@ -221,7 +214,6 @@ class TelebirrVerificationApiClient:
             logger.info(f"✅ Secondary Telebirr API verification successful for {transaction_id}")
             return result
         
-        # Both APIs failed
         logger.error(f"❌ Both Telebirr APIs failed for transaction {transaction_id}")
         return None
     
@@ -233,7 +225,6 @@ class TelebirrVerificationApiClient:
         success = api_data.get('success', False)
         data = api_data.get('data', {})
         
-        # Extract amount from settledAmount
         amount = 0.0
         settled_amount_str = data.get('settledAmount', '')
         if settled_amount_str and settled_amount_str != 'N/A':
@@ -244,12 +235,10 @@ class TelebirrVerificationApiClient:
                 except ValueError:
                     amount = 0.0
         
-        # Extract receiver info
         receiver_phone_raw = data.get('creditedPartyAccountNo', '')
         receiver_name = data.get('creditedPartyName', '')
         transaction_status = data.get('transactionStatus', '')
         
-        # Check phone match
         phone_match = False
         if receiver_phone_raw and receiver_phone_raw != 'N/A':
             admin_digits = re.sub(r'[^\d]', '', PAYMENT_PHONE_NUMBER)
@@ -266,7 +255,6 @@ class TelebirrVerificationApiClient:
                 if admin_digits[-9:] == receiver_digits[-9:]:
                     phone_match = True
         
-        # Check name match
         name_match = False
         if receiver_name and receiver_name != 'N/A' and PAYMENT_RECEIVER_NAME:
             receiver_name_norm = ' '.join(receiver_name.lower().split())
@@ -561,7 +549,6 @@ async def enhanced_shutdown(restart: bool = False):
     logger.info(f"Initiating enhanced shutdown...")
     
     try:
-        # Cancel main task
         if main_task and not main_task.done():
             main_task.cancel()
             try:
@@ -569,13 +556,11 @@ async def enhanced_shutdown(restart: bool = False):
             except asyncio.CancelledError:
                 pass
         
-        # Close payment validator clients
         if enhanced_payment_validator:
             if hasattr(enhanced_payment_validator, 'telebirr_client'):
                 await enhanced_payment_validator.telebirr_client.close()
                 logger.info("✅ Closed Telebirr API client")
         
-        # Stop bot polling
         try:
             from aiogram import Bot, Dispatcher
             global dp, bot
@@ -589,7 +574,6 @@ async def enhanced_shutdown(restart: bool = False):
         except:
             pass
         
-        # Close database connections
         try:
             from database.db import Database
             await Database.close_all_connections()
@@ -597,7 +581,6 @@ async def enhanced_shutdown(restart: bool = False):
         except Exception as e:
             logger.warning(f"Could not close database connections: {e}")
         
-        # Cancel all other tasks
         tasks = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
         for task in tasks:
             task.cancel()
@@ -665,7 +648,7 @@ async def notify_deposit_approved(user_id: int, amount: float, payment_id: int):
 
 async def notify_auto_approved_deposit(user_id: int, amount: float, payment_id: int, transaction_id: str, payment_method: str):
     """Notify user that deposit was auto-approved"""
-    global currency, enhanced_payment_validator
+    global currency
     from database.db import Database
     user = await Database.get_user(user_id)
     new_balance = user.get('balance', 0.00) if user else 0.00
@@ -819,7 +802,8 @@ async def main():
     """Main application entry point"""
     global currency, enhanced_payment_validator, main_task, bot, dp
     
-    if sys.platform != "win32":
+    # Use sys_module instead of sys
+    if sys_module.platform != "win32":
         signal.signal(signal.SIGTERM, handle_signal)
     signal.signal(signal.SIGINT, handle_signal)
     
@@ -1381,7 +1365,7 @@ async def main():
         web_server_thread = threading.Thread(target=run_web_server_in_thread, daemon=True)
         web_server_thread.start()
         
-        logger.info(f"[OK] HTTP web server started in background thread on http://{WEBSERVER_HOST}:{WEBSERVER_PORT}")
+        logger.info(f"[OK] HTTP web server started in background thread")
         
     except Exception as e:
         logger.error(f"[ERROR] Failed to start HTTP web server: {e}")
@@ -1444,9 +1428,9 @@ async def main():
         set_bot_instance(bot)
         logger.info("✅ Registered bot instance with web_server")
         
-        import sys
-        sys.modules['bot'] = sys.modules[__name__]
-        sys.modules['bot'].bot = bot
+        import sys as sys_module2
+        sys_module2.modules['bot'] = sys_module2.modules[__name__]
+        sys_module2.modules['bot'].bot = bot
         logger.info("✅ Also registered bot in sys.modules")
     except Exception as e:
         logger.error(f"❌ Failed to register bot with web_server: {e}")
