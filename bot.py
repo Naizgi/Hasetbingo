@@ -7,20 +7,14 @@ No admin commands or functions
 
 import asyncio
 import logging
-import sys as sys_module  # Renamed to avoid conflict
+import sys as sys_module
 import os
 import signal
-import time
 import hashlib
 import json
 import re
 import unicodedata
 import aiohttp
-import uuid
-import gc
-import shutil
-import tempfile
-import sqlite3
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 from urllib.parse import urlencode
@@ -87,7 +81,6 @@ logger = logging.getLogger(__name__)
 
 # ==================== GLOBAL VARIABLES ====================
 shutting_down = False
-aiohttp_session = None
 main_task = None
 enhanced_payment_validator = None
 bot = None
@@ -98,7 +91,7 @@ PAYMENT_PHONE_NUMBER = "+251973930163"
 PAYMENT_RECEIVER_NAME = "Dagmawi"
 SUPPORT_TELEGRAM_USER = "@Hasetbingosupport"
 
-# API URLs and keys (will be loaded from config)
+# API URLs and keys
 TELEBIRR_VERIFICATION_API_URL = "http://verifyapi.leulzenebe.pro/verify-telebirr"
 TELEBIRR_VERIFICATION_API_URL_2 = "https://www.verify.openmella.com.et/verify-telebirr"
 TELEBIRR_API_KEY = ""
@@ -115,18 +108,15 @@ class TelebirrVerificationApiClient:
         self._session = None
         
     async def _ensure_session(self):
-        """Ensure we have an aiohttp session"""
         if self._session is None or self._session.closed:
             self._session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=self.timeout))
         
     async def close(self):
-        """Close the aiohttp session"""
         if self._session and not self._session.closed:
             await self._session.close()
             self._session = None
     
     async def verify_transaction_primary(self, transaction_id: str):
-        """Verify transaction through primary Telebirr verification API (POST method)"""
         if not transaction_id or transaction_id == "WITHDRAW":
             logger.error(f"Invalid transaction ID for Telebirr API: {transaction_id}")
             return None
@@ -140,9 +130,7 @@ class TelebirrVerificationApiClient:
                 "x-api-key": self.api_key
             }
             
-            payload = {
-                "reference": transaction_id
-            }
+            payload = {"reference": transaction_id}
             
             async with self._session.post(self.primary_api_url, headers=headers, json=payload) as response:
                 if response.status == 200:
@@ -162,7 +150,6 @@ class TelebirrVerificationApiClient:
             return None
     
     async def verify_transaction_secondary(self, transaction_id: str):
-        """Verify transaction through secondary Telebirr verification API (GET method)"""
         if not transaction_id or transaction_id == "WITHDRAW":
             logger.error(f"Invalid transaction ID for secondary Telebirr API: {transaction_id}")
             return None
@@ -174,9 +161,7 @@ class TelebirrVerificationApiClient:
             params = {"reference": transaction_id}
             url = f"{self.secondary_api_url}?{urlencode(params)}"
             
-            headers = {
-                "x-api-key": self.api_key
-            }
+            headers = {"x-api-key": self.api_key}
             
             async with self._session.get(url, headers=headers) as response:
                 if response.status == 200:
@@ -196,7 +181,6 @@ class TelebirrVerificationApiClient:
             return None
     
     async def verify_transaction(self, transaction_id: str):
-        """Verify transaction through Telebirr verification API with fallback"""
         if not transaction_id or transaction_id == "WITHDRAW":
             logger.error(f"Invalid transaction ID for Telebirr API: {transaction_id}")
             return None
@@ -218,7 +202,6 @@ class TelebirrVerificationApiClient:
         return None
     
     def _process_response(self, api_data: dict, transaction_id: str):
-        """Process API response for bot use"""
         if not api_data:
             return None
             
@@ -287,32 +270,58 @@ class TelebirrVerificationApiClient:
         
         return result
 
+# ==================== FIXED TELEBIRR SCRAPER ====================
 class TelebirrScraper:
-    """SMS-only scraper for Ethio telecom receipts - MATCHES WORKING VERSION"""
+    """SMS scraper for Ethio telecom receipts - FIXED for your SMS format"""
     
     def extract_transaction_id(self, sms_text: str):
+        """Extract transaction ID from SMS - specifically for format 'transaction number is DEN9A9GSDX'"""
         if not sms_text or sms_text == "WITHDRAW":
             return None
             
         sms_text = sms_text.replace('\n', ' ').replace('\r', ' ')
         sms_text = ' '.join(sms_text.split())
         
-        # Patterns from working version - THESE WORK
-        patterns = [
-            r'transactioninfo\.ethiotelecom\.et/receipt/([A-Z0-9]+)',
-            r'receipt/([A-Z0-9]+)',
-            r'transaction\s*(?:No|ID|#)?[:\s]*([A-Z0-9]{8,12})',
-            r'TX\s*(?:No|ID|#)?[:\s]*([A-Z0-9]{8,12})',
-            r'(\b[A-Z0-9]{8,12}\b)',
-        ]
+        logger.info(f"🔍 Parsing SMS for transaction ID...")
         
-        for pattern in patterns:
-            match = re.search(pattern, sms_text, re.IGNORECASE)
-            if match:
-                tx_id = match.group(1).strip().upper()
-                if self.validate_transaction_id(tx_id):
+        # Pattern 1: Exact match for "transaction number is XXXXX"
+        pattern1 = r'transaction number is\s+([A-Z0-9]{8,12})'
+        match = re.search(pattern1, sms_text, re.IGNORECASE)
+        if match:
+            tx_id = match.group(1).strip().upper()
+            logger.info(f"✅ Found transaction ID via 'transaction number is' pattern: {tx_id}")
+            return tx_id
+        
+        # Pattern 2: "Transaction number: XXXXX"
+        pattern2 = r'Transaction\s*(?:number|ID|No)[:\s]+([A-Z0-9]{8,12})'
+        match = re.search(pattern2, sms_text, re.IGNORECASE)
+        if match:
+            tx_id = match.group(1).strip().upper()
+            logger.info(f"✅ Found transaction ID via 'Transaction number:' pattern: {tx_id}")
+            return tx_id
+        
+        # Pattern 3: URL pattern
+        pattern3 = r'transactioninfo\.ethiotelecom\.et/receipt/([A-Z0-9]+)'
+        match = re.search(pattern3, sms_text, re.IGNORECASE)
+        if match:
+            tx_id = match.group(1).strip().upper()
+            logger.info(f"✅ Found transaction ID via URL pattern: {tx_id}")
+            return tx_id
+        
+        # Pattern 4: Generic alphanumeric - must contain BOTH letters AND numbers
+        pattern4 = r'\b([A-Z0-9]{8,12})\b'
+        matches = re.findall(pattern4, sms_text, re.IGNORECASE)
+        for match in matches:
+            tx_id = match.strip().upper()
+            # Must contain both letters AND numbers
+            if re.search(r'[A-Z]', tx_id) and re.search(r'[0-9]', tx_id):
+                # Filter out common words
+                common_words = ['RECEIVED', 'SENT', 'ERROR', 'SUCCESS', 'PENDING', 'COMPLETED', 'WITHDRAW']
+                if tx_id not in common_words:
+                    logger.info(f"✅ Found transaction ID via generic pattern: {tx_id}")
                     return tx_id
         
+        logger.warning(f"❌ Could not extract transaction ID from SMS")
         return None
     
     def validate_transaction_id(self, tx_id: str):
@@ -326,7 +335,93 @@ class TelebirrScraper:
             return False
         return True
     
+    def extract_amount(self, sms_text: str):
+        """Extract amount from SMS"""
+        if not sms_text or sms_text == "WITHDRAW":
+            return None
+            
+        sms_text = sms_text.replace('\n', ' ').replace('\r', ' ')
+        sms_text = ' '.join(sms_text.split())
+        
+        amount_patterns = [
+            r'received\s+ETB\s+([\d,]+\.?\d*)',
+            r'ETB\s+([\d,]+\.?\d*)',
+            r'ብር\s*([\d,]+\.?\d*)',
+            r'BIRR\s*([\d,]+\.?\d*)',
+            r'([\d,]+\.\d{2})',
+        ]
+        
+        for pattern in amount_patterns:
+            matches = re.findall(pattern, sms_text, re.IGNORECASE)
+            if matches:
+                for match in matches:
+                    if isinstance(match, tuple):
+                        match = match[0]
+                    try:
+                        amount_str = str(match).replace(',', '')
+                        amount_float = float(amount_str)
+                        if 1 <= amount_float <= 100000:
+                            logger.info(f"✅ Extracted amount: {amount_float}")
+                            return amount_float
+                    except ValueError:
+                        continue
+        
+        return None
+    
+    def extract_phone_number(self, sms_text: str):
+        """Extract phone number from SMS"""
+        if not sms_text or sms_text == "WITHDRAW":
+            return None
+            
+        sms_text = sms_text.replace('\n', ' ').replace('\r', ' ')
+        sms_text = ' '.join(sms_text.split())
+        
+        phone_patterns = [
+            r'from\s+[A-Z\s]+\((\+?2519\*\*\*\*\d{4})\)',
+            r'\((\+?2519\*\*\*\*\d{4})\)',
+            r'\((\+?2519\d{8})\)',
+            r'(\+2519\d{8})',
+            r'(09\d{8})',
+        ]
+        
+        for pattern in phone_patterns:
+            match = re.search(pattern, sms_text, re.IGNORECASE)
+            if match:
+                phone = match.group(1).strip()
+                if phone.startswith('09'):
+                    phone = '+251' + phone[1:]
+                elif phone.startswith('251') and not phone.startswith('+'):
+                    phone = '+' + phone
+                logger.info(f"✅ Extracted phone: {phone}")
+                return phone
+        
+        return None
+    
+    def extract_receiver_name(self, sms_text: str):
+        """Extract receiver name from SMS"""
+        if not sms_text or sms_text == "WITHDRAW":
+            return None
+            
+        sms_text = sms_text.replace('\n', ' ').replace('\r', ' ')
+        sms_text = ' '.join(sms_text.split())
+        
+        name_patterns = [
+            r'from\s+([A-Z\s]+?)\(',
+            r'from\s+([A-Za-z\s]+?)(?:\s+\(|$)',
+        ]
+        
+        for pattern in name_patterns:
+            match = re.search(pattern, sms_text, re.IGNORECASE)
+            if match:
+                name = match.group(1).strip()
+                if name and len(name) > 2:
+                    logger.info(f"✅ Extracted name: {name}")
+                    return name
+        
+        return None
+    
     def extract_info_from_sms(self, sms_text: str):
+        """Extract all info from SMS"""
         result = {
             'transaction_id': None,
             'amount': None,
@@ -341,70 +436,19 @@ class TelebirrScraper:
         sms_text = sms_text.replace('\n', ' ').replace('\r', ' ')
         sms_text = ' '.join(sms_text.split())
         
-        # Extract transaction ID
+        logger.info(f"📝 Processing SMS: {sms_text[:150]}...")
+        
         result['transaction_id'] = self.extract_transaction_id(sms_text)
-        
-        # Extract amount - SIMPLE PATTERNS THAT WORK
-        amount_patterns = [
-            r'ETB\s*([\d,]+\.?\d*)',
-            r'ብር\s*([\d,]+\.?\d*)',
-            r'BIRR\s*([\d,]+\.?\d*)',
-            r'([\d,]+\.?\d{2})\s*(?:ETB|ብር|BIRR)?'
-        ]
-        
-        for pattern in amount_patterns:
-            matches = re.findall(pattern, sms_text, re.IGNORECASE)
-            if matches:
-                for match in matches:
-                    if isinstance(match, tuple):
-                        match = match[0]
-                    try:
-                        amount_str = str(match).replace(',', '')
-                        amount_float = float(amount_str)
-                        if amount_float > 0.1:
-                            result['amount'] = amount_float
-                            break
-                    except ValueError:
-                        continue
-        
-        # Extract phone number - SIMPLE PATTERNS THAT WORK
-        phone_patterns = [
-            r'to\s+[^\(]*\((\+?2519\d{8}|09\d{8}|2519\*\*\*\*\d{4})\)',
-            r'receiver\s*[:\s]*(\+?2519\d{8}|09\d{8}|2519\*\*\*\*\d{4})',
-            r'(\+2519\d{8})',
-            r'(09\d{8})',
-        ]
-        
-        for pattern in phone_patterns:
-            match = re.search(pattern, sms_text, re.IGNORECASE)
-            if match:
-                phone = match.group(1).strip()
-                if '****' in phone:
-                    result['receiver_phone'] = phone
-                elif '2519' in phone or '09' in phone:
-                    if phone.startswith('09'):
-                        phone = '+251' + phone[1:]
-                    elif phone.startswith('251'):
-                        phone = '+' + phone
-                    elif not phone.startswith('+'):
-                        phone = '+251' + phone[-9:] if len(phone) >= 9 else phone
-                    result['receiver_phone'] = phone
-                break
-        
-        # For your specific SMS format, also try to extract phone from the name pattern
-        if not result['receiver_phone']:
-            # Look for phone in format (2519****4729)
-            phone_match = re.search(r'\((\+?2519\*\*\*\*\d{4})\)', sms_text)
-            if phone_match:
-                result['receiver_phone'] = phone_match.group(1)
+        result['amount'] = self.extract_amount(sms_text)
+        result['receiver_phone'] = self.extract_phone_number(sms_text)
+        result['receiver_name'] = self.extract_receiver_name(sms_text)
         
         result['extracted'] = all([
             result['transaction_id'] is not None,
-            result['amount'] is not None,
-            result['receiver_phone'] is not None
+            result['amount'] is not None
         ])
         
-        logger.info(f"Telebirr SMS Extraction Result: {result}")
+        logger.info(f"📊 Extraction Result: {result}")
         return result
 
 # ==================== ENHANCED PAYMENT VALIDATOR ====================
@@ -414,14 +458,12 @@ class EnhancedPaymentValidator:
     def __init__(self, admin_phone: str, admin_name: str = None):
         self.admin_phone = admin_phone
         self.admin_name = admin_name or PAYMENT_RECEIVER_NAME
-        self.admin_phone_digits = re.sub(r'[^\d]', '', admin_phone)
         self.telebirr_scraper = TelebirrScraper()
         self.telebirr_client = None
         
         logger.info("✅ Payment verification API clients initialized")
     
     async def initialize_clients(self, telebirr_api_key: str = ""):
-        """Initialize API clients with proper session management"""
         self.telebirr_client = TelebirrVerificationApiClient(
             api_url=TELEBIRR_VERIFICATION_API_URL,
             api_key=telebirr_api_key
@@ -431,27 +473,21 @@ class EnhancedPaymentValidator:
             await self.telebirr_client._ensure_session()
     
     async def close(self):
-        """Close all API client sessions"""
         if self.telebirr_client:
             await self.telebirr_client.close()
     
     def calculate_sms_hash(self, sms_text: str) -> str:
-        """Create unique hash of SMS to prevent reuse"""
         if not sms_text or sms_text == "WITHDRAW":
             return ""
-            
         normalized = unicodedata.normalize('NFKC', sms_text.strip())
         normalized = re.sub(r'\s+', ' ', normalized)
         normalized = normalized.lower().strip()
         return hashlib.sha256(normalized.encode('utf-8')).hexdigest()[:32]
     
     def mask_phone_number(self, phone: str) -> str:
-        """Mask phone number for privacy"""
         if not phone or phone == 'N/A':
             return "****"
-        
         digits = re.sub(r'[^\d]', '', phone)
-        
         if len(digits) >= 9:
             return f"+2519****{digits[-4:]}"
         elif len(digits) >= 4:
@@ -460,7 +496,6 @@ class EnhancedPaymentValidator:
             return "****"
     
     async def check_duplicate_transaction(self, transaction_id: str, sms_hash: str = None, payment_method: str = None) -> bool:
-        """Check if transaction has already been used before"""
         if not transaction_id or transaction_id == "WITHDRAW":
             return False
             
@@ -505,7 +540,7 @@ class EnhancedPaymentValidator:
             if not sms_info['extracted']:
                 tx_id = self.telebirr_scraper.extract_transaction_id(sms_text)
                 if not tx_id:
-                    return False, None, ["Failed to extract transaction ID from SMS"]
+                    return False, None, ["Failed to extract transaction ID from SMS. Please make sure you paste the complete SMS."]
                 
                 sms_info['transaction_id'] = tx_id
                 sms_info['extracted'] = True
@@ -559,7 +594,6 @@ class EnhancedPaymentValidator:
 
 # ==================== SHUTDOWN HANDLERS ====================
 async def enhanced_shutdown(restart: bool = False):
-    """Enhanced clean shutdown with optional restart flag"""
     global shutting_down, main_task, enhanced_payment_validator
     if shutting_down:
         return
@@ -617,7 +651,6 @@ async def enhanced_shutdown(restart: bool = False):
         os._exit(0)
 
 def handle_signal(signum, frame):
-    """Handle system signals"""
     logger.info(f"Received signal {signum}, shutting down...")
     asyncio.create_task(enhanced_shutdown())
 
@@ -626,7 +659,6 @@ currency = None
 
 # ==================== NOTIFICATION FUNCTIONS ====================
 async def send_notification_to_user(user_id: int, message: str) -> bool:
-    """Send a notification message to a user"""
     try:
         from web_server import notification_queue
         return notification_queue.add_notification(user_id, message)
@@ -635,7 +667,6 @@ async def send_notification_to_user(user_id: int, message: str) -> bool:
         return False
 
 async def notify_deposit_request_submitted(user_id: int, amount: float, payment_id: int):
-    """Notify user that deposit request was submitted"""
     global currency
     message = (
         "*📋 የገንዘብ ክፍያ ጥያቄ ተላልፏል*\n\n"
@@ -649,7 +680,6 @@ async def notify_deposit_request_submitted(user_id: int, amount: float, payment_
     return await send_notification_to_user(user_id, message)
 
 async def notify_deposit_approved(user_id: int, amount: float, payment_id: int):
-    """Notify user that deposit was approved"""
     global currency
     from database.db import Database
     user = await Database.get_user(user_id)
@@ -667,7 +697,6 @@ async def notify_deposit_approved(user_id: int, amount: float, payment_id: int):
     return await send_notification_to_user(user_id, message)
 
 async def notify_auto_approved_deposit(user_id: int, amount: float, payment_id: int, transaction_id: str, payment_method: str):
-    """Notify user that deposit was auto-approved"""
     global currency
     from database.db import Database
     user = await Database.get_user(user_id)
@@ -677,16 +706,16 @@ async def notify_auto_approved_deposit(user_id: int, amount: float, payment_id: 
         f"✅ *{payment_method} ክፍያዎ በራስ-ሰር ፈቅዷል!*\n\n"
         f"💰 *መጠን:* {amount:.2f} {currency}\n"
         f"📋 *የፒሜንት መታወቂያ:* {payment_id}\n"
-        f"🔢 *የግብይት መታወቂያ:* {transaction_id[:12]}...\n"
+        f"🔢 *የግብይት መታወቂያ:* {transaction_id}\n"
         f"🏦 *አዲስ ቀሪ ሒሳብ:* {new_balance:.2f} {currency}\n\n"
         f"🎉 ገንዘብዎ በቀሪ ሒሳብዎ ላይ ተጨምሯል!\n"
+        f"💰 ቀሪ ሒሳብ ለማየት: /balance"
     )
     
     return await send_notification_to_user(user_id, message)
 
 # ==================== PAYMENT DATABASE METHODS ====================
 async def create_payment_request(user_id: int, amount: float, payment_method: str, transaction_proof: str = None) -> int:
-    """Create a payment (deposit) request"""
     try:
         from database.db import Database
         
@@ -715,48 +744,7 @@ async def create_payment_request(user_id: int, amount: float, payment_method: st
         logger.error(f"Error creating payment request: {e}")
         return 0
 
-async def approve_payment(payment_id: int) -> bool:
-    """Approve a payment (deposit) request - auto approval"""
-    try:
-        from database.db import Database
-        
-        with Database.get_cursor() as cursor:
-            cursor.execute("""
-                SELECT p.* FROM payments p
-                WHERE p.id = ? AND p.status = 'pending'
-            """, (payment_id,))
-            payment = cursor.fetchone()
-            
-            if not payment:
-                return False
-            
-            payment_dict = dict(payment)
-            user_id = payment_dict['user_id']
-            amount = payment_dict['amount']
-            
-            cursor.execute("""
-                UPDATE payments 
-                SET status = 'approved', 
-                    processed_at = ?,
-                    processed_by = 0,
-                    admin_notes = 'Auto-approved'
-                WHERE id = ?
-            """, (datetime.now(), payment_id))
-            
-            await Database.add_user_balance(user_id, amount, 'deposit', f'Payment approved: {payment_id}')
-            
-            logger.info(f"Payment {payment_id} approved for user {user_id}, amount {amount}")
-            
-            await notify_deposit_approved(user_id, amount, payment_id)
-            
-            return True
-            
-    except Exception as e:
-        logger.error(f"Error approving payment: {e}")
-        return False
-
 async def auto_approve_deposit(user_id: int, payment_id: int, amount: float, transaction_id: str, sms_text: str, api_data: dict = None, payment_method: str = "Telebirr") -> bool:
-    """Auto-approve deposit after successful verification"""
     from database.db import Database
     
     try:
@@ -819,10 +807,8 @@ async def auto_approve_deposit(user_id: int, payment_id: int, amount: float, tra
 
 # ==================== MAIN FUNCTION ====================
 async def main():
-    """Main application entry point"""
     global currency, enhanced_payment_validator, main_task, bot, dp
     
-    # Use sys_module instead of sys
     if sys_module.platform != "win32":
         signal.signal(signal.SIGTERM, handle_signal)
     signal.signal(signal.SIGINT, handle_signal)
@@ -838,7 +824,7 @@ async def main():
     try:
         TELEBIRR_API_KEY = GAME_CONFIG.get('telebirr_api_key', '')
         if not TELEBIRR_API_KEY:
-            logger.warning("⚠️ Telebirr API key not found in config.")
+            logger.warning("⚠️ Telebirr API key not found in config. Deposits will require manual approval.")
     except:
         TELEBIRR_API_KEY = ''
         logger.warning("⚠️ API keys not configured.")
@@ -884,7 +870,6 @@ async def main():
     
     bot = Bot(token=BOT_TOKEN)
     
-    # Initialize notification queue
     try:
         from web_server import notification_queue, set_bot_instance
         loop = asyncio.get_running_loop()
@@ -898,7 +883,6 @@ async def main():
     storage = MemoryStorage()
     dp = Dispatcher(bot, storage=storage)
     
-    # Command States
     class DepositStates(StatesGroup):
         waiting_for_payment_method = State()
         waiting_for_transaction_proof = State()
@@ -921,18 +905,11 @@ async def main():
                 username=message.from_user.username or "",
                 full_name=message.from_user.full_name or ""
             )
-            if success:
-                user_exists = False
-            else:
+            if not success:
                 await message.answer("❌ ተጠቃሚ ለመፍጠር አልተቻለም። እባክዎ እንደገና ይሞክሩ።")
                 return
-        else:
-            user_exists = True
         
-        seen_start_users.add(user_id)
-        
-        if not user_exists:
-            welcome_message = f"""
+        welcome_message = f"""
 ✨✨ *እንኳን ደህና መጡ {first_name}!* ✨✨
 
 🎉 *ወደ Haset Bingo በደህና መጡ!* 🎉
@@ -946,27 +923,13 @@ async def main():
 🆘 *እርዳታ ለማግኘት*: /support
 
 {f"💬 *ድጋፍ*: {SUPPORT_TELEGRAM_USER}" if SUPPORT_TELEGRAM_USER else ""}
-            """
-        else:
-            welcome_message = f"""
-✨✨ *እንኳን ተመለሱ {first_name}!* ✨✨
-
-🎮 *Haset Bingo እንደገና አርበዎታል!* 🎮
-
-🚀 *ፈጣን ትእዛዞች*:
-• /balance - ቀሪ ሒሳብዎን ይመልከቱ
-• /deposit - ገንዘብ ያስገቡ
-
-{f"💬 *ድጋፍ*: {SUPPORT_TELEGRAM_USER}" if SUPPORT_TELEGRAM_USER else ""}
-            """
-        
+"""
         await message.answer(welcome_message, parse_mode=ParseMode.MARKDOWN)
     
     # ==================== DEPOSIT SECTION ====================
     
     @dp.message_handler(Command("deposit"))
     async def cmd_deposit_enhanced(message: types.Message, state: FSMContext):
-        """Start deposit process with 3 attempts limit"""
         user_id = message.from_user.id
         
         keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True, selective=True)
@@ -986,7 +949,6 @@ async def main():
     
     @dp.message_handler(state=DepositStates.waiting_for_payment_method)
     async def process_deposit_method_enhanced(message: types.Message, state: FSMContext):
-        """Handle payment method selection"""
         user_id = message.from_user.id
         
         if message.text and message.text.strip() == 'Cancel':
@@ -1023,8 +985,6 @@ async def main():
             verification_attempts=0
         )
         
-        masked_admin_phone = enhanced_payment_validator.mask_phone_number(PAYMENT_PHONE_NUMBER) if enhanced_payment_validator else PAYMENT_PHONE_NUMBER
-        
         instructions = f"💳 *የቴሌብር ክፍያ መመሪያዎች*\n\n"
         instructions += f"🏦 ዘዴ: {payment_method}\n"
         instructions += f"📋 የፒሜንት መታወቂያ: {payment_id}\n\n"
@@ -1053,7 +1013,6 @@ async def main():
     
     @dp.message_handler(state=DepositStates.waiting_for_transaction_proof)
     async def process_payment_sms_enhanced(message: types.Message, state: FSMContext):
-        """Process SMS with 3 attempts limit"""
         user_id = message.from_user.id
         
         if message.text and message.text.strip() == 'Cancel':
@@ -1070,7 +1029,7 @@ async def main():
             await message.answer("❌ የፒሜንት መረጃ አልተገኘም። እንደገና ይሞክሩ።", reply_markup=types.ReplyKeyboardRemove())
             return
         
-        if not message.text or message.text.strip() == "" or message.text.strip() == "WITHDRAW" or message.text.startswith('/'):
+        if not message.text or message.text.strip() == "" or message.text.startswith('/'):
             attempts += 1
             await state.update_data(verification_attempts=attempts)
             
@@ -1118,7 +1077,6 @@ async def main():
         await process_telebirr_transaction_enhanced(user_id, payment_id, message, state, attempts)
     
     async def process_telebirr_transaction_enhanced(user_id: int, payment_id: int, message: types.Message, state: FSMContext, attempts: int):
-        """Verify Telebirr transaction with 3 attempts limit"""
         
         tx_id = enhanced_payment_validator.telebirr_scraper.extract_transaction_id(message.text)
         
@@ -1269,7 +1227,6 @@ async def main():
             )
             return
         
-        # Verification successful - auto-approve
         success = await auto_approve_deposit(
             user_id, payment_id, amount, tx_id, message.text, api_result, "Telebirr"
         )
@@ -1283,8 +1240,7 @@ async def main():
                 f"💰 *መጠን:* {amount:.2f} {currency}\n"
                 f"📋 *የፒሜንት መታወቂያ:* {payment_id}\n"
                 f"🔢 *የግብይት መታወቂያ:* {tx_id}\n\n"
-                f"🔍 *የድር ማረጋገጫ ተሳክቷል!*\n\n"
-                f"💰 ቀሪ ሒሳብ: /balance",
+                f"💰 ቀሪ ሒሳብ ለማየት: /balance",
                 parse_mode=ParseMode.MARKDOWN,
                 reply_markup=types.ReplyKeyboardRemove()
             )
